@@ -35,6 +35,22 @@
     color: white;
 }
 
+.chart-container {
+    height: 320px;
+}
+
+.chart-surface {
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+}
+
+.chart-surface .lc-chart {
+    height: 100%;
+    width: 100%;
+    display: block;
+}
+
     .blazor-error-boundary::after {
         content: "An error has occurred."
     }
