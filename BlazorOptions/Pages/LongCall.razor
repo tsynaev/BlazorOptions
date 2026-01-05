@@ -7,12 +7,29 @@
 <MudStack Spacing="3">
     <MudCard>
         <MudCardContent>
-            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                <MudStack Spacing="1">
-                    <MudText Typo="Typo.h4">@ViewModel.Pair Position</MudText>
-                    <MudText Typo="Typo.subtitle2">Construct calls, puts, and futures legs for the pair.</MudText>
+            <MudStack Spacing="2">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                    <MudStack Spacing="1">
+                        <MudText Typo="Typo.h4">Positions</MudText>
+                        <MudText Typo="Typo.subtitle2">Construct calls, puts, and futures legs for the pair.</MudText>
+                    </MudStack>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.LibraryAdd" OnClick="CreatePosition">New position</MudButton>
                 </MudStack>
-                <MudTextField @bind-Value="ViewModel.Pair"
+                <MudSwipeArea Class="position-swipe-area" OnSwipeEnd="OnSwipeEnd">
+                    <MudTabs Class="position-tabs"
+                             ActivePanelIndex="@_activeTabIndex"
+                             ActivePanelIndexChanged="OnTabChanged"
+                             AlwaysShowScrollButtons="true"
+                             Rounded="true"
+                             Elevation="0">
+                        @for (var i = 0; i < ViewModel.Positions.Count; i++)
+                        {
+                            <MudTabPanel Text="@ViewModel.Positions[i].Pair" />
+                        }
+                    </MudTabs>
+                </MudSwipeArea>
+                <MudTextField Value="@ViewModel.Pair"
+                               ValueChanged="async (string pair) => await OnPairChanged(pair)"
                                Label="Pair"
                                Variant="Variant.Outlined"
                                Margin="Margin.Dense"
@@ -90,19 +107,40 @@
     </MudCard>
 </MudStack>
 
+<style>
+    .position-swipe-area {
+        display: block;
+    }
+
+    .position-tabs .mud-tabs-toolbar {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .position-tabs .mud-tabs-toolbar-content {
+        flex-wrap: nowrap;
+    }
+</style>
+
 @code {
     private ElementReference _chartRef;
+    private int _activeTabIndex;
+    private bool _chartNeedsRender;
     private IEnumerable<OptionLegType> LegTypes => Enum.GetValues<OptionLegType>();
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        ViewModel.InitializeDefaultPosition();
+        await ViewModel.InitializeAsync();
+        SyncActiveTabIndex();
+        _chartNeedsRender = true;
+        await InvokeAsync(StateHasChanged);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        if (_chartNeedsRender)
         {
+            _chartNeedsRender = false;
             await RenderChartAsync();
         }
     }
@@ -112,16 +150,38 @@
         await JS.InvokeVoidAsync("payoffChart.render", _chartRef, ViewModel.ChartConfig);
     }
 
+    private Task OnSwipeEnd(SwipeEventArgs args) => args.SwipeDirection switch
+    {
+        SwipeDirection.RightToLeft => ChangeTabByDelta(1),
+        SwipeDirection.LeftToRight => ChangeTabByDelta(-1),
+        _ => Task.CompletedTask
+    };
+
+    private async Task ChangeTabByDelta(int delta)
+    {
+        if (ViewModel.Positions.Count == 0)
+        {
+            return;
+        }
+
+        var nextIndex = Math.Clamp(_activeTabIndex + delta, 0, ViewModel.Positions.Count - 1);
+
+        if (nextIndex != _activeTabIndex)
+        {
+            await OnTabChanged(nextIndex);
+        }
+    }
+
     private async Task OnAddLeg()
     {
-        ViewModel.AddLeg();
+        await ViewModel.AddLegAsync();
         ViewModel.UpdateChart();
         await RenderChartAsync();
     }
 
     private async Task OnRemoveLeg(OptionLegModel leg)
     {
-        if (ViewModel.RemoveLeg(leg))
+        if (await ViewModel.RemoveLegAsync(leg))
         {
             ViewModel.UpdateChart();
             await RenderChartAsync();
@@ -131,6 +191,7 @@
     private async Task OnLegIncludedChanged(OptionLegModel leg, bool include)
     {
         leg.IsIncluded = include;
+        await ViewModel.PersistPositionsAsync();
         ViewModel.UpdateChart();
         await RenderChartAsync();
     }
@@ -138,6 +199,7 @@
     private async Task OnLegTypeChanged(OptionLegModel leg, OptionLegType type)
     {
         leg.Type = type;
+        await ViewModel.PersistPositionsAsync();
         ViewModel.UpdateChart();
         await RenderChartAsync();
     }
@@ -145,6 +207,7 @@
     private async Task OnLegStrikeChanged(OptionLegModel leg, double strike)
     {
         leg.Strike = strike;
+        await ViewModel.PersistPositionsAsync();
         ViewModel.UpdateChart();
         await RenderChartAsync();
     }
@@ -156,6 +219,7 @@
             leg.ExpirationDate = date.Value;
         }
 
+        await ViewModel.PersistPositionsAsync();
         ViewModel.UpdateChart();
         await RenderChartAsync();
     }
@@ -163,6 +227,7 @@
     private async Task OnLegSizeChanged(OptionLegModel leg, double size)
     {
         leg.Size = size;
+        await ViewModel.PersistPositionsAsync();
         ViewModel.UpdateChart();
         await RenderChartAsync();
     }
@@ -170,6 +235,7 @@
     private async Task OnLegPriceChanged(OptionLegModel leg, double price)
     {
         leg.Price = price;
+        await ViewModel.PersistPositionsAsync();
         ViewModel.UpdateChart();
         await RenderChartAsync();
     }
@@ -177,7 +243,57 @@
     private async Task OnLegIvChanged(OptionLegModel leg, double iv)
     {
         leg.ImpliedVolatility = iv;
+        await ViewModel.PersistPositionsAsync();
         ViewModel.UpdateChart();
         await RenderChartAsync();
+    }
+
+    private async Task CreatePosition()
+    {
+        await ViewModel.AddPositionAsync();
+        _activeTabIndex = Math.Max(0, ViewModel.Positions.Count - 1);
+        await RenderChartAsync();
+        StateHasChanged();
+    }
+
+    private void SyncActiveTabIndex()
+    {
+        var selectedIndex = ViewModel.SelectedPosition is null ? -1 : ViewModel.Positions.IndexOf(ViewModel.SelectedPosition);
+
+        if (selectedIndex >= 0)
+        {
+            _activeTabIndex = selectedIndex;
+        }
+        else if (ViewModel.Positions.Count > 0)
+        {
+            _activeTabIndex = 0;
+        }
+    }
+
+    private async Task OnTabChanged(int index)
+    {
+        if (index < 0 || index >= ViewModel.Positions.Count)
+        {
+            SyncActiveTabIndex();
+            return;
+        }
+
+        var positionId = ViewModel.Positions[index].Id;
+
+        if (await ViewModel.SelectPositionAsync(positionId))
+        {
+            _activeTabIndex = index;
+            ViewModel.UpdateChart();
+            await RenderChartAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnPairChanged(string pair)
+    {
+        await ViewModel.UpdatePairAsync(pair);
+        ViewModel.UpdateChart();
+        await RenderChartAsync();
+        StateHasChanged();
     }
 }
