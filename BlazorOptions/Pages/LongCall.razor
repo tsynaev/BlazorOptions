@@ -1,6 +1,9 @@
 @page "/long-call"
 @inject PositionBuilderViewModel ViewModel
 @inject IJSRuntime JS
+@inject IDialogService DialogService
+@using System.Linq
+@using Microsoft.AspNetCore.Components.Web
 
 <PageTitle>Multi-leg ETH/USDT Position</PageTitle>
 
@@ -23,14 +26,15 @@
                                      Elevation="0"
                                      AddTabIcon="@Icons.Material.Filled.Add"
                                      AddIconToolTip="Add position"
-                                     AddTab="CreatePosition">
+                                     AddTab="CreatePosition"
+                                     CloseTab="OnCloseTab">
                         @for (var i = 0; i < ViewModel.Positions.Count; i++)
                         {
                             var position = ViewModel.Positions[i];
 
-                            <MudTabPanel @key="position.Id">
+                            <MudTabPanel @key="position.Id" ShowCloseIcon="true" Text="@position.Id.ToString()">
                                 <TabContent>
-                                    @if (_activeTabIndex == i)
+                                    @if (_editingTabId == position.Id)
                                     {
                                         <MudTextField T="string"
                                                       Class="tab-name-field"
@@ -39,11 +43,14 @@
                                                       Immediate="true"
                                                       Margin="Margin.Dense"
                                                       Variant="Variant.Outlined"
-                                                      Placeholder="Position name" />
+                                                      Placeholder="Position name"
+                                                      OnBlur="() => EndTabEditing(position.Id)"
+                                                      OnKeyDown="@(args => OnTabEditKeyDown(args, position.Id))" />
                                     }
                                     else
                                     {
-                                        <MudText Class="tab-name-label">@position.Pair</MudText>
+                                        <MudText Class="tab-name-label"
+                                                 @ondblclick="async () => await BeginTabEditingAsync(position, i)">@position.Pair</MudText>
                                     }
                                 </TabContent>
                             </MudTabPanel>
@@ -153,6 +160,7 @@
 @code {
     private ElementReference _chartRef;
     private int _activeTabIndex;
+    private Guid? _editingTabId;
     private bool _chartNeedsRender;
     private IEnumerable<OptionLegType> LegTypes => Enum.GetValues<OptionLegType>();
 
@@ -170,6 +178,33 @@
         {
             _chartNeedsRender = false;
             await RenderChartAsync();
+        }
+    }
+
+    private void EndTabEditing(Guid positionId)
+    {
+        if (_editingTabId == positionId)
+        {
+            _editingTabId = null;
+        }
+    }
+
+    private async Task BeginTabEditingAsync(PositionModel position, int index)
+    {
+        if (_activeTabIndex != index)
+        {
+            await OnTabChanged(index);
+        }
+
+        _editingTabId = position.Id;
+        StateHasChanged();
+    }
+
+    private void OnTabEditKeyDown(KeyboardEventArgs args, Guid positionId)
+    {
+        if (args.Key == "Enter" || args.Key == "Escape")
+        {
+            EndTabEditing(positionId);
         }
     }
 
@@ -280,6 +315,7 @@
     {
         await ViewModel.AddPositionAsync();
         _activeTabIndex = Math.Max(0, ViewModel.Positions.Count - 1);
+        _editingTabId = ViewModel.SelectedPosition?.Id;
         await RenderChartAsync();
         StateHasChanged();
     }
@@ -300,6 +336,8 @@
 
     private async Task OnTabChanged(int index)
     {
+        _editingTabId = null;
+
         if (index < 0 || index >= ViewModel.Positions.Count)
         {
             SyncActiveTabIndex();
@@ -328,5 +366,35 @@
         }
 
         StateHasChanged();
+    }
+
+    private async Task OnCloseTab(MudTabPanel panel)
+    {
+        if (panel?.Text is null || !Guid.TryParse(panel.Text, out var positionId))
+        {
+            return;
+        }
+
+        var position = ViewModel.Positions.FirstOrDefault(p => p.Id == positionId);
+
+        if (position is null)
+        {
+            return;
+        }
+
+        var confirmed = await DialogService.ShowMessageBox("Remove position?", $"Delete {position.Pair} and its chart view?", yesText: "Delete", cancelText: "Cancel");
+
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        if (await ViewModel.RemovePositionAsync(positionId))
+        {
+            await JS.InvokeVoidAsync("payoffChart.clearRanges", positionId.ToString());
+            SyncActiveTabIndex();
+            _chartNeedsRender = true;
+            await InvokeAsync(StateHasChanged);
+        }
     }
 }

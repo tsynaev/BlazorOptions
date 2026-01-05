@@ -24,7 +24,7 @@ public class PositionBuilderViewModel
 
     public ObservableCollection<OptionLegModel> Legs => SelectedPosition?.Legs ?? EmptyLegs;
 
-    public EChartConfig ChartConfig { get; private set; } = new(Array.Empty<string>(), Array.Empty<double>(), 0, 0);
+    public EChartConfig ChartConfig { get; private set; } = new(Guid.Empty, Array.Empty<string>(), Array.Empty<double>(), 0, 0);
 
     public async Task InitializeAsync()
     {
@@ -132,7 +132,39 @@ public class PositionBuilderViewModel
         var range = Math.Abs(maxProfit - minProfit);
         var padding = Math.Max(10, range * 0.1);
 
-        ChartConfig = new EChartConfig(labels, profits, minProfit - padding, maxProfit + padding);
+        var positionId = SelectedPosition?.Id ?? Guid.Empty;
+
+        ChartConfig = new EChartConfig(positionId, labels, profits, minProfit - padding, maxProfit + padding);
+    }
+
+    public async Task<bool> RemovePositionAsync(Guid positionId)
+    {
+        var positionIndex = Positions.ToList().FindIndex(p => p.Id == positionId);
+
+        if (positionIndex < 0)
+        {
+            return false;
+        }
+
+        var removedPosition = Positions[positionIndex];
+        Positions.RemoveAt(positionIndex);
+
+        if (SelectedPosition?.Id == removedPosition.Id)
+        {
+            if (Positions.Count == 0)
+            {
+                SelectedPosition = null;
+            }
+            else
+            {
+                var nextIndex = Math.Min(positionIndex, Positions.Count - 1);
+                SelectedPosition = Positions[nextIndex];
+            }
+        }
+
+        UpdateChart();
+        await PersistPositionsAsync();
+        return true;
     }
 
     private PositionModel CreateDefaultPosition(string? pair = null)
@@ -165,5 +197,5 @@ public class PositionBuilderViewModel
         return position;
     }
 
-    public record EChartConfig(string[] Labels, IReadOnlyList<double> Profits, double YMin, double YMax);
+    public record EChartConfig(Guid PositionId, string[] Labels, IReadOnlyList<double> Profits, double YMin, double YMax);
 }
