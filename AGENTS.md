@@ -5,4 +5,4 @@
 - User LiveCharts for chart rendering.
 - Register new services or view models with dependency injection in `Program.cs`.
 - install dotnet 9 sdk when code files are changed
-- Run `dotnet build` with the repository SDK (currently net9.0) before completing the task.
+- Run `dotnet build` before completing the task.
