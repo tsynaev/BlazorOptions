@@ -32,26 +32,40 @@
                         {
                             var position = ViewModel.Positions[i];
 
-                            <MudTabPanel @key="position.Id" ShowCloseIcon="true" Text="@position.Id.ToString()">
+                            <MudTabPanel @key="position.Id" Text="@position.Id.ToString()">
                                 <TabContent>
-                                    @if (_editingTabId == position.Id)
-                                    {
-                                        <MudTextField T="string"
-                                                      Class="tab-name-field"
-                                                      Value="@position.Pair"
-                                                      ValueChanged="async pair => await OnPairChanged(position, pair)"
-                                                      Immediate="true"
-                                                      Margin="Margin.Dense"
-                                                      Variant="Variant.Outlined"
-                                                      Placeholder="Position name"
-                                                      OnBlur="() => EndTabEditing(position.Id)"
-                                                      OnKeyDown="@(args => OnTabEditKeyDown(args, position.Id))" />
-                                    }
-                                    else
-                                    {
-                                        <MudText Class="tab-name-label"
-                                                 @ondblclick="async () => await BeginTabEditingAsync(position, i)">@position.Pair</MudText>
-                                    }
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="tab-header">
+                                        @if (_editingTabId == position.Id)
+                                        {
+                                            <MudTextField T="string"
+                                                          Class="tab-name-field"
+                                                          Value="@position.Pair"
+                                                          ValueChanged="async pair => await OnPairChanged(position, pair)"
+                                                          Immediate="true"
+                                                          Margin="Margin.Dense"
+                                                          Variant="Variant.Outlined"
+                                                          Placeholder="Position name"
+                                                          OnBlur="() => EndTabEditing(position.Id)"
+                                                          OnKeyDown="@(args => OnTabEditKeyDown(args, position.Id))" />
+                                        }
+                                        else
+                                        {
+                                            <MudText Class="tab-name-label"
+                                                     @ondblclick="async () => await BeginTabEditingAsync(position, i)">@position.Pair</MudText>
+                                        }
+
+                                        <MudMenu Icon="@Icons.Material.Filled.MoreVert"
+                                                 Dense="true"
+                                                 AnchorOrigin="Origin.BottomCenter"
+                                                 TransformOrigin="Origin.TopCenter">
+                                            <MudMenuItem OnClick="async () => await BeginTabEditingAsync(position, i)">
+                                                <MudIcon Icon="@Icons.Material.Filled.Edit" Class="mr-2" /> Rename
+                                            </MudMenuItem>
+                                            <MudMenuItem OnClick="async () => await ConfirmAndRemovePositionAsync(position)">
+                                                <MudIcon Icon="@Icons.Material.Filled.Delete" Class="mr-2" /> Delete
+                                            </MudMenuItem>
+                                        </MudMenu>
+                                    </MudStack>
                                 </TabContent>
                             </MudTabPanel>
                         }
@@ -375,6 +389,16 @@
             return;
         }
 
+        await ConfirmAndRemovePositionAsync(positionId);
+    }
+
+    private async Task ConfirmAndRemovePositionAsync(PositionModel position)
+    {
+        await ConfirmAndRemovePositionAsync(position.Id, position.Pair);
+    }
+
+    private async Task ConfirmAndRemovePositionAsync(Guid positionId, string? pair = null)
+    {
         var position = ViewModel.Positions.FirstOrDefault(p => p.Id == positionId);
 
         if (position is null)
@@ -382,7 +406,7 @@
             return;
         }
 
-        var confirmed = await DialogService.ShowMessageBox("Remove position?", $"Delete {position.Pair} and its chart view?", yesText: "Delete", cancelText: "Cancel");
+        var confirmed = await DialogService.ShowMessageBox("Remove position?", $"Delete {pair ?? position.Pair} and its chart view?", yesText: "Delete", cancelText: "Cancel");
 
         if (confirmed != true)
         {
