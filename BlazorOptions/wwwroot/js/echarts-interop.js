@@ -10,6 +10,9 @@ window.payoffChart = {
         const yMin = options.yMin ?? 'dataMin';
         const yMax = options.yMax ?? 'dataMax';
 
+        const positiveProfits = profits.map(v => (v > 0 ? v : null));
+        const negativeProfits = profits.map(v => (v < 0 ? v : null));
+
         chart.setOption({
             grid: { left: 60, right: 20, top: 20, bottom: 50 },
             toolbox: {
@@ -56,10 +59,10 @@ window.payoffChart = {
             ],
             series: [
                 {
-                    name: 'P/L at Expiry',
+                    name: 'P/L (Profit)',
                     type: 'line',
                     smooth: true,
-                    data: profits,
+                    data: positiveProfits,
                     symbol: 'none',
                     lineStyle: {
                         color: '#4CAF50',
@@ -67,6 +70,20 @@ window.payoffChart = {
                     },
                     areaStyle: {
                         color: 'rgba(76, 175, 80, 0.12)'
+                    }
+                },
+                {
+                    name: 'P/L (Loss)',
+                    type: 'line',
+                    smooth: true,
+                    data: negativeProfits,
+                    symbol: 'none',
+                    lineStyle: {
+                        color: '#F44336',
+                        width: 3
+                    },
+                    areaStyle: {
+                        color: 'rgba(244, 67, 54, 0.15)'
                     }
                 }
             ]
