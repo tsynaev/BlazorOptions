@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using BlazorOptions.ViewModels;
 
 namespace BlazorOptions
 {
@@ -27,6 +30,60 @@ namespace BlazorOptions
             }
 
             return (xs, profits);
+        }
+
+        public (double[] xs, double[] profits) GeneratePosition(IEnumerable<OptionLegModel> legs, int points = 200)
+        {
+            var activeLegs = legs.Where(l => l.IsIncluded).ToList();
+            var anchor = activeLegs.Count > 0
+                ? activeLegs.Average(l => l.Strike > 0 ? l.Strike : l.Price)
+                : 1000;
+
+            var start = Math.Max(0, anchor * 0.5);
+            var end = Math.Max(anchor + 1, anchor * 1.5);
+
+            if (points < 20)
+            {
+                points = 20;
+            }
+
+            var xs = new double[points];
+            var profits = new double[points];
+            var step = (end - start) / (points - 1);
+
+            for (int i = 0; i < points; i++)
+            {
+                var s = start + step * i;
+                xs[i] = s;
+                profits[i] = CalculateProfitForPrice(activeLegs, s);
+            }
+
+            return (xs, profits);
+        }
+
+        private static double CalculateProfitForPrice(IEnumerable<OptionLegModel> legs, double underlyingPrice)
+        {
+            double total = 0;
+
+            foreach (var leg in legs)
+            {
+                switch (leg.Type)
+                {
+                    case OptionLegType.Call:
+                        total += (Math.Max(underlyingPrice - leg.Strike, 0) - leg.Price) * leg.Size;
+                        break;
+                    case OptionLegType.Put:
+                        total += (Math.Max(leg.Strike - underlyingPrice, 0) - leg.Price) * leg.Size;
+                        break;
+                    case OptionLegType.Future:
+                        total += (underlyingPrice - leg.Price) * leg.Size;
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException();
+                }
+            }
+
+            return total;
         }
     }
 }
