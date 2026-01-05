@@ -2,6 +2,13 @@
 
 <PageTitle>Home</PageTitle>
 
-<h1>Hello, world!</h1>
-
-Welcome to your new app.
+<MudStack Spacing="2">
+    <MudText Typo="Typo.h3">Options sandbox</MudText>
+    <MudText Typo="Typo.body1">
+        Build and visualize multi-leg ETH/USDT positions using calls, puts, and futures. Adjust each leg to see how the
+        payoff curve shifts in real time.
+    </MudText>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="long-call" StartIcon="@Icons.Material.Filled.ShowChart">
+        Open position builder
+    </MudButton>
+</MudStack>
