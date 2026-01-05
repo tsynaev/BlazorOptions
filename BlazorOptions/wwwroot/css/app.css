@@ -37,6 +37,8 @@
 
 .chart-container {
     height: 320px;
+    position: relative;
+    overflow: hidden;
 }
 
 .chart-surface {
@@ -48,11 +50,18 @@
 .chart-host {
     height: 100%;
     width: 100%;
+    position: relative;
 }
 
 .chart-host cartesian-chart {
     height: 100%;
     width: 100%;
+    display: block;
+}
+
+.chart-host canvas {
+    width: 100% !important;
+    height: 100% !important;
     display: block;
 }
 
