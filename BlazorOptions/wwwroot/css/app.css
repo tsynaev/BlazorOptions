@@ -45,7 +45,12 @@
     overflow: hidden;
 }
 
-.chart-surface .lc-chart {
+.chart-host {
+    height: 100%;
+    width: 100%;
+}
+
+.chart-host cartesian-chart {
     height: 100%;
     width: 100%;
     display: block;
