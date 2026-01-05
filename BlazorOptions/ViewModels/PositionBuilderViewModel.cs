@@ -1,7 +1,5 @@
 using System.Collections.ObjectModel;
 using System.Linq;
-using MudBlazor;
-using MudBlazor.Charts;
 
 namespace BlazorOptions.ViewModels;
 
@@ -18,15 +16,7 @@ public class PositionBuilderViewModel
 
     public ObservableCollection<OptionLegModel> Legs { get; } = new();
 
-    public List<ChartSeries> ChartSeries { get; private set; } = new();
-
-    public string[] XAxisLabels { get; private set; } = Array.Empty<string>();
-
-    public ChartOptions ChartOptions { get; } = new()
-    {
-        InterpolationOption = InterpolationOption.NaturalSpline,
-        YAxisFormat = "0.##"
-    };
+    public EChartConfig ChartConfig { get; private set; } = new(Array.Empty<string>(), Array.Empty<double>(), 0, 0);
 
     public void InitializeDefaultPosition()
     {
@@ -67,34 +57,29 @@ public class PositionBuilderViewModel
         });
     }
 
-    public void RemoveLeg(OptionLegModel leg)
+    public bool RemoveLeg(OptionLegModel leg)
     {
         if (Legs.Contains(leg))
         {
             Legs.Remove(leg);
+            return true;
         }
+
+        return false;
     }
 
     public void UpdateChart()
     {
         var (xs, profits) = _optionsService.GeneratePosition(Legs, 180);
 
-        ChartSeries = new List<ChartSeries>
-        {
-            new()
-            {
-                Name = "P/L at Expiry",
-                Data = profits
-            }
-        };
-
-        XAxisLabels = xs.Select(x => x.ToString("0")).ToArray();
-
+        var labels = xs.Select(x => x.ToString("0")).ToArray();
         var minProfit = profits.Min();
         var maxProfit = profits.Max();
         var range = Math.Abs(maxProfit - minProfit);
-        var tickSpacing = range <= 0 ? 10 : Math.Max(5, range / 6);
+        var padding = Math.Max(10, range * 0.1);
 
-        ChartOptions.YAxisTicks = (int)Math.Ceiling(tickSpacing);
+        ChartConfig = new EChartConfig(labels, profits, minProfit - padding, maxProfit + padding);
     }
+
+    public record EChartConfig(string[] Labels, IReadOnlyList<double> Profits, double YMin, double YMax);
 }

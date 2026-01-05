@@ -65,6 +65,11 @@
     width: 100% !important;
 }
 
+.chart-host .echart {
+    height: 100%;
+    width: 100%;
+}
+
     .blazor-error-boundary::after {
         content: "An error has occurred."
     }
