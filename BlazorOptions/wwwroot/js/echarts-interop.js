@@ -10,8 +10,51 @@ window.payoffChart = {
         const yMin = options.yMin ?? 'dataMin';
         const yMax = options.yMax ?? 'dataMax';
 
+        const priceRangeKey = 'payoffChart:lastPriceRange';
+        const pnlRangeKey = 'payoffChart:lastPnlRange';
+        const numericLabels = labels.map(label => Number(label));
+
+        const loadRange = (key) => {
+            try {
+                const raw = localStorage.getItem(key);
+                if (!raw) return null;
+                const parsed = JSON.parse(raw);
+                const start = Number(parsed.start);
+                const end = Number(parsed.end);
+
+                if (Number.isFinite(start) && Number.isFinite(end)) {
+                    return { start, end };
+                }
+            } catch { /* ignore */ }
+
+            return null;
+        };
+
+        const priceRange = loadRange(priceRangeKey);
+        const pnlRange = loadRange(pnlRangeKey);
+
         const positiveProfits = profits.map(v => (v > 0 ? v : null));
         const negativeProfits = profits.map(v => (v < 0 ? v : null));
+
+        const priceZoomInside = {
+            type: 'inside',
+            xAxisIndex: 0,
+            filterMode: 'filter',
+            zoomOnMouseWheel: true,
+            moveOnMouseMove: true,
+            startValue: priceRange?.start,
+            endValue: priceRange?.end
+        };
+
+        const pnlZoomInside = {
+            type: 'inside',
+            yAxisIndex: 0,
+            filterMode: 'none',
+            zoomOnMouseWheel: true,
+            moveOnMouseMove: true,
+            startValue: pnlRange?.start ?? yMin,
+            endValue: pnlRange?.end ?? yMax
+        };
 
         chart.setOption({
             grid: { left: 60, right: 20, top: 20, bottom: 50 },
@@ -54,13 +97,8 @@ window.payoffChart = {
                 splitLine: { lineStyle: { color: '#e0e0e0' } }
             },
             dataZoom: [
-                {
-                    type: 'inside',
-                    xAxisIndex: 0,
-                    filterMode: 'filter',
-                    zoomOnMouseWheel: true,
-                    moveOnMouseMove: true
-                }
+                priceZoomInside,
+                pnlZoomInside
             ],
             series: [
                 {
@@ -93,6 +131,42 @@ window.payoffChart = {
                 }
             ]
         }, true);
+
+        const persistRange = (key, range) => {
+            try {
+                localStorage.setItem(key, JSON.stringify(range));
+            } catch { /* ignore */ }
+        };
+
+        const toRange = (zoomEntry, fallbackRange) => {
+            if (!zoomEntry) return fallbackRange;
+            const start = Number(zoomEntry.startValue ?? zoomEntry.start);
+            const end = Number(zoomEntry.endValue ?? zoomEntry.end);
+
+            if (Number.isFinite(start) && Number.isFinite(end)) {
+                return { start, end };
+            }
+
+            return fallbackRange;
+        };
+
+        chart.off('dataZoom');
+        chart.on('dataZoom', () => {
+            const zoomState = chart.getOption().dataZoom || [];
+            const priceZoom = zoomState.find(z => z.xAxisIndex !== undefined);
+            const pnlZoom = zoomState.find(z => z.yAxisIndex !== undefined);
+
+            const priceSelection = toRange(priceZoom, priceRange ?? { start: numericLabels.at(0), end: numericLabels.at(-1) });
+            const pnlSelection = toRange(pnlZoom, pnlRange ?? { start: yMin, end: yMax });
+
+            if (priceSelection?.start !== undefined && priceSelection?.end !== undefined) {
+                persistRange(priceRangeKey, priceSelection);
+            }
+
+            if (pnlSelection?.start !== undefined && pnlSelection?.end !== undefined) {
+                persistRange(pnlRangeKey, pnlSelection);
+            }
+        });
 
         chart.resize();
     }

@@ -15,12 +15,15 @@
                     </MudStack>
                 </MudStack>
                 <MudSwipeArea Class="position-swipe-area" OnSwipeEnd="OnSwipeEnd">
-                    <MudTabs Class="position-tabs"
-                             ActivePanelIndex="@_activeTabIndex"
-                             ActivePanelIndexChanged="OnTabChanged"
-                             AlwaysShowScrollButtons="true"
-                             Rounded="true"
-                             Elevation="0">
+                    <MudDynamicTabs Class="position-tabs"
+                                     ActivePanelIndex="@_activeTabIndex"
+                                     ActivePanelIndexChanged="OnTabChanged"
+                                     AlwaysShowScrollButtons="true"
+                                     Rounded="true"
+                                     Elevation="0"
+                                     AddTabIcon="@Icons.Material.Filled.Add"
+                                     AddIconToolTip="Add position"
+                                     AddTab="CreatePosition">
                         @for (var i = 0; i < ViewModel.Positions.Count; i++)
                         {
                             var position = ViewModel.Positions[i];
@@ -45,17 +48,7 @@
                                 </TabContent>
                             </MudTabPanel>
                         }
-                        <MudTabPanel Class="add-tab-panel" Disabled="true">
-                            <TabContent>
-                                <MudIconButton Icon="@Icons.Material.Filled.Add"
-                                               Color="Color.Primary"
-                                               Size="Size.Medium"
-                                               Variant="Variant.Text"
-                                               Class="add-tab-button"
-                                               OnClick="CreatePosition" />
-                            </TabContent>
-                        </MudTabPanel>
-                    </MudTabs>
+                    </MudDynamicTabs>
                 </MudSwipeArea>
             </MudStack>
         </MudCardContent>
@@ -154,10 +147,6 @@
         text-overflow: ellipsis;
         white-space: nowrap;
         padding: 6px 12px;
-    }
-
-    .add-tab-panel .mud-tab { 
-        padding: 0 6px;
     }
 </style>
 
@@ -311,12 +300,6 @@
 
     private async Task OnTabChanged(int index)
     {
-        if (index == ViewModel.Positions.Count)
-        {
-            await CreatePosition();
-            return;
-        }
-
         if (index < 0 || index >= ViewModel.Positions.Count)
         {
             SyncActiveTabIndex();
