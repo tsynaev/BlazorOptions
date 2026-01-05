@@ -1,8 +1,4 @@
 @page "/long-call"
-@using LiveChartsCore
-@using LiveChartsCore.SkiaSharpView
-@using LiveChartsCore.SkiaSharpView.Blazor
-@using LiveChartsCore.SkiaSharpView.Painting
 @inject PositionBuilderViewModel ViewModel
 
 <PageTitle>Multi-leg ETH/USDT Position</PageTitle>
@@ -25,11 +21,11 @@
         </MudCardContent>
         <MudCardContent Class="chart-container">
             <MudPaper Class="pa-4 chart-surface" Elevation="0">
-                <div class="chart-host">
-                    <CartesianChart Series="@ViewModel.Series"
-                                    XAxes="@ViewModel.XAxes"
-                                    YAxes="@ViewModel.YAxes" />
-                </div>
+                <MudChart ChartType="ChartType.Line"
+                          ChartSeries="@ViewModel.ChartSeries"
+                          XAxisLabels="@ViewModel.XAxisLabels"
+                          ChartOptions="@ViewModel.ChartOptions"
+                          Class="chart-host" />
             </MudPaper>
         </MudCardContent>
     </MudCard>

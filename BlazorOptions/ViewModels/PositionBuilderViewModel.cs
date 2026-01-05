@@ -1,10 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Linq;
-using LiveChartsCore;
-using LiveChartsCore.Defaults;
-using LiveChartsCore.SkiaSharpView;
-using LiveChartsCore.SkiaSharpView.Painting;
-using SkiaSharp;
+using MudBlazor;
+using MudBlazor.Charts;
 
 namespace BlazorOptions.ViewModels;
 
@@ -21,11 +18,15 @@ public class PositionBuilderViewModel
 
     public ObservableCollection<OptionLegModel> Legs { get; } = new();
 
-    public ISeries[] Series { get; private set; } = Array.Empty<ISeries>();
+    public List<ChartSeries> ChartSeries { get; private set; } = new();
 
-    public Axis[] XAxes { get; private set; } = Array.Empty<Axis>();
+    public string[] XAxisLabels { get; private set; } = Array.Empty<string>();
 
-    public Axis[] YAxes { get; private set; } = Array.Empty<Axis>();
+    public ChartOptions ChartOptions { get; } = new()
+    {
+        InterpolationOption = InterpolationOption.NaturalSpline,
+        YAxisFormat = "0.##"
+    };
 
     public void InitializeDefaultPosition()
     {
@@ -77,47 +78,23 @@ public class PositionBuilderViewModel
     public void UpdateChart()
     {
         var (xs, profits) = _optionsService.GeneratePosition(Legs, 180);
-        var points = xs.Select((x, i) => new ObservablePoint(x, profits[i])).ToArray();
 
-        Series =
-        [
-            new LineSeries<ObservablePoint>
+        ChartSeries = new List<ChartSeries>
+        {
+            new()
             {
-                Values = points,
-                Stroke = new SolidColorPaint(SKColors.MediumPurple, 2),
-                Fill = new SolidColorPaint(SKColors.MediumPurple.WithAlpha(40)),
-                GeometrySize = 0,
-                Name = "P/L at Expiry"
+                Name = "P/L at Expiry",
+                Data = profits
             }
-        ];
+        };
 
-        XAxes =
-        [
-            new Axis
-            {
-                Name = "Underlying price (USDT)",
-                Labeler = value => value.ToString("0"),
-                MinLimit = xs.First(),
-                MaxLimit = xs.Last()
-            }
-        ];
+        XAxisLabels = xs.Select(x => x.ToString("0")).ToArray();
 
         var minProfit = profits.Min();
         var maxProfit = profits.Max();
-        var padding = Math.Max(10, Math.Abs(maxProfit - minProfit) * 0.05);
+        var range = Math.Abs(maxProfit - minProfit);
+        var tickSpacing = range <= 0 ? 10 : Math.Max(5, range / 6);
 
-        var minLimit = Math.Min(minProfit - padding, -padding);
-        var maxLimit = Math.Max(maxProfit + padding, padding);
-
-        YAxes =
-        [
-            new Axis
-            {
-                Name = "Profit / Loss",
-                Labeler = value => value.ToString("0.##"),
-                MinLimit = minLimit,
-                MaxLimit = maxLimit
-            }
-        ];
+        ChartOptions.YAxisTicks = (int)Math.Ceiling(tickSpacing);
     }
 }

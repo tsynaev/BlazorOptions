@@ -53,16 +53,14 @@
     position: relative;
 }
 
-.chart-host cartesian-chart {
+.chart-host .mud-chart {
     height: 100%;
     width: 100%;
-    display: block;
 }
 
-.chart-host canvas {
-    width: 100% !important;
+.chart-host svg {
     height: 100% !important;
-    display: block;
+    width: 100% !important;
 }
 
     .blazor-error-boundary::after {
