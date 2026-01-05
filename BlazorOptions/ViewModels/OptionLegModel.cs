@@ -9,7 +9,7 @@ public enum OptionLegType
 
 public class OptionLegModel
 {
-    public Guid Id { get; } = Guid.NewGuid();
+    public Guid Id { get; set; } = Guid.NewGuid();
 
     public bool IsIncluded { get; set; } = true;
 

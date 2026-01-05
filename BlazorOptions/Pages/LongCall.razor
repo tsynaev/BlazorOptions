@@ -12,12 +12,22 @@
                     <MudText Typo="Typo.h4">@ViewModel.Pair Position</MudText>
                     <MudText Typo="Typo.subtitle2">Construct calls, puts, and futures legs for the pair.</MudText>
                 </MudStack>
-                <MudTextField @bind-Value="ViewModel.Pair"
-                               Label="Pair"
-                               Variant="Variant.Outlined"
-                               Margin="Margin.Dense"
-                               Adornment="Adornment.Start"
-                               AdornmentIcon="@Icons.Material.Filled.Link" />
+                <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                    <MudSelect T="Guid" Label="Position" Value="@SelectedPositionId" ValueChanged="async (Guid id) => await OnPositionChanged(id)" Dense="true">
+                        @foreach (var position in ViewModel.Positions)
+                        {
+                            <MudSelectItem Value="@position.Id">@position.Pair</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.LibraryAdd" OnClick="CreatePosition">New position</MudButton>
+                    <MudTextField Value="@ViewModel.Pair"
+                                   ValueChanged="async (string pair) => await OnPairChanged(pair)"
+                                   Label="Pair"
+                                   Variant="Variant.Outlined"
+                                   Margin="Margin.Dense"
+                                   Adornment="Adornment.Start"
+                                   AdornmentIcon="@Icons.Material.Filled.Link" />
+                </MudStack>
             </MudStack>
         </MudCardContent>
         <MudCardContent Class="chart-container">
@@ -94,9 +104,9 @@
     private ElementReference _chartRef;
     private IEnumerable<OptionLegType> LegTypes => Enum.GetValues<OptionLegType>();
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        ViewModel.InitializeDefaultPosition();
+        await ViewModel.InitializeAsync();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -114,14 +124,14 @@
 
     private async Task OnAddLeg()
     {
-        ViewModel.AddLeg();
+        await ViewModel.AddLegAsync();
         ViewModel.UpdateChart();
         await RenderChartAsync();
     }
 
     private async Task OnRemoveLeg(OptionLegModel leg)
     {
-        if (ViewModel.RemoveLeg(leg))
+        if (await ViewModel.RemoveLegAsync(leg))
         {
             ViewModel.UpdateChart();
             await RenderChartAsync();
@@ -131,6 +141,7 @@
     private async Task OnLegIncludedChanged(OptionLegModel leg, bool include)
     {
         leg.IsIncluded = include;
+        await ViewModel.PersistPositionsAsync();
         ViewModel.UpdateChart();
         await RenderChartAsync();
     }
@@ -138,6 +149,7 @@
     private async Task OnLegTypeChanged(OptionLegModel leg, OptionLegType type)
     {
         leg.Type = type;
+        await ViewModel.PersistPositionsAsync();
         ViewModel.UpdateChart();
         await RenderChartAsync();
     }
@@ -145,6 +157,7 @@
     private async Task OnLegStrikeChanged(OptionLegModel leg, double strike)
     {
         leg.Strike = strike;
+        await ViewModel.PersistPositionsAsync();
         ViewModel.UpdateChart();
         await RenderChartAsync();
     }
@@ -156,6 +169,7 @@
             leg.ExpirationDate = date.Value;
         }
 
+        await ViewModel.PersistPositionsAsync();
         ViewModel.UpdateChart();
         await RenderChartAsync();
     }
@@ -163,6 +177,7 @@
     private async Task OnLegSizeChanged(OptionLegModel leg, double size)
     {
         leg.Size = size;
+        await ViewModel.PersistPositionsAsync();
         ViewModel.UpdateChart();
         await RenderChartAsync();
     }
@@ -170,6 +185,7 @@
     private async Task OnLegPriceChanged(OptionLegModel leg, double price)
     {
         leg.Price = price;
+        await ViewModel.PersistPositionsAsync();
         ViewModel.UpdateChart();
         await RenderChartAsync();
     }
@@ -177,6 +193,38 @@
     private async Task OnLegIvChanged(OptionLegModel leg, double iv)
     {
         leg.ImpliedVolatility = iv;
+        await ViewModel.PersistPositionsAsync();
+        ViewModel.UpdateChart();
+        await RenderChartAsync();
+    }
+
+    private Guid SelectedPositionId => ViewModel.SelectedPosition?.Id ?? Guid.Empty;
+
+    private async Task OnPositionChanged(Guid positionId)
+    {
+        if (positionId == Guid.Empty)
+        {
+            return;
+        }
+
+        if (await ViewModel.SelectPositionAsync(positionId))
+        {
+            ViewModel.UpdateChart();
+            await RenderChartAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task CreatePosition()
+    {
+        await ViewModel.AddPositionAsync();
+        await RenderChartAsync();
+        StateHasChanged();
+    }
+
+    private async Task OnPairChanged(string pair)
+    {
+        await ViewModel.UpdatePairAsync(pair);
         ViewModel.UpdateChart();
         await RenderChartAsync();
     }
