@@ -15,17 +15,19 @@
                     </MudStack>
                     <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.LibraryAdd" OnClick="CreatePosition">New position</MudButton>
                 </MudStack>
-                <MudTabs Class="position-tabs"
-                         ActivePanelIndex="@_activeTabIndex"
-                         ActivePanelIndexChanged="OnTabChanged"
-                         AlwaysShowScrollButtons="true"
-                         Rounded="true"
-                         Elevation="0">
-                    @for (var i = 0; i < ViewModel.Positions.Count; i++)
-                    {
-                        <MudTabPanel Text="@ViewModel.Positions[i].Pair" />
-                    }
-                </MudTabs>
+                <MudSwipeArea Class="position-swipe-area" OnSwipeEnd="OnSwipeEnd">
+                    <MudTabs Class="position-tabs"
+                             ActivePanelIndex="@_activeTabIndex"
+                             ActivePanelIndexChanged="OnTabChanged"
+                             AlwaysShowScrollButtons="true"
+                             Rounded="true"
+                             Elevation="0">
+                        @for (var i = 0; i < ViewModel.Positions.Count; i++)
+                        {
+                            <MudTabPanel Text="@ViewModel.Positions[i].Pair" />
+                        }
+                    </MudTabs>
+                </MudSwipeArea>
                 <MudTextField Value="@ViewModel.Pair"
                                ValueChanged="async (string pair) => await OnPairChanged(pair)"
                                Label="Pair"
@@ -106,6 +108,10 @@
 </MudStack>
 
 <style>
+    .position-swipe-area {
+        display: block;
+    }
+
     .position-tabs .mud-tabs-toolbar {
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
@@ -138,6 +144,28 @@
     private async Task RenderChartAsync()
     {
         await JS.InvokeVoidAsync("payoffChart.render", _chartRef, ViewModel.ChartConfig);
+    }
+
+    private Task OnSwipeEnd(SwipeEventArgs args) => args.SwipeDirection switch
+    {
+        SwipeDirection.RightToLeft => ChangeTabByDelta(1),
+        SwipeDirection.LeftToRight => ChangeTabByDelta(-1),
+        _ => Task.CompletedTask
+    };
+
+    private async Task ChangeTabByDelta(int delta)
+    {
+        if (ViewModel.Positions.Count == 0)
+        {
+            return;
+        }
+
+        var nextIndex = Math.Clamp(_activeTabIndex + delta, 0, ViewModel.Positions.Count - 1);
+
+        if (nextIndex != _activeTabIndex)
+        {
+            await OnTabChanged(nextIndex);
+        }
     }
 
     private async Task OnAddLeg()
