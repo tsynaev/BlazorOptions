@@ -106,14 +106,17 @@ public class PositionBuilderViewModel
         var maxProfit = profits.Max();
         var padding = Math.Max(10, Math.Abs(maxProfit - minProfit) * 0.05);
 
+        var minLimit = Math.Min(minProfit - padding, -padding);
+        var maxLimit = Math.Max(maxProfit + padding, padding);
+
         YAxes =
         [
             new Axis
             {
                 Name = "Profit / Loss",
                 Labeler = value => value.ToString("0.##"),
-                MinLimit = minProfit - padding,
-                MaxLimit = maxProfit + padding
+                MinLimit = minLimit,
+                MaxLimit = maxLimit
             }
         ];
     }
