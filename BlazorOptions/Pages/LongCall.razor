@@ -1,0 +1,94 @@
+@page "/long-call"
+@using System.Linq
+@using LiveChartsCore
+@using LiveChartsCore.Defaults
+@using LiveChartsCore.SkiaSharpView
+@using LiveChartsCore.SkiaSharpView.Blazor
+@using LiveChartsCore.SkiaSharpView.Painting
+@using SkiaSharp
+@inject OptionsService OptionsService
+
+<PageTitle>Long Call — Options Chart</PageTitle>
+
+<h3>Long Call Payoff at Expiry</h3>
+
+<div style="display:flex;gap:1rem;align-items:end;margin-bottom:1rem;">
+    <div>
+        <label>Strike (K)</label><br />
+        <input type="number" step="0.01" @bind="Strike" />
+    </div>
+    <div>
+        <label>Premium paid</label><br />
+        <input type="number" step="0.01" @bind="Premium" />
+    </div>
+    <div>
+        <label>Quantity</label><br />
+        <input type="number" step="1" min="1" @bind="Quantity" />
+    </div>
+    <div>
+        <button @onclick="UpdateChart">Update</button>
+    </div>
+    <div style="margin-left:1rem;">
+        <strong>Break-even:</strong> @BreakEvenDisplay
+    </div>
+</div>
+
+<div style="height:420px;">
+    <CartesianChart Series="@Series" XAxes="@XAxes" YAxes="@YAxes" />
+</div>
+
+@code {
+    private double Strike { get; set; } = 100;
+    private double Premium { get; set; } = 5;
+    private double Quantity { get; set; } = 1;
+
+    private ISeries[] Series { get; set; } = [];
+    private Axis[] XAxes { get; set; } = [];
+    private Axis[] YAxes { get; set; } = [];
+
+    private string BreakEvenDisplay => (Strike + Premium).ToString("0.00");
+
+    protected override void OnInitialized()
+    {
+        UpdateChart();
+    }
+
+    private void UpdateChart()
+    {
+        var (xs, profits) = OptionsService.GenerateLongCall(Strike, Premium, Quantity, points: 200);
+
+        var points = xs.Select((x, i) => new ObservablePoint(x, profits[i])).ToArray();
+
+        Series =
+        [
+            new LineSeries<ObservablePoint>
+            {
+                Values = points,
+                Stroke = new SolidColorPaint(SKColors.Green, 2),
+                Fill = new SolidColorPaint(SKColors.Green) { },
+                GeometrySize = 0,
+                Name = "Profit"
+            }
+        ];
+
+        XAxes =
+        [
+            new Axis
+            {
+                Name = "Underlying price",
+                Labeler = value => value.ToString("0"),
+                MinLimit = xs.First(),
+                MaxLimit = xs.Last()
+            }
+        ];
+
+        YAxes =
+        [
+            new Axis
+            {
+                Name = "Profit",
+                Labeler = value => value.ToString("0.##")
+            }
+        ];
+    }
+}
