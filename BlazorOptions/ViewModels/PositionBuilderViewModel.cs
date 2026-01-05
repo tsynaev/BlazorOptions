@@ -1,10 +1,5 @@
 using System.Collections.ObjectModel;
 using System.Linq;
-using LiveChartsCore;
-using LiveChartsCore.Defaults;
-using LiveChartsCore.SkiaSharpView;
-using LiveChartsCore.SkiaSharpView.Painting;
-using SkiaSharp;
 
 namespace BlazorOptions.ViewModels;
 
@@ -21,11 +16,7 @@ public class PositionBuilderViewModel
 
     public ObservableCollection<OptionLegModel> Legs { get; } = new();
 
-    public ISeries[] Series { get; private set; } = Array.Empty<ISeries>();
-
-    public Axis[] XAxes { get; private set; } = Array.Empty<Axis>();
-
-    public Axis[] YAxes { get; private set; } = Array.Empty<Axis>();
+    public EChartConfig ChartConfig { get; private set; } = new(Array.Empty<string>(), Array.Empty<double>(), 0, 0);
 
     public void InitializeDefaultPosition()
     {
@@ -66,55 +57,29 @@ public class PositionBuilderViewModel
         });
     }
 
-    public void RemoveLeg(OptionLegModel leg)
+    public bool RemoveLeg(OptionLegModel leg)
     {
         if (Legs.Contains(leg))
         {
             Legs.Remove(leg);
+            return true;
         }
+
+        return false;
     }
 
     public void UpdateChart()
     {
         var (xs, profits) = _optionsService.GeneratePosition(Legs, 180);
-        var points = xs.Select((x, i) => new ObservablePoint(x, profits[i])).ToArray();
 
-        Series =
-        [
-            new LineSeries<ObservablePoint>
-            {
-                Values = points,
-                Stroke = new SolidColorPaint(SKColors.MediumPurple, 2),
-                Fill = new SolidColorPaint(SKColors.MediumPurple.WithAlpha(40)),
-                GeometrySize = 0,
-                Name = "P/L at Expiry"
-            }
-        ];
-
-        XAxes =
-        [
-            new Axis
-            {
-                Name = "Underlying price (USDT)",
-                Labeler = value => value.ToString("0"),
-                MinLimit = xs.First(),
-                MaxLimit = xs.Last()
-            }
-        ];
-
+        var labels = xs.Select(x => x.ToString("0")).ToArray();
         var minProfit = profits.Min();
         var maxProfit = profits.Max();
-        var padding = Math.Max(10, Math.Abs(maxProfit - minProfit) * 0.05);
+        var range = Math.Abs(maxProfit - minProfit);
+        var padding = Math.Max(10, range * 0.1);
 
-        YAxes =
-        [
-            new Axis
-            {
-                Name = "Profit / Loss",
-                Labeler = value => value.ToString("0.##"),
-                MinLimit = minProfit - padding,
-                MaxLimit = maxProfit + padding
-            }
-        ];
+        ChartConfig = new EChartConfig(labels, profits, minProfit - padding, maxProfit + padding);
     }
+
+    public record EChartConfig(string[] Labels, IReadOnlyList<double> Profits, double YMin, double YMax);
 }

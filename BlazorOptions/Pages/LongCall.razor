@@ -1,9 +1,6 @@
 @page "/long-call"
-@using LiveChartsCore
-@using LiveChartsCore.SkiaSharpView
-@using LiveChartsCore.SkiaSharpView.Blazor
-@using LiveChartsCore.SkiaSharpView.Painting
 @inject PositionBuilderViewModel ViewModel
+@inject IJSRuntime JS
 
 <PageTitle>Multi-leg ETH/USDT Position</PageTitle>
 
@@ -23,10 +20,11 @@
                                AdornmentIcon="@Icons.Material.Filled.Link" />
             </MudStack>
         </MudCardContent>
-        <MudCardContent>
-            <MudText Typo="Typo.h6" Class="mb-2">Payoff chart</MudText>
-            <MudPaper Class="pa-4" Elevation="0" Style="height:420px;">
-                <CartesianChart Series="@ViewModel.Series" XAxes="@ViewModel.XAxes" YAxes="@ViewModel.YAxes" />
+        <MudCardContent Class="chart-container">
+            <MudPaper Class="pa-4 chart-surface" Elevation="0">
+                <div class="chart-host">
+                    <div class="echart" @ref="_chartRef"></div>
+                </div>
             </MudPaper>
         </MudCardContent>
     </MudCard>
@@ -55,10 +53,10 @@
                     <MudTd DataLabel="Include">
                         <MudCheckBox T="bool"
                                      Value="@context.IsIncluded"
-                                     ValueChanged="checkedValue => OnLegIncludedChanged(context, checkedValue)" />
+                                     ValueChanged="async checkedValue => await OnLegIncludedChanged(context, checkedValue)" />
                     </MudTd>
                     <MudTd DataLabel="Type">
-                        <MudSelect T="OptionLegType" Value="@context.Type" ValueChanged="type => OnLegTypeChanged(context, type)" Dense="true">
+                        <MudSelect T="OptionLegType" Value="@context.Type" ValueChanged="async type => await OnLegTypeChanged(context, type)" Dense="true">
                             @foreach (var type in LegTypes)
                             {
                                 <MudSelectItem Value="@type">@type</MudSelectItem>
@@ -66,7 +64,7 @@
                         </MudSelect>
                     </MudTd>
                     <MudTd DataLabel="Strike">
-                        <MudNumericField T="double" Value="@context.Strike" ValueChanged="value => OnLegStrikeChanged(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="USDT" />
+                        <MudNumericField T="double" Value="@context.Strike" ValueChanged="async value => await OnLegStrikeChanged(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="USDT" />
                     </MudTd>
                     <MudTd DataLabel="Expiration">
                         <MudDatePicker Date="context.ExpirationDate"
@@ -75,13 +73,13 @@
                                        Class="full-width" />
                     </MudTd>
                     <MudTd DataLabel="Size">
-                        <MudNumericField T="double" Value="@context.Size" ValueChanged="value => OnLegSizeChanged(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        <MudNumericField T="double" Value="@context.Size" ValueChanged="async value => await OnLegSizeChanged(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" />
                     </MudTd>
                     <MudTd DataLabel="Price">
-                        <MudNumericField T="double" Value="@context.Price" ValueChanged="value => OnLegPriceChanged(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="USDT" />
+                        <MudNumericField T="double" Value="@context.Price" ValueChanged="async value => await OnLegPriceChanged(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="USDT" />
                     </MudTd>
                     <MudTd DataLabel="IV">
-                        <MudNumericField T="double" Value="@context.ImpliedVolatility" ValueChanged="value => OnLegIvChanged(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="%" />
+                        <MudNumericField T="double" Value="@context.ImpliedVolatility" ValueChanged="async value => await OnLegIvChanged(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="%" />
                     </MudTd>
                     <MudTd DataLabel="Actions" Style="text-align:right;">
                         <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="() => OnRemoveLeg(context)" />
@@ -93,6 +91,7 @@
 </MudStack>
 
 @code {
+    private ElementReference _chartRef;
     private IEnumerable<OptionLegType> LegTypes => Enum.GetValues<OptionLegType>();
 
     protected override void OnInitialized()
@@ -100,37 +99,57 @@
         ViewModel.InitializeDefaultPosition();
     }
 
-    private void OnAddLeg()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await RenderChartAsync();
+        }
+    }
+
+    private async Task RenderChartAsync()
+    {
+        await JS.InvokeVoidAsync("payoffChart.render", _chartRef, ViewModel.ChartConfig);
+    }
+
+    private async Task OnAddLeg()
     {
         ViewModel.AddLeg();
         ViewModel.UpdateChart();
+        await RenderChartAsync();
     }
 
-    private void OnRemoveLeg(OptionLegModel leg)
+    private async Task OnRemoveLeg(OptionLegModel leg)
     {
-        ViewModel.RemoveLeg(leg);
-        ViewModel.UpdateChart();
+        if (ViewModel.RemoveLeg(leg))
+        {
+            ViewModel.UpdateChart();
+            await RenderChartAsync();
+        }
     }
 
-    private void OnLegIncludedChanged(OptionLegModel leg, bool include)
+    private async Task OnLegIncludedChanged(OptionLegModel leg, bool include)
     {
         leg.IsIncluded = include;
         ViewModel.UpdateChart();
+        await RenderChartAsync();
     }
 
-    private void OnLegTypeChanged(OptionLegModel leg, OptionLegType type)
+    private async Task OnLegTypeChanged(OptionLegModel leg, OptionLegType type)
     {
         leg.Type = type;
         ViewModel.UpdateChart();
+        await RenderChartAsync();
     }
 
-    private void OnLegStrikeChanged(OptionLegModel leg, double strike)
+    private async Task OnLegStrikeChanged(OptionLegModel leg, double strike)
     {
         leg.Strike = strike;
         ViewModel.UpdateChart();
+        await RenderChartAsync();
     }
 
-    private void OnExpirationChanged(OptionLegModel leg, DateTime? date)
+    private async Task OnExpirationChanged(OptionLegModel leg, DateTime? date)
     {
         if (date.HasValue)
         {
@@ -138,23 +157,27 @@
         }
 
         ViewModel.UpdateChart();
+        await RenderChartAsync();
     }
 
-    private void OnLegSizeChanged(OptionLegModel leg, double size)
+    private async Task OnLegSizeChanged(OptionLegModel leg, double size)
     {
         leg.Size = size;
         ViewModel.UpdateChart();
+        await RenderChartAsync();
     }
 
-    private void OnLegPriceChanged(OptionLegModel leg, double price)
+    private async Task OnLegPriceChanged(OptionLegModel leg, double price)
     {
         leg.Price = price;
         ViewModel.UpdateChart();
+        await RenderChartAsync();
     }
 
-    private void OnLegIvChanged(OptionLegModel leg, double iv)
+    private async Task OnLegIvChanged(OptionLegModel leg, double iv)
     {
         leg.ImpliedVolatility = iv;
         ViewModel.UpdateChart();
+        await RenderChartAsync();
     }
 }

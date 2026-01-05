@@ -35,6 +35,41 @@
     color: white;
 }
 
+.chart-container {
+    height: 420px;
+    position: relative;
+    overflow: hidden;
+    width: 100%;
+}
+
+.chart-surface {
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+    width: 100%;
+}
+
+.chart-host {
+    height: 100%;
+    width: 100%;
+    position: relative;
+}
+
+.chart-host .mud-chart {
+    height: 100%;
+    width: 100%;
+}
+
+.chart-host svg {
+    height: 100% !important;
+    width: 100% !important;
+}
+
+.chart-host .echart {
+    height: 100%;
+    width: 100%;
+}
+
     .blazor-error-boundary::after {
         content: "An error has occurred."
     }
