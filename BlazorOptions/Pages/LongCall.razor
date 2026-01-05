@@ -125,18 +125,22 @@
 @code {
     private ElementReference _chartRef;
     private int _activeTabIndex;
+    private bool _chartNeedsRender;
     private IEnumerable<OptionLegType> LegTypes => Enum.GetValues<OptionLegType>();
 
     protected override async Task OnInitializedAsync()
     {
         await ViewModel.InitializeAsync();
         SyncActiveTabIndex();
+        _chartNeedsRender = true;
+        await InvokeAsync(StateHasChanged);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        if (_chartNeedsRender)
         {
+            _chartNeedsRender = false;
             await RenderChartAsync();
         }
     }
