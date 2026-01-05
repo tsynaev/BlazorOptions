@@ -24,8 +24,11 @@
             </MudStack>
         </MudCardContent>
         <MudCardContent>
-            <MudPaper Class="pa-4" Elevation="0" Style="height:320px; position:relative;">
-                <CartesianChart Series="@ViewModel.Series" XAxes="@ViewModel.XAxes" YAxes="@ViewModel.YAxes" />
+            <MudPaper Class="pa-4" Elevation="0" Style="height:320px; position:relative; overflow:hidden;">
+                <CartesianChart Series="@ViewModel.Series"
+                                XAxes="@ViewModel.XAxes"
+                                YAxes="@ViewModel.YAxes"
+                                Style="height:100%; width:100%;" />
             </MudPaper>
         </MudCardContent>
     </MudCard>
