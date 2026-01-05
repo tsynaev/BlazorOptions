@@ -12,6 +12,13 @@ window.payoffChart = {
 
         chart.setOption({
             grid: { left: 60, right: 20, top: 20, bottom: 50 },
+            toolbox: {
+                feature: {
+                    restore: {},
+                    dataZoom: { yAxisIndex: false }
+                },
+                right: 10
+            },
             tooltip: {
                 trigger: 'axis',
                 formatter: function (params) {
@@ -38,6 +45,22 @@ window.payoffChart = {
                 },
                 splitLine: { lineStyle: { color: '#e0e0e0' } }
             },
+            dataZoom: [
+                {
+                    type: 'inside',
+                    xAxisIndex: 0,
+                    filterMode: 'filter',
+                    zoomOnMouseWheel: 'shift',
+                    moveOnMouseMove: true
+                },
+                {
+                    type: 'slider',
+                    xAxisIndex: 0,
+                    filterMode: 'filter',
+                    height: 24,
+                    bottom: 10
+                }
+            ],
             series: [
                 {
                     name: 'P/L at Expiry',
