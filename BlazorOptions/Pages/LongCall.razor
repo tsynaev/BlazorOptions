@@ -3,15 +3,15 @@
 @using LiveChartsCore.SkiaSharpView
 @using LiveChartsCore.SkiaSharpView.Blazor
 @using LiveChartsCore.SkiaSharpView.Painting
-@inject OptionsService OptionsService
+@inject PositionBuilderViewModel ViewModel
 
 <PageTitle>Multi-leg ETH/USDT Position</PageTitle>
 
 <MudStack Spacing="3">
     <MudCard>
         <MudCardContent>
-            <MudStack Row="true" AlignItems="Center" JustifyContent="SpaceBetween">
-                <MudStack Spacing="0.5">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                <MudStack Spacing="1">
                     <MudText Typo="Typo.h4">@ViewModel.Pair Position</MudText>
                     <MudText Typo="Typo.subtitle2">Construct calls, puts, and futures legs for the pair.</MudText>
                 </MudStack>
@@ -53,10 +53,12 @@
                 </HeaderContent>
                 <RowTemplate>
                     <MudTd DataLabel="Include">
-                        <MudCheckBox Checked="@context.IsIncluded" CheckedChanged="checkedValue => OnLegIncludedChanged(context, checkedValue)" />
+                        <MudCheckBox T="bool"
+                                     Value="@context.IsIncluded"
+                                     ValueChanged="checkedValue => OnLegIncludedChanged(context, checkedValue)" />
                     </MudTd>
                     <MudTd DataLabel="Type">
-                        <MudSelect Value="@context.Type" ValueChanged="type => OnLegTypeChanged(context, type)" Dense="true">
+                        <MudSelect T="OptionLegType" Value="@context.Type" ValueChanged="type => OnLegTypeChanged(context, type)" Dense="true">
                             @foreach (var type in LegTypes)
                             {
                                 <MudSelectItem Value="@type">@type</MudSelectItem>
@@ -64,21 +66,24 @@
                         </MudSelect>
                     </MudTd>
                     <MudTd DataLabel="Strike">
-                        <MudNumericField T="double" Value="@context.Strike" ValueChanged="value => OnLegStrikeChanged(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="USDT" Dense="true" />
+                        <MudNumericField T="double" Value="@context.Strike" ValueChanged="value => OnLegStrikeChanged(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="USDT" />
                     </MudTd>
                     <MudTd DataLabel="Expiration">
-                        <MudDatePicker @bind-Date="context.ExpirationDate" DateChanged="date => OnExpirationChanged(context, date)" DisplayFormat="yyyy-MM-dd" Class="full-width" />
+                        <MudDatePicker Date="context.ExpirationDate"
+                                       DateChanged="date => OnExpirationChanged(context, date)"
+                                       DateFormat="yyyy-MM-dd"
+                                       Class="full-width" />
                     </MudTd>
                     <MudTd DataLabel="Size">
-                        <MudNumericField T="double" Value="@context.Size" ValueChanged="value => OnLegSizeChanged(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" />
+                        <MudNumericField T="double" Value="@context.Size" ValueChanged="value => OnLegSizeChanged(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" />
                     </MudTd>
                     <MudTd DataLabel="Price">
-                        <MudNumericField T="double" Value="@context.Price" ValueChanged="value => OnLegPriceChanged(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="USDT" Dense="true" />
+                        <MudNumericField T="double" Value="@context.Price" ValueChanged="value => OnLegPriceChanged(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="USDT" />
                     </MudTd>
                     <MudTd DataLabel="IV">
-                        <MudNumericField T="double" Value="@context.ImpliedVolatility" ValueChanged="value => OnLegIvChanged(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="%" Dense="true" />
+                        <MudNumericField T="double" Value="@context.ImpliedVolatility" ValueChanged="value => OnLegIvChanged(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="%" />
                     </MudTd>
-                    <MudTd DataLabel="Actions" Align="Align.End">
+                    <MudTd DataLabel="Actions" Style="text-align:right;">
                         <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="() => OnRemoveLeg(context)" />
                     </MudTd>
                 </RowTemplate>
@@ -88,13 +93,10 @@
 </MudStack>
 
 @code {
-    private PositionBuilderViewModel ViewModel = default!;
-
     private IEnumerable<OptionLegType> LegTypes => Enum.GetValues<OptionLegType>();
 
     protected override void OnInitialized()
     {
-        ViewModel = new PositionBuilderViewModel(OptionsService);
         ViewModel.InitializeDefaultPosition();
     }
 
