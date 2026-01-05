@@ -50,15 +50,8 @@ window.payoffChart = {
                     type: 'inside',
                     xAxisIndex: 0,
                     filterMode: 'filter',
-                    zoomOnMouseWheel: 'shift',
+                    zoomOnMouseWheel: true,
                     moveOnMouseMove: true
-                },
-                {
-                    type: 'slider',
-                    xAxisIndex: 0,
-                    filterMode: 'filter',
-                    height: 24,
-                    bottom: 10
                 }
             ],
             series: [
