@@ -13,7 +13,6 @@
                         <MudText Typo="Typo.h4">Positions</MudText>
                         <MudText Typo="Typo.subtitle2">Construct calls, puts, and futures legs for the pair.</MudText>
                     </MudStack>
-                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.LibraryAdd" OnClick="CreatePosition">New position</MudButton>
                 </MudStack>
                 <MudSwipeArea Class="position-swipe-area" OnSwipeEnd="OnSwipeEnd">
                     <MudTabs Class="position-tabs"
@@ -24,17 +23,40 @@
                              Elevation="0">
                         @for (var i = 0; i < ViewModel.Positions.Count; i++)
                         {
-                            <MudTabPanel Text="@ViewModel.Positions[i].Pair" />
+                            var position = ViewModel.Positions[i];
+
+                            <MudTabPanel @key="position.Id">
+                                <TabContent>
+                                    @if (_activeTabIndex == i)
+                                    {
+                                        <MudTextField T="string"
+                                                      Class="tab-name-field"
+                                                      Value="@position.Pair"
+                                                      ValueChanged="async pair => await OnPairChanged(position, pair)"
+                                                      Immediate="true"
+                                                      Margin="Margin.Dense"
+                                                      Variant="Variant.Outlined"
+                                                      Placeholder="Position name" />
+                                    }
+                                    else
+                                    {
+                                        <MudText Class="tab-name-label">@position.Pair</MudText>
+                                    }
+                                </TabContent>
+                            </MudTabPanel>
                         }
+                        <MudTabPanel Class="add-tab-panel" Disabled="true">
+                            <TabContent>
+                                <MudIconButton Icon="@Icons.Material.Filled.Add"
+                                               Color="Color.Primary"
+                                               Size="Size.Medium"
+                                               Variant="Variant.Text"
+                                               Class="add-tab-button"
+                                               OnClick="CreatePosition" />
+                            </TabContent>
+                        </MudTabPanel>
                     </MudTabs>
                 </MudSwipeArea>
-                <MudTextField Value="@ViewModel.Pair"
-                               ValueChanged="async (string pair) => await OnPairChanged(pair)"
-                               Label="Pair"
-                               Variant="Variant.Outlined"
-                               Margin="Margin.Dense"
-                               Adornment="Adornment.Start"
-                               AdornmentIcon="@Icons.Material.Filled.Link" />
             </MudStack>
         </MudCardContent>
         <MudCardContent Class="chart-container">
@@ -119,6 +141,23 @@
 
     .position-tabs .mud-tabs-toolbar-content {
         flex-wrap: nowrap;
+    }
+
+    .tab-name-field {
+        min-width: 140px;
+    }
+
+    .tab-name-label {
+        display: inline-block;
+        max-width: 180px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        padding: 6px 12px;
+    }
+
+    .add-tab-panel .mud-tab { 
+        padding: 0 6px;
     }
 </style>
 
@@ -272,6 +311,12 @@
 
     private async Task OnTabChanged(int index)
     {
+        if (index == ViewModel.Positions.Count)
+        {
+            await CreatePosition();
+            return;
+        }
+
         if (index < 0 || index >= ViewModel.Positions.Count)
         {
             SyncActiveTabIndex();
@@ -289,11 +334,16 @@
         }
     }
 
-    private async Task OnPairChanged(string pair)
+    private async Task OnPairChanged(PositionModel position, string pair)
     {
-        await ViewModel.UpdatePairAsync(pair);
-        ViewModel.UpdateChart();
-        await RenderChartAsync();
+        await ViewModel.UpdatePairAsync(position, pair);
+
+        if (ReferenceEquals(ViewModel.SelectedPosition, position))
+        {
+            ViewModel.UpdateChart();
+            await RenderChartAsync();
+        }
+
         StateHasChanged();
     }
 }

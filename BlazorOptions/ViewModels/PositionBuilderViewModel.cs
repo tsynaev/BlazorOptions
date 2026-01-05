@@ -22,8 +22,6 @@ public class PositionBuilderViewModel
 
     public PositionModel? SelectedPosition { get; private set; }
 
-    public string Pair => SelectedPosition?.Pair ?? string.Empty;
-
     public ObservableCollection<OptionLegModel> Legs => SelectedPosition?.Legs ?? EmptyLegs;
 
     public EChartConfig ChartConfig { get; private set; } = new(Array.Empty<string>(), Array.Empty<double>(), 0, 0);
@@ -112,14 +110,9 @@ public class PositionBuilderViewModel
         return true;
     }
 
-    public async Task UpdatePairAsync(string pair)
+    public async Task UpdatePairAsync(PositionModel position, string pair)
     {
-        if (SelectedPosition is null)
-        {
-            return;
-        }
-
-        SelectedPosition.Pair = pair;
+        position.Pair = pair;
         await PersistPositionsAsync();
     }
 
