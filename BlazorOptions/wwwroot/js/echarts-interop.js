@@ -26,8 +26,13 @@ window.payoffChart = {
                 trigger: 'axis',
                 formatter: function (params) {
                     if (!params || !params.length) return '';
-                    const point = params[0];
-                    return `Price: ${labels[point.dataIndex]}<br/>P/L: ${point.value.toFixed(2)}`;
+                    const validPoint = params.find(p => p && p.value !== null && p.value !== undefined && !Number.isNaN(p.value));
+                    if (!validPoint) return '';
+
+                    const price = labels[validPoint.dataIndex];
+                    const profit = Number(validPoint.value).toFixed(2);
+
+                    return `Price: ${price}<br/>P/L: ${profit}`;
                 }
             },
             xAxis: {
