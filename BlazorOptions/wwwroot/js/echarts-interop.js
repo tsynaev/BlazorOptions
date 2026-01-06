@@ -78,19 +78,18 @@ window.payoffChart = {
             ? {
                 silent: true,
                 symbol: 'none',
-                lineStyle: { color: '#6A1B9A', width: 1.5, type: 'solid' },
+                lineStyle: { color: '#9E9E9E', width: 1.5, type: 'dashed' },
                 label: {
                     show: true,
-                    formatter: function () { return `Index Price\n${Number(tempPrice).toFixed(0)}`; },
+                    formatter: function () { return `Future: ${Number(tempPrice).toFixed(0)}`; },
                     rotate: 90,
-                    position: 'end',
-                    align: 'left',
+                    position: 'middle',
+                    align: 'center',
                     verticalAlign: 'middle',
                     fontSize: 11,
-                    color: '#4A148C',
-                    padding: [6, 6, 6, 6],
-                    backgroundColor: 'rgba(106, 27, 154, 0.06)',
-                    borderRadius: 4
+                    color: '#455A64',
+                    padding: [2, 2, 2, 2],
+                    backgroundColor: 'transparent'
                 },
                 data: [
                     { xAxis: Number(tempPrice) }
@@ -231,13 +230,13 @@ window.payoffChart = {
                         show: tempPoint.length > 0,
                         formatter: function (params) {
                             if (!params || !params.value || params.value.length < 2) return '';
-                            return `Temp: ${Number(params.value[1]).toFixed(2)}`;
+                            return `${Number(params.value[1]).toFixed(2)}`;
                         },
                         position: 'top',
                         fontSize: 11,
-                        backgroundColor: 'rgba(25,118,210,0.1)',
-                        padding: [4, 6],
-                        borderRadius: 4
+                        backgroundColor: 'transparent',
+                        padding: [2, 4],
+                        color: '#0D47A1'
                     }
                 },
                 {
@@ -250,13 +249,13 @@ window.payoffChart = {
                         show: tempExpiryPoint.length > 0,
                         formatter: function (params) {
                             if (!params || !params.value || params.value.length < 2) return '';
-                            return `Expiry: ${Number(params.value[1]).toFixed(2)}`;
+                            return `${Number(params.value[1]).toFixed(2)}`;
                         },
                         position: 'top',
                         fontSize: 11,
-                        backgroundColor: 'rgba(142,36,170,0.1)',
-                        padding: [4, 6],
-                        borderRadius: 4
+                        backgroundColor: 'transparent',
+                        padding: [2, 4],
+                        color: '#4A148C'
                     }
                 },
                 {
