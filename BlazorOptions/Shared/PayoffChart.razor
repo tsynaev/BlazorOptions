@@ -1,7 +1,7 @@
 @using Microsoft.JSInterop
 @implements IAsyncDisposable
 
-<div class="chart-host">
+<div class="chart-host @Class" style="@($"height:{Height};{Style}")">
     <div class="echart" @ref="_chartRef"></div>
 </div>
 
@@ -11,6 +11,15 @@
 
     [Parameter]
     public EventCallback<double> PriceSelected { get; set; }
+
+    [Parameter]
+    public string Height { get; set; } = "360px";
+
+    [Parameter]
+    public string? Class { get; set; }
+
+    [Parameter]
+    public string? Style { get; set; }
 
     [Inject]
     private IJSRuntime JS { get; set; } = default!;

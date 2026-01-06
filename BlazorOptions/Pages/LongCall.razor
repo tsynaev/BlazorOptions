@@ -62,9 +62,11 @@
         </MudCardContent>
         <MudCardContent Class="chart-container">
             <MudPaper Class="pa-4 chart-surface" Elevation="0">
-                <MudStack Spacing="2">
+                <MudStack Spacing="2" Style="height:100%;">
                     <PayoffChart Config="@ViewModel.ChartConfig"
                                  PriceSelected="HandleChartPriceSelected"
+                                 Height="100%"
+                                 Style="flex:1; min-height:320px;"
                                  @ref="_chart" />
                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
                         <MudText Typo="Typo.subtitle2">Adjust price</MudText>
