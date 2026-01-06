@@ -24,7 +24,7 @@ public class PositionBuilderViewModel
 
     public ObservableCollection<OptionLegModel> Legs => SelectedPosition?.Legs ?? EmptyLegs;
 
-    public EChartConfig ChartConfig { get; private set; } = new(Guid.Empty, Array.Empty<string>(), Array.Empty<double>(), 0, 0);
+    public EChartConfig ChartConfig { get; private set; } = new(Guid.Empty, Array.Empty<double>(), Array.Empty<string>(), Array.Empty<double>(), 0, 0);
 
     public async Task InitializeAsync()
     {
@@ -134,7 +134,7 @@ public class PositionBuilderViewModel
 
         var positionId = SelectedPosition?.Id ?? Guid.Empty;
 
-        ChartConfig = new EChartConfig(positionId, labels, profits, minProfit - padding, maxProfit + padding);
+        ChartConfig = new EChartConfig(positionId, xs, labels, profits, minProfit - padding, maxProfit + padding);
     }
 
     public async Task<bool> RemovePositionAsync(Guid positionId)
@@ -197,5 +197,5 @@ public class PositionBuilderViewModel
         return position;
     }
 
-    public record EChartConfig(Guid PositionId, string[] Labels, IReadOnlyList<double> Profits, double YMin, double YMax);
+    public record EChartConfig(Guid PositionId, double[] Prices, string[] Labels, IReadOnlyList<double> Profits, double YMin, double YMax);
 }

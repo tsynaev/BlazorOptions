@@ -4,6 +4,7 @@
 @inject IDialogService DialogService
 @using System.Linq
 @using Microsoft.AspNetCore.Components.Web
+@using BlazorOptions.Shared
 
 <PageTitle>Multi-leg ETH/USDT Position</PageTitle>
 
@@ -11,10 +12,25 @@
     <MudCard>
         <MudCardContent>
             <MudStack Spacing="2">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                    <MudStack Spacing="1">
-                        <MudText Typo="Typo.h4">Positions</MudText>
-                        <MudText Typo="Typo.subtitle2">Construct calls, puts, and futures legs for the pair.</MudText>
+                <MudStack Spacing="1">
+                    <MudText Typo="Typo.h4">Positions</MudText>
+                    <MudText Typo="Typo.subtitle2">Construct calls, puts, and futures legs for the pair.</MudText>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                        <MudTooltip Text="Add position">
+                            <MudIconButton Icon="@Icons.Material.Filled.AddCircle" Color="Color.Primary" OnClick="CreatePosition" />
+                        </MudTooltip>
+                        <MudMenu Icon="@Icons.Material.Filled.MoreVert"
+                                 Disabled="@(!HasActivePosition)"
+                                 Dense="true"
+                                 AnchorOrigin="Origin.BottomCenter"
+                                 TransformOrigin="Origin.TopCenter">
+                            <MudMenuItem Disabled="@(!HasActivePosition)" OnClick="OpenRenameDialogAsync">
+                                <MudIcon Icon="@Icons.Material.Filled.Edit" Class="mr-2" /> Edit position
+                            </MudMenuItem>
+                            <MudMenuItem Disabled="@(!HasActivePosition)" OnClick="async () => await ConfirmAndRemovePositionAsync(ViewModel.SelectedPosition!)">
+                                <MudIcon Icon="@Icons.Material.Filled.Delete" Class="mr-2" /> Delete position
+                            </MudMenuItem>
+                        </MudMenu>
                     </MudStack>
                 </MudStack>
                 <MudSwipeArea Class="position-swipe-area" OnSwipeEnd="OnSwipeEnd">
@@ -24,9 +40,6 @@
                                      AlwaysShowScrollButtons="true"
                                      Rounded="true"
                                      Elevation="0"
-                                     AddTabIcon="@Icons.Material.Filled.Add"
-                                     AddIconToolTip="Add position"
-                                     AddTab="CreatePosition"
                                      CloseTab="OnCloseTab">
                         @for (var i = 0; i < ViewModel.Positions.Count; i++)
                         {
@@ -35,36 +48,7 @@
                             <MudTabPanel @key="position.Id" Text="@position.Id.ToString()">
                                 <TabContent>
                                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="tab-header">
-                                        @if (_editingTabId == position.Id)
-                                        {
-                                            <MudTextField T="string"
-                                                          Class="tab-name-field"
-                                                          Value="@position.Pair"
-                                                          ValueChanged="async pair => await OnPairChanged(position, pair)"
-                                                          Immediate="true"
-                                                          Margin="Margin.Dense"
-                                                          Variant="Variant.Outlined"
-                                                          Placeholder="Position name"
-                                                          OnBlur="() => EndTabEditing(position.Id)"
-                                                          OnKeyDown="@(args => OnTabEditKeyDown(args, position.Id))" />
-                                        }
-                                        else
-                                        {
-                                            <MudText Class="tab-name-label"
-                                                     @ondblclick="async () => await BeginTabEditingAsync(position, i)">@position.Pair</MudText>
-                                        }
-
-                                        <MudMenu Icon="@Icons.Material.Filled.MoreVert"
-                                                 Dense="true"
-                                                 AnchorOrigin="Origin.BottomCenter"
-                                                 TransformOrigin="Origin.TopCenter">
-                                            <MudMenuItem OnClick="async () => await BeginTabEditingAsync(position, i)">
-                                                <MudIcon Icon="@Icons.Material.Filled.Edit" Class="mr-2" /> Rename
-                                            </MudMenuItem>
-                                            <MudMenuItem OnClick="async () => await ConfirmAndRemovePositionAsync(position)">
-                                                <MudIcon Icon="@Icons.Material.Filled.Delete" Class="mr-2" /> Delete
-                                            </MudMenuItem>
-                                        </MudMenu>
+                                        <MudText Class="tab-name-label">@position.Pair</MudText>
                                     </MudStack>
                                 </TabContent>
                             </MudTabPanel>
@@ -174,9 +158,10 @@
 @code {
     private ElementReference _chartRef;
     private int _activeTabIndex;
-    private Guid? _editingTabId;
     private bool _chartNeedsRender;
     private IEnumerable<OptionLegType> LegTypes => Enum.GetValues<OptionLegType>();
+
+    private bool HasActivePosition => ViewModel.SelectedPosition is not null;
 
     protected override async Task OnInitializedAsync()
     {
@@ -192,33 +177,6 @@
         {
             _chartNeedsRender = false;
             await RenderChartAsync();
-        }
-    }
-
-    private void EndTabEditing(Guid positionId)
-    {
-        if (_editingTabId == positionId)
-        {
-            _editingTabId = null;
-        }
-    }
-
-    private async Task BeginTabEditingAsync(PositionModel position, int index)
-    {
-        if (_activeTabIndex != index)
-        {
-            await OnTabChanged(index);
-        }
-
-        _editingTabId = position.Id;
-        StateHasChanged();
-    }
-
-    private void OnTabEditKeyDown(KeyboardEventArgs args, Guid positionId)
-    {
-        if (args.Key == "Enter" || args.Key == "Escape")
-        {
-            EndTabEditing(positionId);
         }
     }
 
@@ -329,7 +287,6 @@
     {
         await ViewModel.AddPositionAsync();
         _activeTabIndex = Math.Max(0, ViewModel.Positions.Count - 1);
-        _editingTabId = ViewModel.SelectedPosition?.Id;
         await RenderChartAsync();
         StateHasChanged();
     }
@@ -350,8 +307,6 @@
 
     private async Task OnTabChanged(int index)
     {
-        _editingTabId = null;
-
         if (index < 0 || index >= ViewModel.Positions.Count)
         {
             SyncActiveTabIndex();
@@ -369,19 +324,6 @@
         }
     }
 
-    private async Task OnPairChanged(PositionModel position, string pair)
-    {
-        await ViewModel.UpdatePairAsync(position, pair);
-
-        if (ReferenceEquals(ViewModel.SelectedPosition, position))
-        {
-            ViewModel.UpdateChart();
-            await RenderChartAsync();
-        }
-
-        StateHasChanged();
-    }
-
     private async Task OnCloseTab(MudTabPanel panel)
     {
         if (panel?.Text is null || !Guid.TryParse(panel.Text, out var positionId))
@@ -390,6 +332,44 @@
         }
 
         await ConfirmAndRemovePositionAsync(positionId);
+    }
+
+    private async Task OpenRenameDialogAsync()
+    {
+        if (ViewModel.SelectedPosition is null)
+        {
+            return;
+        }
+
+        var parameters = new DialogParameters
+        {
+            [nameof(PositionNameDialog.InitialName)] = ViewModel.SelectedPosition.Pair
+        };
+
+        var options = new DialogOptions
+        {
+            CloseOnEscapeKey = true,
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true
+        };
+
+        var dialog = await DialogService.ShowAsync<PositionNameDialog>("Edit position", parameters, options);
+        var result = await dialog.Result;
+
+        if (result is null || result.Canceled || result.Data is not string name)
+        {
+            return;
+        }
+
+        var active = ViewModel.SelectedPosition;
+
+        if (active is null)
+        {
+            return;
+        }
+
+        await ViewModel.UpdatePairAsync(active, name);
+        StateHasChanged();
     }
 
     private async Task ConfirmAndRemovePositionAsync(PositionModel position)

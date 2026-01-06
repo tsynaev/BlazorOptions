@@ -7,13 +7,14 @@ window.payoffChart = {
 
         const labels = options.labels || [];
         const profits = options.profits || [];
+        const prices = (options.prices && options.prices.length ? options.prices : labels) || [];
         const yMin = options.yMin ?? 'dataMin';
         const yMax = options.yMax ?? 'dataMax';
         const positionKey = options.positionId || 'default';
 
         const priceRangeKey = `payoffChart:${positionKey}:priceRange`;
         const pnlRangeKey = `payoffChart:${positionKey}:pnlRange`;
-        const numericLabels = labels.map(label => Number(label));
+        const numericPrices = prices.map(label => Number(label));
         const ySpan = Math.abs(Number(yMax) - Number(yMin)) || 1;
         const paddedYMin = typeof yMin === 'number' ? yMin - ySpan * 0.5 : yMin;
         const paddedYMax = typeof yMax === 'number' ? yMax + ySpan * 0.5 : yMax;
@@ -37,9 +38,6 @@ window.payoffChart = {
         const priceRange = loadRange(priceRangeKey);
         const pnlRange = loadRange(pnlRangeKey);
 
-        const positiveProfits = profits.map(v => (v > 0 ? v : null));
-        const negativeProfits = profits.map(v => (v < 0 ? v : null));
-
         const priceZoomInside = {
             type: 'inside',
             xAxisIndex: 0,
@@ -61,6 +59,27 @@ window.payoffChart = {
             endValue: pnlRange?.end ?? paddedYMax
         };
 
+        const pricePoints = numericPrices.map((price, index) => [price, profits[index]]);
+        const positivePoints = pricePoints.map(([price, value]) => [price, value > 0 ? value : null]);
+        const negativePoints = pricePoints.map(([price, value]) => [price, value < 0 ? value : null]);
+
+        const breakEvens = [];
+        for (let i = 1; i < pricePoints.length; i++) {
+            const [prevPrice, prevProfit] = pricePoints[i - 1];
+            const [currPrice, currProfit] = pricePoints[i];
+
+            if (prevProfit === undefined || currProfit === undefined) continue;
+            if ((prevProfit <= 0 && currProfit >= 0) || (prevProfit >= 0 && currProfit <= 0)) {
+                const deltaProfit = currProfit - prevProfit;
+                const ratio = deltaProfit === 0 ? 0 : -prevProfit / deltaProfit;
+                const price = prevPrice + (currPrice - prevPrice) * ratio;
+
+                if (Number.isFinite(price)) {
+                    breakEvens.push(price);
+                }
+            }
+        }
+
         chart.setOption({
             grid: { left: 60, right: 20, top: 20, bottom: 50 },
             toolbox: {
@@ -72,23 +91,28 @@ window.payoffChart = {
             },
             tooltip: {
                 trigger: 'axis',
+                axisPointer: { type: 'line' },
                 formatter: function (params) {
                     if (!params || !params.length) return '';
-                    const validPoint = params.find(p => p && p.value !== null && p.value !== undefined && !Number.isNaN(p.value));
+                    const validPoint = params.find(p => p && p.value && p.value.length === 2 && p.value[1] !== null && p.value[1] !== undefined && !Number.isNaN(p.value[1]));
                     if (!validPoint) return '';
 
-                    const price = labels[validPoint.dataIndex];
-                    const profit = Number(validPoint.value).toFixed(2);
+                    const price = Number(validPoint.value[0]).toFixed(0);
+                    const profit = Number(validPoint.value[1]).toFixed(2);
 
                     return `Price: ${price}<br/>P/L: ${profit}`;
                 }
             },
             xAxis: {
-                type: 'category',
-                data: labels,
-                boundaryGap: false,
-                axisLabel: { interval: 'auto' },
-                axisPointer: { snap: true }
+                type: 'value',
+                min: 'dataMin',
+                max: 'dataMax',
+                boundaryGap: ['2%', '2%'],
+                axisLabel: {
+                    formatter: function (value) {
+                        return Number(value).toFixed(0);
+                    }
+                }
             },
             yAxis: {
                 type: 'value',
@@ -112,7 +136,7 @@ window.payoffChart = {
                     name: 'P/L (Profit)',
                     type: 'line',
                     smooth: true,
-                    data: positiveProfits,
+                    data: positivePoints,
                     symbol: 'none',
                     lineStyle: {
                         color: '#4CAF50',
@@ -126,7 +150,7 @@ window.payoffChart = {
                     name: 'P/L (Loss)',
                     type: 'line',
                     smooth: true,
-                    data: negativeProfits,
+                    data: negativePoints,
                     symbol: 'none',
                     lineStyle: {
                         color: '#F44336',
@@ -135,6 +159,24 @@ window.payoffChart = {
                     areaStyle: {
                         color: 'rgba(244, 67, 54, 0.15)'
                     }
+                },
+                {
+                    name: 'Break-even',
+                    type: 'scatter',
+                    data: breakEvens.map(price => ({
+                        value: [price, 0],
+                        symbolSize: 10,
+                        itemStyle: { color: '#607D8B' },
+                        label: {
+                            show: true,
+                            formatter: function (params) { return Number(params.value[0]).toFixed(0); },
+                            position: 'top',
+                            fontSize: 10,
+                            color: '#37474F',
+                            padding: [4, 6, 2, 6]
+                        }
+                    })),
+                    tooltip: { show: false }
                 }
             ]
         }, true);
@@ -163,8 +205,8 @@ window.payoffChart = {
             const priceZoom = zoomState.find(z => z.xAxisIndex !== undefined);
             const pnlZoom = zoomState.find(z => z.yAxisIndex !== undefined);
 
-            const firstLabel = numericLabels.length > 0 ? numericLabels[0] : 0;
-            const lastLabel = numericLabels.length > 0 ? numericLabels[numericLabels.length - 1] : firstLabel;
+            const firstLabel = numericPrices.length > 0 ? numericPrices[0] : 0;
+            const lastLabel = numericPrices.length > 0 ? numericPrices[numericPrices.length - 1] : firstLabel;
 
             const defaultPriceRange = priceRange ?? { start: firstLabel, end: lastLabel };
             const defaultPnlRange = pnlRange ?? { start: paddedYMin, end: paddedYMax };
