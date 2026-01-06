@@ -379,6 +379,36 @@ window.payoffChart = {
                 }
             };
 
+            const pickPriceFromPixels = (x, y) => {
+                const coords = chart.convertFromPixel({ xAxisIndex: 0 }, [x, y]);
+                let price = Array.isArray(coords) ? Number(coords[0]) : Number(coords);
+
+                if (Number.isFinite(price)) {
+                    return price;
+                }
+
+                if (!numericPrices.length) {
+                    return null;
+                }
+
+                const minPricePixel = chart.convertToPixel({ xAxisIndex: 0 }, numericPrices[0]);
+                const maxPricePixel = chart.convertToPixel({ xAxisIndex: 0 }, numericPrices[numericPrices.length - 1]);
+
+                if (!Number.isFinite(minPricePixel) || !Number.isFinite(maxPricePixel)) {
+                    return null;
+                }
+
+                const lower = Math.min(minPricePixel, maxPricePixel);
+                const upper = Math.max(minPricePixel, maxPricePixel);
+                const clampedX = Math.min(Math.max(x, lower), upper);
+                const safeY = Number.isFinite(y) ? y : chart.getHeight() / 2;
+                const clampedCoords = chart.convertFromPixel({ xAxisIndex: 0 }, [clampedX, safeY]);
+
+                return Array.isArray(clampedCoords) && clampedCoords.length > 0
+                    ? Number(clampedCoords[0])
+                    : null;
+            };
+
             chart.on('click', (params) => {
                 const extractValue = (value) => {
                     if (Array.isArray(value)) {
@@ -399,32 +429,23 @@ window.payoffChart = {
                 let price = fromParams;
 
                 if (!Number.isFinite(price) && params?.event) {
-                    const coords = chart.convertFromPixel({ xAxisIndex: 0 }, [params.event.offsetX, params.event.offsetY ?? 0]);
-
-                    if (Array.isArray(coords) && coords.length > 0) {
-                        price = Number(coords[0]);
-                    }
+                    price = pickPriceFromPixels(params.event.offsetX, params.event.offsetY ?? 0);
                 }
 
                 invokeSelection(price);
             });
 
             chart.getZr().on('click', (event) => {
-                const coords = chart.convertFromPixel({ xAxisIndex: 0 }, [event.offsetX, event.offsetY ?? 0]);
-                if (Array.isArray(coords) && coords.length > 0) {
-                    invokeSelection(coords[0]);
-                }
+                const price = pickPriceFromPixels(event.offsetX, event.offsetY ?? 0);
+                invokeSelection(price);
             });
 
             const domClickHandler = (event) => {
                 const rect = element.getBoundingClientRect();
                 const localX = event.clientX - rect.left;
                 const localY = event.clientY - rect.top;
-                const coords = chart.convertFromPixel({ xAxisIndex: 0 }, [localX, localY]);
-
-                if (Array.isArray(coords) && coords.length > 0) {
-                    invokeSelection(coords[0]);
-                }
+                const price = pickPriceFromPixels(localX, localY);
+                invokeSelection(price);
             };
 
             element.__payoffDomClick = domClickHandler;

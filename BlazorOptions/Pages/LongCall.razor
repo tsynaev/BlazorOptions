@@ -62,9 +62,24 @@
         </MudCardContent>
         <MudCardContent Class="chart-container">
             <MudPaper Class="pa-4 chart-surface" Elevation="0">
-                <PayoffChart Config="@ViewModel.ChartConfig"
-                             PriceSelected="HandleChartPriceSelected"
-                             @ref="_chart" />
+                <MudStack Spacing="2">
+                    <PayoffChart Config="@ViewModel.ChartConfig"
+                                 PriceSelected="HandleChartPriceSelected"
+                                 @ref="_chart" />
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                        <MudText Typo="Typo.subtitle2">Adjust price</MudText>
+                        <MudSlider T="double"
+                                   Value="@ViewModel.TemporaryUnderlyingPrice"
+                                   ValueChanged="OnTemporaryPriceChanged"
+                                   Disabled="@(!HasActivePosition)"
+                                   Min="@PriceSliderMin"
+                                   Max="@PriceSliderMax"
+                                   Step="1"
+                                   Immediate="true"
+                                   Style="flex:1;" />
+                        <MudText Typo="Typo.subtitle2">@ViewModel.TemporaryUnderlyingPrice.ToString("0")</MudText>
+                    </MudStack>
+                </MudStack>
             </MudPaper>
         </MudCardContent>
     </MudCard>
@@ -432,5 +447,16 @@
     {
         ViewModel.UpdateChart();
         return InvokeAsync(StateHasChanged);
+    }
+
+    private double PriceSliderMin => ViewModel.ChartConfig.Prices.FirstOrDefault();
+
+    private double PriceSliderMax
+    {
+        get
+        {
+            var prices = ViewModel.ChartConfig.Prices;
+            return prices.Length == 0 ? PriceSliderMin + 1 : prices[^1];
+        }
     }
 }
