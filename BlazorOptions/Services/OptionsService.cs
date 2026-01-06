@@ -47,14 +47,23 @@ namespace BlazorOptions
                 points = 20;
             }
 
-            var xs = new double[points];
-            var profits = new double[points];
-            var step = (end - start) / (points - 1);
+            var roughStep = (end - start) / (points - 1);
+            var niceStep = CalculateNiceStep(roughStep);
 
-            for (int i = 0; i < points; i++)
+            start = Math.Floor(start / niceStep) * niceStep;
+            end = Math.Ceiling(end / niceStep) * niceStep;
+
+            var steps = Math.Max(20, (int)Math.Min(points - 1, Math.Ceiling((end - start) / niceStep)));
+            var adjustedStep = (end - start) / steps;
+            var count = steps + 1;
+
+            var xs = new double[count];
+            var profits = new double[count];
+
+            for (int i = 0; i < count; i++)
             {
-                var s = start + step * i;
-                xs[i] = s;
+                var s = start + adjustedStep * i;
+                xs[i] = Math.Round(s, 2);
                 profits[i] = CalculateProfitForPrice(activeLegs, s);
             }
 
@@ -84,6 +93,37 @@ namespace BlazorOptions
             }
 
             return total;
+        }
+
+        private static double CalculateNiceStep(double step)
+        {
+            if (step <= 0)
+            {
+                return 1;
+            }
+
+            var exponent = Math.Floor(Math.Log10(step));
+            var fraction = step / Math.Pow(10, exponent);
+            double niceFraction;
+
+            if (fraction <= 1)
+            {
+                niceFraction = 1;
+            }
+            else if (fraction <= 2)
+            {
+                niceFraction = 2;
+            }
+            else if (fraction <= 5)
+            {
+                niceFraction = 5;
+            }
+            else
+            {
+                niceFraction = 10;
+            }
+
+            return niceFraction * Math.Pow(10, exponent);
         }
     }
 }
