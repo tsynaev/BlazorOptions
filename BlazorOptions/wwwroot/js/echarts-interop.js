@@ -127,7 +127,28 @@ window.payoffChart = {
             },
             tooltip: {
                 trigger: 'axis',
-                axisPointer: { type: 'line' },
+                axisPointer: {
+                    type: 'cross',
+                    snap: true,
+                    label: {
+                        show: true,
+                        backgroundColor: '#455A64',
+                        formatter: function (params) {
+                            const numeric = Number(params.value);
+                            if (!Number.isFinite(numeric)) return '';
+
+                            if (params.axisDimension === 'x') {
+                                return `Price: ${numeric.toFixed(0)}`;
+                            }
+
+                            if (params.axisDimension === 'y') {
+                                return `P/L: ${numeric.toFixed(2)}`;
+                            }
+
+                            return numeric.toFixed(2);
+                        }
+                    }
+                },
                 formatter: function (params) {
                     if (!params || !params.length) return '';
 
@@ -161,6 +182,16 @@ window.payoffChart = {
                     formatter: function (value) {
                         return Number(value).toFixed(0);
                     }
+                },
+                axisPointer: {
+                    show: true,
+                    snap: true,
+                    label: {
+                        formatter: function (params) {
+                            const numeric = Number(params.value);
+                            return Number.isFinite(numeric) ? `Price: ${numeric.toFixed(0)}` : '';
+                        }
+                    }
                 }
             },
             yAxis: {
@@ -174,7 +205,17 @@ window.payoffChart = {
                         return value.toFixed(0);
                     }
                 },
-                splitLine: { lineStyle: { color: '#e0e0e0' } }
+                splitLine: { lineStyle: { color: '#e0e0e0' } },
+                axisPointer: {
+                    show: true,
+                    snap: true,
+                    label: {
+                        formatter: function (params) {
+                            const numeric = Number(params.value);
+                            return Number.isFinite(numeric) ? `P/L: ${numeric.toFixed(2)}` : '';
+                        }
+                    }
+                }
             },
             dataZoom: [
                 priceZoomInside,
