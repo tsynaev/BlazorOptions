@@ -15,46 +15,48 @@
                 <MudStack Spacing="1">
                     <MudText Typo="Typo.h4">Positions</MudText>
                     <MudText Typo="Typo.subtitle2">Construct calls, puts, and futures legs for the pair.</MudText>
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                        <MudTooltip Text="Add position">
-                            <MudIconButton Icon="@Icons.Material.Filled.AddCircle" Color="Color.Primary" OnClick="CreatePosition" />
-                        </MudTooltip>
-                        <MudMenu Icon="@Icons.Material.Filled.MoreVert"
-                                 Disabled="@(!HasActivePosition)"
-                                 Dense="true"
-                                 AnchorOrigin="Origin.BottomCenter"
-                                 TransformOrigin="Origin.TopCenter">
-                            <MudMenuItem Disabled="@(!HasActivePosition)" OnClick="OpenRenameDialogAsync">
-                                <MudIcon Icon="@Icons.Material.Filled.Edit" Class="mr-2" /> Edit position
-                            </MudMenuItem>
-                            <MudMenuItem Disabled="@(!HasActivePosition)" OnClick="async () => await ConfirmAndRemovePositionAsync(ViewModel.SelectedPosition!)">
-                                <MudIcon Icon="@Icons.Material.Filled.Delete" Class="mr-2" /> Delete position
-                            </MudMenuItem>
-                        </MudMenu>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
+                        <MudSwipeArea Class="position-swipe-area" OnSwipeEnd="OnSwipeEnd">
+                            <MudDynamicTabs Class="position-tabs"
+                                             ActivePanelIndex="@_activeTabIndex"
+                                             ActivePanelIndexChanged="OnTabChanged"
+                                             AlwaysShowScrollButtons="false"
+                                             Rounded="true"
+                                             Elevation="0"
+                                             CloseTab="OnCloseTab">
+                                @for (var i = 0; i < ViewModel.Positions.Count; i++)
+                                {
+                                    var position = ViewModel.Positions[i];
+
+                                    <MudTabPanel @key="position.Id" Text="@position.Id.ToString()">
+                                        <TabContent>
+                                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="tab-header">
+                                                <MudText Class="tab-name-label">@position.Pair</MudText>
+                                            </MudStack>
+                                        </TabContent>
+                                    </MudTabPanel>
+                                }
+                            </MudDynamicTabs>
+                        </MudSwipeArea>
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                            <MudTooltip Text="Add position">
+                                <MudIconButton Icon="@Icons.Material.Filled.AddCircle" Color="Color.Primary" OnClick="CreatePosition" />
+                            </MudTooltip>
+                            <MudMenu Icon="@Icons.Material.Filled.MoreVert"
+                                     Disabled="@(!HasActivePosition)"
+                                     Dense="true"
+                                     AnchorOrigin="Origin.BottomCenter"
+                                     TransformOrigin="Origin.TopCenter">
+                                <MudMenuItem Disabled="@(!HasActivePosition)" OnClick="OpenRenameDialogAsync">
+                                    <MudIcon Icon="@Icons.Material.Filled.Edit" Class="mr-2" /> Edit position
+                                </MudMenuItem>
+                                <MudMenuItem Disabled="@(!HasActivePosition)" OnClick="async () => await ConfirmAndRemovePositionAsync(ViewModel.SelectedPosition!)">
+                                    <MudIcon Icon="@Icons.Material.Filled.Delete" Class="mr-2" /> Delete position
+                                </MudMenuItem>
+                            </MudMenu>
+                        </MudStack>
                     </MudStack>
                 </MudStack>
-                <MudSwipeArea Class="position-swipe-area" OnSwipeEnd="OnSwipeEnd">
-                    <MudDynamicTabs Class="position-tabs"
-                                     ActivePanelIndex="@_activeTabIndex"
-                                     ActivePanelIndexChanged="OnTabChanged"
-                                     AlwaysShowScrollButtons="true"
-                                     Rounded="true"
-                                     Elevation="0"
-                                     CloseTab="OnCloseTab">
-                        @for (var i = 0; i < ViewModel.Positions.Count; i++)
-                        {
-                            var position = ViewModel.Positions[i];
-
-                            <MudTabPanel @key="position.Id" Text="@position.Id.ToString()">
-                                <TabContent>
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="tab-header">
-                                        <MudText Class="tab-name-label">@position.Pair</MudText>
-                                    </MudStack>
-                                </TabContent>
-                            </MudTabPanel>
-                        }
-                    </MudDynamicTabs>
-                </MudSwipeArea>
             </MudStack>
         </MudCardContent>
         <MudCardContent Class="chart-container">
@@ -130,6 +132,8 @@
 <style>
     .position-swipe-area {
         display: block;
+        flex: 1;
+        min-width: 0;
     }
 
     .position-tabs .mud-tabs-toolbar {
