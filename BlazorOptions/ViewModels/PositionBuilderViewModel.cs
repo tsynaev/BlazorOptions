@@ -12,6 +12,8 @@ public class PositionBuilderViewModel
 
     private static readonly ObservableCollection<OptionLegModel> EmptyLegs = new();
 
+    public double TemporaryUnderlyingPrice { get; private set; }
+
     public PositionBuilderViewModel(OptionsService optionsService, PositionStorageService storageService)
     {
         _optionsService = optionsService;
@@ -24,7 +26,7 @@ public class PositionBuilderViewModel
 
     public ObservableCollection<OptionLegModel> Legs => SelectedPosition?.Legs ?? EmptyLegs;
 
-    public EChartConfig ChartConfig { get; private set; } = new(Guid.Empty, Array.Empty<double>(), Array.Empty<string>(), Array.Empty<double>(), 0, 0);
+    public EChartConfig ChartConfig { get; private set; } = new(Guid.Empty, Array.Empty<double>(), Array.Empty<string>(), Array.Empty<double>(), Array.Empty<double>(), null, null, 0, 0);
 
     public async Task InitializeAsync()
     {
@@ -35,7 +37,9 @@ public class PositionBuilderViewModel
             var defaultPosition = CreateDefaultPosition();
             Positions.Add(defaultPosition);
             SelectedPosition = defaultPosition;
+            TemporaryUnderlyingPrice = CalculateAnchorPrice(Legs);
             UpdateChart();
+            UpdateTemporaryPnls();
             await PersistPositionsAsync();
             return;
         }
@@ -46,7 +50,9 @@ public class PositionBuilderViewModel
         }
 
         SelectedPosition = Positions.FirstOrDefault();
+        TemporaryUnderlyingPrice = CalculateAnchorPrice(Legs);
         UpdateChart();
+        UpdateTemporaryPnls();
     }
 
     public async Task AddLegAsync()
@@ -66,6 +72,7 @@ public class PositionBuilderViewModel
             ExpirationDate = DateTime.UtcNow.Date.AddMonths(1)
         });
 
+        UpdateTemporaryPnls();
         await PersistPositionsAsync();
     }
 
@@ -80,6 +87,7 @@ public class PositionBuilderViewModel
         {
             SelectedPosition.Legs.Remove(leg);
             await PersistPositionsAsync();
+            UpdateTemporaryPnls();
             return true;
         }
 
@@ -91,7 +99,9 @@ public class PositionBuilderViewModel
         var position = CreateDefaultPosition(pair ?? $"Position {Positions.Count + 1}");
         Positions.Add(position);
         SelectedPosition = position;
+        TemporaryUnderlyingPrice = CalculateAnchorPrice(Legs);
         UpdateChart();
+        UpdateTemporaryPnls();
         await PersistPositionsAsync();
     }
 
@@ -105,7 +115,9 @@ public class PositionBuilderViewModel
         }
 
         SelectedPosition = position;
+        TemporaryUnderlyingPrice = CalculateAnchorPrice(Legs);
         UpdateChart();
+        UpdateTemporaryPnls();
         await Task.CompletedTask;
         return true;
     }
@@ -124,17 +136,43 @@ public class PositionBuilderViewModel
     public void UpdateChart()
     {
         var legs = SelectedPosition?.Legs ?? Enumerable.Empty<OptionLegModel>();
-        var (xs, profits) = _optionsService.GeneratePosition(legs, 180);
+        var activeLegs = legs.Where(l => l.IsIncluded).ToList();
+        var (xs, profits, theoreticalProfits) = _optionsService.GeneratePosition(activeLegs, 180);
 
         var labels = xs.Select(x => x.ToString("0")).ToArray();
-        var minProfit = profits.Min();
-        var maxProfit = profits.Max();
+        var minProfit = Math.Min(profits.Min(), theoreticalProfits.Min());
+        var maxProfit = Math.Max(profits.Max(), theoreticalProfits.Max());
+        var tempPnl = activeLegs.Any() ? _optionsService.CalculateTotalTheoreticalProfit(activeLegs, TemporaryUnderlyingPrice) : (double?)null;
+
+        if (tempPnl.HasValue)
+        {
+            minProfit = Math.Min(minProfit, tempPnl.Value);
+            maxProfit = Math.Max(maxProfit, tempPnl.Value);
+        }
+
         var range = Math.Abs(maxProfit - minProfit);
         var padding = Math.Max(10, range * 0.1);
 
         var positionId = SelectedPosition?.Id ?? Guid.Empty;
 
-        ChartConfig = new EChartConfig(positionId, xs, labels, profits, minProfit - padding, maxProfit + padding);
+        ChartConfig = new EChartConfig(positionId, xs, labels, profits, theoreticalProfits, TemporaryUnderlyingPrice, tempPnl, minProfit - padding, maxProfit + padding);
+    }
+
+    public void SetTemporaryUnderlyingPrice(double price)
+    {
+        TemporaryUnderlyingPrice = price;
+        UpdateTemporaryPnls();
+        UpdateChart();
+    }
+
+    public void UpdateTemporaryPnls()
+    {
+        var price = TemporaryUnderlyingPrice;
+
+        foreach (var leg in Legs)
+        {
+            leg.TemporaryPnl = leg.IsIncluded ? _optionsService.CalculateLegTheoreticalProfit(leg, price) : 0;
+        }
     }
 
     public async Task<bool> RemovePositionAsync(Guid positionId)
@@ -162,7 +200,9 @@ public class PositionBuilderViewModel
             }
         }
 
+        TemporaryUnderlyingPrice = CalculateAnchorPrice(Legs);
         UpdateChart();
+        UpdateTemporaryPnls();
         await PersistPositionsAsync();
         return true;
     }
@@ -197,5 +237,17 @@ public class PositionBuilderViewModel
         return position;
     }
 
-    public record EChartConfig(Guid PositionId, double[] Prices, string[] Labels, IReadOnlyList<double> Profits, double YMin, double YMax);
+    private static double CalculateAnchorPrice(IEnumerable<OptionLegModel> legs)
+    {
+        var activeLegs = legs.Where(l => l.IsIncluded).ToList();
+
+        if (activeLegs.Count == 0)
+        {
+            return 1000;
+        }
+
+        return activeLegs.Average(l => l.Strike > 0 ? l.Strike : l.Price);
+    }
+
+    public record EChartConfig(Guid PositionId, double[] Prices, string[] Labels, IReadOnlyList<double> Profits, IReadOnlyList<double> TheoreticalProfits, double? TemporaryPrice, double? TemporaryPnl, double YMin, double YMax);
 }

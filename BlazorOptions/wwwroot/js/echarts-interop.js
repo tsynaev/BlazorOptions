@@ -7,10 +7,13 @@ window.payoffChart = {
 
         const labels = options.labels || [];
         const profits = options.profits || [];
+        const theoreticalProfits = options.theoreticalProfits || [];
         const prices = (options.prices && options.prices.length ? options.prices : labels) || [];
         const yMin = options.yMin ?? 'dataMin';
         const yMax = options.yMax ?? 'dataMax';
         const positionKey = options.positionId || 'default';
+        const tempPrice = options.temporaryPrice;
+        const tempPnl = options.temporaryPnl;
 
         const priceRangeKey = `payoffChart:${positionKey}:priceRange`;
         const pnlRangeKey = `payoffChart:${positionKey}:pnlRange`;
@@ -62,6 +65,10 @@ window.payoffChart = {
         const pricePoints = numericPrices.map((price, index) => [price, profits[index]]);
         const positivePoints = pricePoints.map(([price, value]) => [price, value > 0 ? value : null]);
         const negativePoints = pricePoints.map(([price, value]) => [price, value < 0 ? value : null]);
+        const theoreticalPoints = numericPrices.map((price, index) => [price, theoreticalProfits[index]]);
+        const tempPoint = Number.isFinite(tempPrice) && Number.isFinite(tempPnl)
+            ? [{ value: [Number(tempPrice), Number(tempPnl)], symbolSize: 12 }]
+            : [];
 
         const breakEvens = [];
         for (let i = 1; i < pricePoints.length; i++) {
@@ -94,13 +101,26 @@ window.payoffChart = {
                 axisPointer: { type: 'line' },
                 formatter: function (params) {
                     if (!params || !params.length) return '';
-                    const validPoint = params.find(p => p && p.value && p.value.length === 2 && p.value[1] !== null && p.value[1] !== undefined && !Number.isNaN(p.value[1]));
-                    if (!validPoint) return '';
 
-                    const price = Number(validPoint.value[0]).toFixed(0);
-                    const profit = Number(validPoint.value[1]).toFixed(2);
+                    const firstValid = params.find(p => p && p.value);
+                    const price = firstValid && firstValid.value && firstValid.value.length ? Number(firstValid.value[0]) : Number(firstValid.axisValue);
 
-                    return `Price: ${price}<br/>P/L: ${profit}`;
+                    if (!Number.isFinite(price)) return '';
+
+                    const valuesBySeries = {};
+                    params.forEach(p => {
+                        if (!p || !p.seriesName) return;
+                        const value = Array.isArray(p.value) ? p.value[1] : (p.data && p.data.value ? p.data.value[1] : undefined);
+                        if (value === null || value === undefined || Number.isNaN(value)) return;
+                        valuesBySeries[p.seriesName] = value;
+                    });
+
+                    const lines = [`Price: ${price.toFixed(0)}`];
+                    Object.entries(valuesBySeries).forEach(([series, value]) => {
+                        lines.push(`${series}: ${Number(value).toFixed(2)}`);
+                    });
+
+                    return lines.join('<br/>');
                 }
             },
             xAxis: {
@@ -158,6 +178,37 @@ window.payoffChart = {
                     },
                     areaStyle: {
                         color: 'rgba(244, 67, 54, 0.15)'
+                    }
+                },
+                {
+                    name: 'Temp P/L (Black-Scholes)',
+                    type: 'line',
+                    smooth: true,
+                    data: theoreticalPoints,
+                    symbol: 'none',
+                    lineStyle: {
+                        color: '#2196F3',
+                        width: 2,
+                        type: 'dashed'
+                    }
+                },
+                {
+                    name: 'Temp P/L',
+                    type: 'scatter',
+                    data: tempPoint,
+                    symbolSize: 12,
+                    itemStyle: { color: '#1976D2' },
+                    label: {
+                        show: tempPoint.length > 0,
+                        formatter: function (params) {
+                            if (!params || !params.value || params.value.length < 2) return '';
+                            return `${Number(params.value[0]).toFixed(0)} / ${Number(params.value[1]).toFixed(2)}`;
+                        },
+                        position: 'top',
+                        fontSize: 11,
+                        backgroundColor: 'rgba(25,118,210,0.1)',
+                        padding: [4, 6],
+                        borderRadius: 4
                     }
                 },
                 {
