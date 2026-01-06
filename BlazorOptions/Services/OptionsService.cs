@@ -72,7 +72,7 @@ namespace BlazorOptions
             {
                 var s = start + adjustedStep * i;
                 xs[i] = Math.Round(s, 2);
-                profits[i] = CalculateProfitForPrice(activeLegs, s);
+                profits[i] = CalculateTotalProfit(activeLegs, s);
                 theoreticalProfits[i] = CalculateTotalTheoreticalProfit(activeLegs, s);
             }
 
@@ -113,7 +113,7 @@ namespace BlazorOptions
             return total;
         }
 
-        private double CalculateProfitForPrice(IEnumerable<OptionLegModel> legs, double underlyingPrice)
+        public double CalculateTotalProfit(IEnumerable<OptionLegModel> legs, double underlyingPrice)
         {
             double total = 0;
 

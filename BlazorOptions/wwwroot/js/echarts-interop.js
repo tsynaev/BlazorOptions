@@ -14,6 +14,7 @@ window.payoffChart = {
         const positionKey = options.positionId || 'default';
         const tempPrice = options.temporaryPrice;
         const tempPnl = options.temporaryPnl;
+        const tempExpiryPnl = options.temporaryExpiryPnl;
 
         const priceRangeKey = `payoffChart:${positionKey}:priceRange`;
         const pnlRangeKey = `payoffChart:${positionKey}:pnlRange`;
@@ -69,6 +70,33 @@ window.payoffChart = {
         const tempPoint = Number.isFinite(tempPrice) && Number.isFinite(tempPnl)
             ? [{ value: [Number(tempPrice), Number(tempPnl)], symbolSize: 12 }]
             : [];
+        const tempExpiryPoint = Number.isFinite(tempPrice) && Number.isFinite(tempExpiryPnl)
+            ? [{ value: [Number(tempPrice), Number(tempExpiryPnl)], symbolSize: 12 }]
+            : [];
+
+        const indexMarkLine = Number.isFinite(tempPrice)
+            ? {
+                silent: true,
+                symbol: 'none',
+                lineStyle: { color: '#6A1B9A', width: 1.5, type: 'solid' },
+                label: {
+                    show: true,
+                    formatter: function () { return `Index Price\n${Number(tempPrice).toFixed(0)}`; },
+                    rotate: 90,
+                    position: 'end',
+                    align: 'left',
+                    verticalAlign: 'middle',
+                    fontSize: 11,
+                    color: '#4A148C',
+                    padding: [6, 6, 6, 6],
+                    backgroundColor: 'rgba(106, 27, 154, 0.06)',
+                    borderRadius: 4
+                },
+                data: [
+                    { xAxis: Number(tempPrice) }
+                ]
+            }
+            : null;
 
         const breakEvens = [];
         for (let i = 1; i < pricePoints.length; i++) {
@@ -164,7 +192,8 @@ window.payoffChart = {
                     },
                     areaStyle: {
                         color: 'rgba(76, 175, 80, 0.12)'
-                    }
+                    },
+                    markLine: indexMarkLine || undefined
                 },
                 {
                     name: 'P/L (Loss)',
@@ -202,11 +231,30 @@ window.payoffChart = {
                         show: tempPoint.length > 0,
                         formatter: function (params) {
                             if (!params || !params.value || params.value.length < 2) return '';
-                            return `${Number(params.value[0]).toFixed(0)} / ${Number(params.value[1]).toFixed(2)}`;
+                            return `Temp: ${Number(params.value[1]).toFixed(2)}`;
                         },
                         position: 'top',
                         fontSize: 11,
                         backgroundColor: 'rgba(25,118,210,0.1)',
+                        padding: [4, 6],
+                        borderRadius: 4
+                    }
+                },
+                {
+                    name: 'Expiry P/L',
+                    type: 'scatter',
+                    data: tempExpiryPoint,
+                    symbolSize: 12,
+                    itemStyle: { color: '#8E24AA' },
+                    label: {
+                        show: tempExpiryPoint.length > 0,
+                        formatter: function (params) {
+                            if (!params || !params.value || params.value.length < 2) return '';
+                            return `Expiry: ${Number(params.value[1]).toFixed(2)}`;
+                        },
+                        position: 'top',
+                        fontSize: 11,
+                        backgroundColor: 'rgba(142,36,170,0.1)',
                         padding: [4, 6],
                         borderRadius: 4
                     }

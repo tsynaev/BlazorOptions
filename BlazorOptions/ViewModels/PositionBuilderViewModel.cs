@@ -26,7 +26,7 @@ public class PositionBuilderViewModel
 
     public ObservableCollection<OptionLegModel> Legs => SelectedPosition?.Legs ?? EmptyLegs;
 
-    public EChartConfig ChartConfig { get; private set; } = new(Guid.Empty, Array.Empty<double>(), Array.Empty<string>(), Array.Empty<double>(), Array.Empty<double>(), null, null, 0, 0);
+    public EChartConfig ChartConfig { get; private set; } = new(Guid.Empty, Array.Empty<double>(), Array.Empty<string>(), Array.Empty<double>(), Array.Empty<double>(), null, null, null, 0, 0);
 
     public async Task InitializeAsync()
     {
@@ -143,6 +143,7 @@ public class PositionBuilderViewModel
         var minProfit = Math.Min(profits.Min(), theoreticalProfits.Min());
         var maxProfit = Math.Max(profits.Max(), theoreticalProfits.Max());
         var tempPnl = activeLegs.Any() ? _optionsService.CalculateTotalTheoreticalProfit(activeLegs, TemporaryUnderlyingPrice) : (double?)null;
+        var tempExpiryPnl = activeLegs.Any() ? _optionsService.CalculateTotalProfit(activeLegs, TemporaryUnderlyingPrice) : (double?)null;
 
         if (tempPnl.HasValue)
         {
@@ -150,12 +151,18 @@ public class PositionBuilderViewModel
             maxProfit = Math.Max(maxProfit, tempPnl.Value);
         }
 
+        if (tempExpiryPnl.HasValue)
+        {
+            minProfit = Math.Min(minProfit, tempExpiryPnl.Value);
+            maxProfit = Math.Max(maxProfit, tempExpiryPnl.Value);
+        }
+
         var range = Math.Abs(maxProfit - minProfit);
         var padding = Math.Max(10, range * 0.1);
 
         var positionId = SelectedPosition?.Id ?? Guid.Empty;
 
-        ChartConfig = new EChartConfig(positionId, xs, labels, profits, theoreticalProfits, TemporaryUnderlyingPrice, tempPnl, minProfit - padding, maxProfit + padding);
+        ChartConfig = new EChartConfig(positionId, xs, labels, profits, theoreticalProfits, TemporaryUnderlyingPrice, tempPnl, tempExpiryPnl, minProfit - padding, maxProfit + padding);
     }
 
     public void SetTemporaryUnderlyingPrice(double price)
@@ -249,5 +256,5 @@ public class PositionBuilderViewModel
         return activeLegs.Average(l => l.Strike > 0 ? l.Strike : l.Price);
     }
 
-    public record EChartConfig(Guid PositionId, double[] Prices, string[] Labels, IReadOnlyList<double> Profits, IReadOnlyList<double> TheoreticalProfits, double? TemporaryPrice, double? TemporaryPnl, double YMin, double YMax);
+    public record EChartConfig(Guid PositionId, double[] Prices, string[] Labels, IReadOnlyList<double> Profits, IReadOnlyList<double> TheoreticalProfits, double? TemporaryPrice, double? TemporaryPnl, double? TemporaryExpiryPnl, double YMin, double YMax);
 }
