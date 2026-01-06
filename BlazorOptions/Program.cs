@@ -12,6 +12,7 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
 
 // register the options helper/service used by the chart page
+builder.Services.AddSingleton<BlackScholes>();
 builder.Services.AddSingleton<OptionsService>();
 builder.Services.AddScoped<PositionStorageService>();
 builder.Services.AddTransient<PositionBuilderViewModel>();

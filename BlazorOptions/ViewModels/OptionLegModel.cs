@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace BlazorOptions.ViewModels;
 
 public enum OptionLegType
@@ -24,4 +26,7 @@ public class OptionLegModel
     public double Price { get; set; } = 50;
 
     public double ImpliedVolatility { get; set; } = 65;
+
+    [JsonIgnore]
+    public double TemporaryPnl { get; set; }
 }

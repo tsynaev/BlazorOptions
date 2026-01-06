@@ -72,7 +72,18 @@
 
     <MudCard>
         <MudCardHeader>
-            <MudText Typo="Typo.h6">Legs</MudText>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudText Typo="Typo.h6">Legs</MudText>
+                <MudText Typo="Typo.caption" Class="ml-2">Temp P/L at price</MudText>
+                <MudNumericField T="double"
+                                 Value="@ViewModel.TemporaryUnderlyingPrice"
+                                 ValueChanged="OnTemporaryPriceChanged"
+                                 Variant="Variant.Outlined"
+                                 Margin="Margin.Dense"
+                                 Adornment="Adornment.End"
+                                 AdornmentText="USDT"
+                                 Class="temp-price-field" />
+            </MudStack>
             <MudSpacer />
             <MudTooltip Text="Add leg">
                 <MudIconButton Icon="@Icons.Material.Filled.AddCircle" Color="Color.Primary" OnClick="OnAddLeg" />
@@ -87,6 +98,7 @@
                     <MudTh>Expiration</MudTh>
                     <MudTh>Size</MudTh>
                     <MudTh>Price</MudTh>
+                    <MudTh>Temp P/L</MudTh>
                     <MudTh>IV</MudTh>
                     <MudTh></MudTh>
                 </HeaderContent>
@@ -118,6 +130,11 @@
                     </MudTd>
                     <MudTd DataLabel="Price">
                         <MudNumericField T="double" Value="@context.Price" ValueChanged="async value => await OnLegPriceChanged(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="USDT" />
+                    </MudTd>
+                    <MudTd DataLabel="Temp P/L">
+                        <MudText Typo="Typo.body2" Color="@(context.TemporaryPnl >= 0 ? Color.Success : Color.Error)">
+                            @context.TemporaryPnl.ToString("0.##")
+                        </MudText>
                     </MudTd>
                     <MudTd DataLabel="IV">
                         <MudNumericField T="double" Value="@context.ImpliedVolatility" ValueChanged="async value => await OnLegIvChanged(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="%" />
@@ -166,6 +183,10 @@
 
     .tab-actions-menu {
         min-width: 180px;
+    }
+
+    .temp-price-field {
+        max-width: 180px;
     }
 </style>
 
@@ -241,6 +262,7 @@
     {
         leg.IsIncluded = include;
         await ViewModel.PersistPositionsAsync();
+        ViewModel.UpdateTemporaryPnls();
         ViewModel.UpdateChart();
         await RenderChartAsync();
     }
@@ -249,6 +271,7 @@
     {
         leg.Type = type;
         await ViewModel.PersistPositionsAsync();
+        ViewModel.UpdateTemporaryPnls();
         ViewModel.UpdateChart();
         await RenderChartAsync();
     }
@@ -257,6 +280,7 @@
     {
         leg.Strike = strike;
         await ViewModel.PersistPositionsAsync();
+        ViewModel.UpdateTemporaryPnls();
         ViewModel.UpdateChart();
         await RenderChartAsync();
     }
@@ -269,6 +293,7 @@
         }
 
         await ViewModel.PersistPositionsAsync();
+        ViewModel.UpdateTemporaryPnls();
         ViewModel.UpdateChart();
         await RenderChartAsync();
     }
@@ -277,6 +302,7 @@
     {
         leg.Size = size;
         await ViewModel.PersistPositionsAsync();
+        ViewModel.UpdateTemporaryPnls();
         ViewModel.UpdateChart();
         await RenderChartAsync();
     }
@@ -285,6 +311,7 @@
     {
         leg.Price = price;
         await ViewModel.PersistPositionsAsync();
+        ViewModel.UpdateTemporaryPnls();
         ViewModel.UpdateChart();
         await RenderChartAsync();
     }
@@ -293,8 +320,16 @@
     {
         leg.ImpliedVolatility = iv;
         await ViewModel.PersistPositionsAsync();
+        ViewModel.UpdateTemporaryPnls();
         ViewModel.UpdateChart();
         await RenderChartAsync();
+    }
+
+    private async Task OnTemporaryPriceChanged(double price)
+    {
+        ViewModel.SetTemporaryUnderlyingPrice(price);
+        await RenderChartAsync();
+        StateHasChanged();
     }
 
     private async Task CreatePosition()

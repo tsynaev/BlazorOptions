@@ -8,6 +8,13 @@ namespace BlazorOptions
     // Simple helper that generates payoff points for an options long call
     public class OptionsService
     {
+        private readonly BlackScholes _blackScholes;
+
+        public OptionsService(BlackScholes blackScholes)
+        {
+            _blackScholes = blackScholes;
+        }
+
         // Generates underlying price points (xs) and profit values (for a long call)
         // profit = max(S - K, 0) - premium, multiplied by quantity
         public (double[] xs, double[] profits) GenerateLongCall(double strike, double premium, double quantity = 1, int points = 100)
@@ -32,7 +39,7 @@ namespace BlazorOptions
             return (xs, profits);
         }
 
-        public (double[] xs, double[] profits) GeneratePosition(IEnumerable<OptionLegModel> legs, int points = 200)
+        public (double[] xs, double[] profits, double[] theoreticalProfits) GeneratePosition(IEnumerable<OptionLegModel> legs, int points = 200)
         {
             var activeLegs = legs.Where(l => l.IsIncluded).ToList();
             var anchor = activeLegs.Count > 0
@@ -59,37 +66,60 @@ namespace BlazorOptions
 
             var xs = new double[count];
             var profits = new double[count];
+            var theoreticalProfits = new double[count];
 
             for (int i = 0; i < count; i++)
             {
                 var s = start + adjustedStep * i;
                 xs[i] = Math.Round(s, 2);
-                profits[i] = CalculateProfitForPrice(activeLegs, s);
+                profits[i] = CalculateTotalProfit(activeLegs, s);
+                theoreticalProfits[i] = CalculateTotalTheoreticalProfit(activeLegs, s);
             }
 
-            return (xs, profits);
+            return (xs, profits, theoreticalProfits);
         }
 
-        private static double CalculateProfitForPrice(IEnumerable<OptionLegModel> legs, double underlyingPrice)
+        public double CalculateLegProfit(OptionLegModel leg, double underlyingPrice)
+        {
+            return leg.Type switch
+            {
+                OptionLegType.Call => (Math.Max(underlyingPrice - leg.Strike, 0) - leg.Price) * leg.Size,
+                OptionLegType.Put => (Math.Max(leg.Strike - underlyingPrice, 0) - leg.Price) * leg.Size,
+                OptionLegType.Future => (underlyingPrice - leg.Price) * leg.Size,
+                _ => throw new ArgumentOutOfRangeException()
+            };
+        }
+
+        public double CalculateLegTheoreticalProfit(OptionLegModel leg, double underlyingPrice)
+        {
+            return leg.Type switch
+            {
+                OptionLegType.Call => (_blackScholes.CalculatePrice(underlyingPrice, leg.Strike, leg.ImpliedVolatility, leg.ExpirationDate, true) - leg.Price) * leg.Size,
+                OptionLegType.Put => (_blackScholes.CalculatePrice(underlyingPrice, leg.Strike, leg.ImpliedVolatility, leg.ExpirationDate, false) - leg.Price) * leg.Size,
+                OptionLegType.Future => (underlyingPrice - leg.Price) * leg.Size,
+                _ => throw new ArgumentOutOfRangeException()
+            };
+        }
+
+        public double CalculateTotalTheoreticalProfit(IEnumerable<OptionLegModel> legs, double underlyingPrice)
         {
             double total = 0;
 
             foreach (var leg in legs)
             {
-                switch (leg.Type)
-                {
-                    case OptionLegType.Call:
-                        total += (Math.Max(underlyingPrice - leg.Strike, 0) - leg.Price) * leg.Size;
-                        break;
-                    case OptionLegType.Put:
-                        total += (Math.Max(leg.Strike - underlyingPrice, 0) - leg.Price) * leg.Size;
-                        break;
-                    case OptionLegType.Future:
-                        total += (underlyingPrice - leg.Price) * leg.Size;
-                        break;
-                    default:
-                        throw new ArgumentOutOfRangeException();
-                }
+                total += CalculateLegTheoreticalProfit(leg, underlyingPrice);
+            }
+
+            return total;
+        }
+
+        public double CalculateTotalProfit(IEnumerable<OptionLegModel> legs, double underlyingPrice)
+        {
+            double total = 0;
+
+            foreach (var leg in legs)
+            {
+                total += CalculateLegProfit(leg, underlyingPrice);
             }
 
             return total;
