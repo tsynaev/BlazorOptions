@@ -68,24 +68,26 @@ window.payoffChart = {
         const negativePoints = pricePoints.map(([price, value]) => [price, value < 0 ? value : null]);
         const theoreticalPoints = numericPrices.map((price, index) => [price, theoreticalProfits[index]]);
         const tempPoint = Number.isFinite(tempPrice) && Number.isFinite(tempPnl)
-            ? [{ value: [Number(tempPrice), Number(tempPnl)], symbolSize: 12 }]
+            ? [{ value: [Number(tempPrice), Number(tempPnl)], symbolSize: 9 }]
             : [];
         const tempExpiryPoint = Number.isFinite(tempPrice) && Number.isFinite(tempExpiryPnl)
-            ? [{ value: [Number(tempPrice), Number(tempExpiryPnl)], symbolSize: 12 }]
+            ? [{ value: [Number(tempPrice), Number(tempExpiryPnl)], symbolSize: 9 }]
             : [];
 
         const indexMarkLine = Number.isFinite(tempPrice)
             ? {
                 silent: true,
                 symbol: 'none',
+                z: 1,
                 lineStyle: { color: '#9E9E9E', width: 1.5, type: 'dashed' },
                 label: {
                     show: true,
                     formatter: function () { return `Future: ${Number(tempPrice).toFixed(0)}`; },
                     rotate: 90,
-                    position: 'middle',
+                    position: 'end',
                     align: 'center',
-                    verticalAlign: 'middle',
+                    verticalAlign: 'top',
+                    distance: 10,
                     fontSize: 11,
                     color: '#455A64',
                     padding: [2, 2, 2, 2],
@@ -224,7 +226,7 @@ window.payoffChart = {
                     name: 'Temp P/L',
                     type: 'scatter',
                     data: tempPoint,
-                    symbolSize: 12,
+                    symbolSize: 9,
                     itemStyle: { color: '#1976D2' },
                     label: {
                         show: tempPoint.length > 0,
@@ -233,9 +235,12 @@ window.payoffChart = {
                             return `${Number(params.value[1]).toFixed(2)}`;
                         },
                         position: 'top',
-                        fontSize: 11,
-                        backgroundColor: 'transparent',
-                        padding: [2, 4],
+                        fontSize: 10,
+                        backgroundColor: 'rgba(227, 242, 253, 0.9)',
+                        borderColor: '#BBDEFB',
+                        borderWidth: 1,
+                        borderRadius: 4,
+                        padding: [2, 5],
                         color: '#0D47A1'
                     }
                 },
@@ -243,7 +248,7 @@ window.payoffChart = {
                     name: 'Expiry P/L',
                     type: 'scatter',
                     data: tempExpiryPoint,
-                    symbolSize: 12,
+                    symbolSize: 9,
                     itemStyle: { color: '#8E24AA' },
                     label: {
                         show: tempExpiryPoint.length > 0,
@@ -252,9 +257,12 @@ window.payoffChart = {
                             return `${Number(params.value[1]).toFixed(2)}`;
                         },
                         position: 'top',
-                        fontSize: 11,
-                        backgroundColor: 'transparent',
-                        padding: [2, 4],
+                        fontSize: 10,
+                        backgroundColor: 'rgba(243, 229, 245, 0.9)',
+                        borderColor: '#E1BEE7',
+                        borderWidth: 1,
+                        borderRadius: 4,
+                        padding: [2, 5],
                         color: '#4A148C'
                     }
                 },
