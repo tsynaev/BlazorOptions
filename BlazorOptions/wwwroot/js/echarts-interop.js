@@ -78,20 +78,23 @@ window.payoffChart = {
             ? {
                 silent: true,
                 symbol: 'none',
-                z: 1,
+                z: 3,
                 lineStyle: { color: '#9E9E9E', width: 1.5, type: 'dashed' },
                 label: {
                     show: true,
                     formatter: function () { return `Future: ${Number(tempPrice).toFixed(0)}`; },
                     rotate: 90,
-                    position: 'end',
+                    position: 'insideEndTop',
                     align: 'center',
                     verticalAlign: 'top',
-                    distance: 10,
+                    distance: 16,
                     fontSize: 11,
                     color: '#455A64',
-                    padding: [2, 2, 2, 2],
-                    backgroundColor: 'transparent'
+                    padding: [3, 5],
+                    backgroundColor: '#ffffff',
+                    borderColor: '#CFD8DC',
+                    borderWidth: 1,
+                    borderRadius: 3
                 },
                 data: [
                     { xAxis: Number(tempPrice) }
@@ -117,7 +120,7 @@ window.payoffChart = {
         }
 
         chart.setOption({
-            grid: { left: 60, right: 20, top: 20, bottom: 50 },
+            grid: { left: 60, right: 20, top: 30, bottom: 50 },
             toolbox: {
                 feature: {
                     restore: {},
@@ -234,9 +237,10 @@ window.payoffChart = {
                             if (!params || !params.value || params.value.length < 2) return '';
                             return `${Number(params.value[1]).toFixed(2)}`;
                         },
-                        position: 'top',
+                        position: 'right',
+                        offset: [8, -6],
                         fontSize: 10,
-                        backgroundColor: 'rgba(227, 242, 253, 0.9)',
+                        backgroundColor: 'rgba(227, 242, 253, 0.95)',
                         borderColor: '#BBDEFB',
                         borderWidth: 1,
                         borderRadius: 4,
@@ -256,9 +260,10 @@ window.payoffChart = {
                             if (!params || !params.value || params.value.length < 2) return '';
                             return `${Number(params.value[1]).toFixed(2)}`;
                         },
-                        position: 'top',
+                        position: 'right',
+                        offset: [8, -6],
                         fontSize: 10,
-                        backgroundColor: 'rgba(243, 229, 245, 0.9)',
+                        backgroundColor: 'rgba(243, 229, 245, 0.95)',
                         borderColor: '#E1BEE7',
                         borderWidth: 1,
                         borderRadius: 4,
