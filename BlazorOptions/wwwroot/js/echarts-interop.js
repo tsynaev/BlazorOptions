@@ -326,7 +326,15 @@ window.payoffChart = {
         });
 
         chart.off('click');
+        chart.getZr().off('click');
+
         if (dotNetHelper) {
+            const invokeSelection = (price) => {
+                if (Number.isFinite(price)) {
+                    dotNetHelper.invokeMethodAsync('OnChartPriceSelected', price);
+                }
+            };
+
             chart.on('click', (params) => {
                 const extractValue = (value) => {
                     if (Array.isArray(value)) {
@@ -354,8 +362,13 @@ window.payoffChart = {
                     }
                 }
 
-                if (Number.isFinite(price)) {
-                    dotNetHelper.invokeMethodAsync('OnChartPriceSelected', price);
+                invokeSelection(price);
+            });
+
+            chart.getZr().on('click', (event) => {
+                const coords = chart.convertFromPixel({ xAxisIndex: 0 }, [event.offsetX, event.offsetY ?? 0]);
+                if (Array.isArray(coords) && coords.length > 0) {
+                    invokeSelection(coords[0]);
                 }
             });
         }
