@@ -90,11 +90,8 @@ window.payoffChart = {
                     distance: 16,
                     fontSize: 11,
                     color: '#455A64',
-                    padding: [3, 5],
-                    backgroundColor: '#ffffff',
-                    borderColor: '#CFD8DC',
-                    borderWidth: 1,
-                    borderRadius: 3
+                    textBorderColor: '#FFFFFF',
+                    textBorderWidth: 3
                 },
                 data: [
                     { xAxis: Number(tempPrice) }
@@ -240,12 +237,9 @@ window.payoffChart = {
                         position: 'right',
                         offset: [8, -6],
                         fontSize: 10,
-                        backgroundColor: 'rgba(227, 242, 253, 0.95)',
-                        borderColor: '#BBDEFB',
-                        borderWidth: 1,
-                        borderRadius: 4,
-                        padding: [2, 5],
-                        color: '#0D47A1'
+                        color: '#0D47A1',
+                        textBorderColor: '#E3F2FD',
+                        textBorderWidth: 3
                     }
                 },
                 {
@@ -263,12 +257,9 @@ window.payoffChart = {
                         position: 'right',
                         offset: [8, -6],
                         fontSize: 10,
-                        backgroundColor: 'rgba(243, 229, 245, 0.95)',
-                        borderColor: '#E1BEE7',
-                        borderWidth: 1,
-                        borderRadius: 4,
-                        padding: [2, 5],
-                        color: '#4A148C'
+                        color: '#4A148C',
+                        textBorderColor: '#F3E5F5',
+                        textBorderWidth: 3
                     }
                 },
                 {
