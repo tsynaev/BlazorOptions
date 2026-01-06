@@ -138,11 +138,11 @@ window.payoffChart = {
                             if (!Number.isFinite(numeric)) return '';
 
                             if (params.axisDimension === 'x') {
-                                return `Price: ${numeric.toFixed(0)}`;
+                                return numeric.toFixed(0);
                             }
 
                             if (params.axisDimension === 'y') {
-                                return `P/L: ${numeric.toFixed(2)}`;
+                                return numeric.toFixed(2);
                             }
 
                             return numeric.toFixed(2);
@@ -189,7 +189,7 @@ window.payoffChart = {
                     label: {
                         formatter: function (params) {
                             const numeric = Number(params.value);
-                            return Number.isFinite(numeric) ? `Price: ${numeric.toFixed(0)}` : '';
+                            return Number.isFinite(numeric) ? numeric.toFixed(0) : '';
                         }
                     }
                 }
@@ -212,7 +212,7 @@ window.payoffChart = {
                     label: {
                         formatter: function (params) {
                             const numeric = Number(params.value);
-                            return Number.isFinite(numeric) ? `P/L: ${numeric.toFixed(2)}` : '';
+                            return Number.isFinite(numeric) ? numeric.toFixed(2) : '';
                         }
                     }
                 }
@@ -368,6 +368,9 @@ window.payoffChart = {
 
         chart.off('click');
         chart.getZr().off('click');
+        if (element.__payoffDomClick) {
+            element.removeEventListener('click', element.__payoffDomClick);
+        }
 
         if (dotNetHelper) {
             const invokeSelection = (price) => {
@@ -412,6 +415,20 @@ window.payoffChart = {
                     invokeSelection(coords[0]);
                 }
             });
+
+            const domClickHandler = (event) => {
+                const rect = element.getBoundingClientRect();
+                const localX = event.clientX - rect.left;
+                const localY = event.clientY - rect.top;
+                const coords = chart.convertFromPixel({ xAxisIndex: 0 }, [localX, localY]);
+
+                if (Array.isArray(coords) && coords.length > 0) {
+                    invokeSelection(coords[0]);
+                }
+            };
+
+            element.__payoffDomClick = domClickHandler;
+            element.addEventListener('click', domClickHandler);
         }
 
         chart.resize();
