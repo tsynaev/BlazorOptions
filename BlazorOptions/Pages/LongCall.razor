@@ -23,6 +23,7 @@
                                              AlwaysShowScrollButtons="false"
                                              Rounded="true"
                                              Elevation="0"
+                                             AddIconClass="d-none"
                                              CloseTab="OnCloseTab">
                                 @for (var i = 0; i < ViewModel.Positions.Count; i++)
                                 {
@@ -46,7 +47,8 @@
                                      Disabled="@(!HasActivePosition)"
                                      Dense="true"
                                      AnchorOrigin="Origin.BottomCenter"
-                                     TransformOrigin="Origin.TopCenter">
+                                     TransformOrigin="Origin.TopCenter"
+                                     ListClass="tab-actions-menu">
                                 <MudMenuItem Disabled="@(!HasActivePosition)" OnClick="OpenRenameDialogAsync">
                                     <MudIcon Icon="@Icons.Material.Filled.Edit" Class="mr-2" /> Edit position
                                 </MudMenuItem>
@@ -145,6 +147,10 @@
         flex-wrap: nowrap;
     }
 
+    .position-tabs .d-none {
+        display: none !important;
+    }
+
     .tab-name-field {
         min-width: 140px;
     }
@@ -156,6 +162,10 @@
         text-overflow: ellipsis;
         white-space: nowrap;
         padding: 6px 12px;
+    }
+
+    .tab-actions-menu {
+        min-width: 180px;
     }
 </style>
 
