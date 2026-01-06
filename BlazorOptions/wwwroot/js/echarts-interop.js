@@ -1,5 +1,5 @@
 window.payoffChart = {
-    render: function (element, options) {
+    render: function (element, options, dotNetHelper) {
         if (!element || !options) return;
 
         const chart = element.__payoffInstance || echarts.init(element);
@@ -324,6 +324,41 @@ window.payoffChart = {
                 persistRange(pnlRangeKey, pnlSelection);
             }
         });
+
+        chart.off('click');
+        if (dotNetHelper) {
+            chart.on('click', (params) => {
+                const extractValue = (value) => {
+                    if (Array.isArray(value)) {
+                        return Number(value[0]);
+                    }
+
+                    if (value !== undefined && value !== null) {
+                        const numeric = Number(value);
+                        return Number.isFinite(numeric) ? numeric : null;
+                    }
+
+                    return null;
+                };
+
+                const fromParams = extractValue(params?.value)
+                    ?? extractValue(params?.data?.value);
+
+                let price = fromParams;
+
+                if (!Number.isFinite(price) && params?.event) {
+                    const coords = chart.convertFromPixel({ xAxisIndex: 0 }, [params.event.offsetX, params.event.offsetY ?? 0]);
+
+                    if (Array.isArray(coords) && coords.length > 0) {
+                        price = Number(coords[0]);
+                    }
+                }
+
+                if (Number.isFinite(price)) {
+                    dotNetHelper.invokeMethodAsync('OnChartPriceSelected', price);
+                }
+            });
+        }
 
         chart.resize();
     }

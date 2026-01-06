@@ -1,0 +1,60 @@
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
+
+<div class="chart-host">
+    <div class="echart" @ref="_chartRef"></div>
+</div>
+
+@code {
+    [Parameter]
+    public EChartOptions? Config { get; set; }
+
+    [Parameter]
+    public EventCallback<double> PriceSelected { get; set; }
+
+    [Inject]
+    private IJSRuntime JS { get; set; } = default!;
+
+    private ElementReference _chartRef;
+    private DotNetObjectReference<PayoffChart>? _dotNetRef;
+    private bool _needsRender;
+
+    protected override void OnParametersSet()
+    {
+        _needsRender = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_needsRender || Config is null)
+        {
+            return;
+        }
+
+        _needsRender = false;
+        _dotNetRef ??= DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("payoffChart.render", _chartRef, Config, _dotNetRef);
+    }
+
+    [JSInvokable]
+    public Task OnChartPriceSelected(double price)
+    {
+        if (PriceSelected.HasDelegate)
+        {
+            return PriceSelected.InvokeAsync(price);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public ValueTask ClearRangesAsync(Guid positionId)
+    {
+        return JS.InvokeVoidAsync("payoffChart.clearRanges", positionId.ToString());
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _dotNetRef?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}
