@@ -485,15 +485,24 @@ window.payoffChart = {
             });
 
             chart.getZr().on('mousedown', (event) => {
-                element.__payoffHandleDrag = event?.target?.cursor === 'move';
+                const isHandle = event?.target?.cursor === 'move';
+                element.__payoffHandleDrag = isHandle;
+                if (!isHandle) {
+                    element.__payoffPointerValue = null;
+                }
             });
 
             chart.getZr().on('mouseup', () => {
+                if (element.__payoffHandleDrag && Number.isFinite(element.__payoffPointerValue)) {
+                    invokeSelection(element.__payoffPointerValue);
+                }
                 element.__payoffHandleDrag = false;
+                element.__payoffPointerValue = null;
             });
 
             chart.getZr().on('globalout', () => {
                 element.__payoffHandleDrag = false;
+                element.__payoffPointerValue = null;
             });
 
             const domClickHandler = (event) => {
@@ -512,7 +521,9 @@ window.payoffChart = {
                 const axisInfo = event?.axesInfo?.find(info => info.axisDim === 'x');
                 if (!axisInfo) return;
                 const price = Number(axisInfo.value);
-                invokeSelection(price);
+                if (Number.isFinite(price)) {
+                    element.__payoffPointerValue = price;
+                }
             });
         }
 
