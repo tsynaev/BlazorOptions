@@ -110,6 +110,23 @@ window.payoffChart = {
             return numeric.toFixed(decimals);
         };
 
+        const normalizePrice = (value) => {
+            const numeric = Number(value);
+            if (!Number.isFinite(numeric)) return null;
+            const abs = Math.abs(numeric);
+            if (abs >= 100) {
+                return Math.round(numeric);
+            }
+            if (abs === 0) {
+                return 0;
+            }
+            const magnitude = Math.floor(Math.log10(abs));
+            const decimals = magnitude >= 0
+                ? Math.max(0, 2 - magnitude)
+                : Math.abs(magnitude) + 2;
+            return Number(numeric.toFixed(decimals));
+        };
+
         const pricePoints = numericPrices.map((price, index) => [price, profits[index]]);
         const positivePoints = pricePoints.map(([price, value]) => [price, value > 0 ? value : null]);
         const negativePoints = pricePoints.map(([price, value]) => [price, value < 0 ? value : null]);
@@ -432,9 +449,10 @@ window.payoffChart = {
                 if (Date.now() - lastZoomAt < 150) {
                     return;
                 }
-                if (Number.isFinite(price) && price !== element.__payoffLastPrice) {
-                    element.__payoffLastPrice = price;
-                    dotNetHelper.invokeMethodAsync('OnChartPriceSelected', price);
+                const normalized = normalizePrice(price);
+                if (Number.isFinite(normalized) && normalized !== element.__payoffLastPrice) {
+                    element.__payoffLastPrice = normalized;
+                    dotNetHelper.invokeMethodAsync('OnChartPriceSelected', normalized);
                 }
             };
 
