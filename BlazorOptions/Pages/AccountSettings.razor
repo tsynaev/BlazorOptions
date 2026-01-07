@@ -1,0 +1,41 @@
+@page "/account-settings"
+@implements IDisposable
+@inject BlazorOptions.ViewModels.AccountSettingsViewModel ViewModel
+
+<PageTitle>Account settings</PageTitle>
+
+<MudStack Spacing="3">
+    <MudText Typo="Typo.h4">Account settings</MudText>
+
+    <MudPaper Class="pa-6" Elevation="1">
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.h6">Appearance</MudText>
+            <MudSelect T="ThemeMode" Label="Theme" @bind-Value="ViewModel.SelectedTheme">
+                @foreach (var option in ViewModel.ThemeOptions)
+                {
+                    <MudSelectItem Value="option.Mode">@option.Label</MudSelectItem>
+                }
+            </MudSelect>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">@ViewModel.SelectedThemeDescription</MudText>
+            <MudText Typo="Typo.caption">@ViewModel.SystemPreferenceLabel</MudText>
+        </MudStack>
+    </MudPaper>
+</MudStack>
+
+@code {
+    protected override void OnInitialized()
+    {
+        ViewModel.OnChange += HandleViewModelChanged;
+    }
+
+    public void Dispose()
+    {
+        ViewModel.OnChange -= HandleViewModelChanged;
+        ViewModel.Dispose();
+    }
+
+    private void HandleViewModelChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+}

@@ -1,4 +1,9 @@
-<MudThemeProvider />
+@inject BlazorOptions.Services.ThemeService ThemeService
+@implements IDisposable
+
+<MudThemeProvider IsDarkMode="@ThemeService.IsDarkMode"
+                  IsDarkModeChanged="ThemeService.SetIsDarkMode"
+                  OnSystemPreferenceChanged="ThemeService.UpdateSystemPreference" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
@@ -15,3 +20,20 @@
         </LayoutView>
     </NotFound>
 </Router>
+
+@code {
+    protected override void OnInitialized()
+    {
+        ThemeService.OnChange += HandleThemeChanged;
+    }
+
+    public void Dispose()
+    {
+        ThemeService.OnChange -= HandleThemeChanged;
+    }
+
+    private void HandleThemeChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+}
