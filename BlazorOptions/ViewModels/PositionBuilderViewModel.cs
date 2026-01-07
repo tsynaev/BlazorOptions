@@ -374,13 +374,20 @@ public class PositionBuilderViewModel
         for (var i = 0; i < options.Count; i++)
         {
             var date = options[i];
+            if (i == 0 || i == options.Count - 1)
+            {
+                labels[i] = string.Empty;
+                previousYear = date.Year;
+                previousMonth = date.Month;
+                continue;
+            }
             var isNewYear = i == 0 || date.Year != previousYear;
             var isNewMonth = i == 0 || date.Month != previousMonth;
 
             var primaryLabel = isNewYear
-                ? date.ToString("MMM dd yyyy", culture)
+                ? $"{date.ToString("MMM", culture)}\u00A0{date:dd}\u00A0{date:yyyy}"
                 : isNewMonth
-                    ? date.ToString("MMM dd", culture)
+                    ? $"{date.ToString("MMM", culture)}\u00A0{date:dd}"
                     : date.ToString("dd", culture);
 
             var dayOfWeek = dateFormat.GetShortestDayName(date.DayOfWeek);
