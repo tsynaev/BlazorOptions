@@ -14,6 +14,24 @@ public class PositionBuilderViewModel
 
     public double TemporaryUnderlyingPrice { get; private set; }
 
+    public IReadOnlyList<DateTime> ExpiryDateOptions { get; private set; } = Array.Empty<DateTime>();
+
+    public int SelectedExpiryIndex { get; private set; }
+
+    public DateTime SelectedValuationDate { get; private set; } = DateTime.UtcNow.Date;
+
+    public bool HasExpiryDateOptions => ExpiryDateOptions.Count > 0;
+
+    public string SelectedValuationDateLabel => SelectedValuationDate.ToString("yyyy-MM-dd");
+
+    public string FirstExpiryDateLabel => ExpiryDateOptions.Count > 0
+        ? ExpiryDateOptions[0].ToString("yyyy-MM-dd")
+        : "--";
+
+    public string LastExpiryDateLabel => ExpiryDateOptions.Count > 0
+        ? ExpiryDateOptions[^1].ToString("yyyy-MM-dd")
+        : "--";
+
     public PositionBuilderViewModel(OptionsService optionsService, PositionStorageService storageService)
     {
         _optionsService = optionsService;
@@ -137,12 +155,14 @@ public class PositionBuilderViewModel
     {
         var legs = SelectedPosition?.Legs ?? Enumerable.Empty<OptionLegModel>();
         var activeLegs = legs.Where(l => l.IsIncluded).ToList();
-        var (xs, profits, theoreticalProfits) = _optionsService.GeneratePosition(activeLegs, 180);
+        RefreshExpiryDateOptions(legs);
+        var valuationDate = SelectedValuationDate;
+        var (xs, profits, theoreticalProfits) = _optionsService.GeneratePosition(activeLegs, 180, valuationDate);
 
         var labels = xs.Select(x => x.ToString("0")).ToArray();
         var minProfit = Math.Min(profits.Min(), theoreticalProfits.Min());
         var maxProfit = Math.Max(profits.Max(), theoreticalProfits.Max());
-        var tempPnl = activeLegs.Any() ? _optionsService.CalculateTotalTheoreticalProfit(activeLegs, TemporaryUnderlyingPrice) : (double?)null;
+        var tempPnl = activeLegs.Any() ? _optionsService.CalculateTotalTheoreticalProfit(activeLegs, TemporaryUnderlyingPrice, valuationDate) : (double?)null;
         var tempExpiryPnl = activeLegs.Any() ? _optionsService.CalculateTotalProfit(activeLegs, TemporaryUnderlyingPrice) : (double?)null;
 
         if (tempPnl.HasValue)
@@ -172,13 +192,28 @@ public class PositionBuilderViewModel
         UpdateChart();
     }
 
+    public void SetValuationDateIndex(int index)
+    {
+        if (index < 0 || index >= ExpiryDateOptions.Count)
+        {
+            return;
+        }
+
+        SelectedExpiryIndex = index;
+        SelectedValuationDate = ExpiryDateOptions[index];
+        UpdateTemporaryPnls();
+        UpdateChart();
+    }
+
     public void UpdateTemporaryPnls()
     {
         var price = TemporaryUnderlyingPrice;
 
         foreach (var leg in Legs)
         {
-            leg.TemporaryPnl = leg.IsIncluded ? _optionsService.CalculateLegTheoreticalProfit(leg, price) : 0;
+            leg.TemporaryPnl = leg.IsIncluded
+                ? _optionsService.CalculateLegTheoreticalProfit(leg, price, SelectedValuationDate)
+                : 0;
         }
     }
 
@@ -254,6 +289,82 @@ public class PositionBuilderViewModel
         }
 
         return activeLegs.Average(l => l.Strike > 0 ? l.Strike : l.Price);
+    }
+
+    private void RefreshExpiryDateOptions(IEnumerable<OptionLegModel> legs)
+    {
+        var options = BuildExpiryDateOptions(legs);
+
+        if (options.Count == 0)
+        {
+            options.Add(DateTime.UtcNow.Date);
+        }
+
+        ExpiryDateOptions = options;
+
+        var currentDate = SelectedValuationDate == default ? DateTime.UtcNow.Date : SelectedValuationDate.Date;
+        var index = options.IndexOf(currentDate);
+
+        if (index < 0)
+        {
+            currentDate = FindClosestDate(options, currentDate);
+            index = options.IndexOf(currentDate);
+        }
+
+        SelectedValuationDate = currentDate;
+        SelectedExpiryIndex = index;
+    }
+
+    private static List<DateTime> BuildExpiryDateOptions(IEnumerable<OptionLegModel> legs)
+    {
+        var uniqueDates = legs
+            .Select(l => l.ExpirationDate.Date)
+            .Distinct()
+            .OrderBy(d => d)
+            .ToList();
+
+        if (uniqueDates.Count == 0)
+        {
+            return new List<DateTime> { DateTime.UtcNow.Date };
+        }
+
+        var options = new SortedSet<DateTime>(uniqueDates)
+        {
+            DateTime.UtcNow.Date
+        };
+
+        for (var i = 0; i < uniqueDates.Count - 1; i++)
+        {
+            var start = uniqueDates[i];
+            var end = uniqueDates[i + 1];
+            var midpoint = start.AddDays((end - start).TotalDays / 2).Date;
+
+            if (midpoint > start && midpoint < end)
+            {
+                options.Add(midpoint);
+            }
+        }
+
+        return options.OrderBy(d => d).ToList();
+    }
+
+    private static DateTime FindClosestDate(IReadOnlyList<DateTime> options, DateTime target)
+    {
+        var closest = options[0];
+        var smallestDistance = Math.Abs((options[0] - target).TotalDays);
+
+        for (var i = 1; i < options.Count; i++)
+        {
+            var distance = Math.Abs((options[i] - target).TotalDays);
+
+            if (distance < smallestDistance)
+            {
+                smallestDistance = distance;
+                closest = options[i];
+            }
+        }
+
+        return closest;
     }
 
 }
