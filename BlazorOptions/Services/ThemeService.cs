@@ -15,12 +15,12 @@ public class ThemeService
 
     public bool IsSystemDarkMode { get; private set; }
 
-    public bool? IsDarkMode => Mode switch
+    public bool IsDarkMode => Mode switch
     {
-        ThemeMode.System => null,
         ThemeMode.Dark => true,
         ThemeMode.Light => false,
-        _ => null
+        ThemeMode.System => IsSystemDarkMode,
+        _ => IsSystemDarkMode
     };
 
     public Task SetIsDarkMode(bool isDarkMode)
