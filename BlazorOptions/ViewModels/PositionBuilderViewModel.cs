@@ -203,6 +203,11 @@ public class PositionBuilderViewModel
         UpdateChart();
     }
 
+    public void ResetValuationDateToToday()
+    {
+        SetValuationDate(DateTime.UtcNow.Date);
+    }
+
     public void UpdateTemporaryPnls()
     {
         var price = TemporaryUnderlyingPrice;

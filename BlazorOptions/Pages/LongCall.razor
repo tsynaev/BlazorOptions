@@ -75,6 +75,8 @@
                                            DateChanged="OnValuationDateChanged"
                                            DateFormat="yyyy-MM-dd"
                                            Dense="true"
+                                           Clearable="true"
+                                           ClearIcon="@Icons.Material.Filled.Clear"
                                            MinDate="@DateTime.UtcNow.Date"
                                            MaxDate="@ViewModel.MaxExpiryDate"
                                            Class="valuation-date-picker" />
@@ -350,6 +352,10 @@
         if (date.HasValue)
         {
             ViewModel.SetValuationDate(date.Value);
+        }
+        else
+        {
+            ViewModel.ResetValuationDateToToday();
         }
 
         return InvokeAsync(StateHasChanged);
