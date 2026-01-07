@@ -375,6 +375,7 @@ window.payoffChart = {
 
         chart.off('dataZoom');
         chart.on('dataZoom', () => {
+            element.__payoffLastZoomAt = Date.now();
             const zoomState = chart.getOption().dataZoom || [];
             const priceZoom = zoomState.find(z => z.xAxisIndex !== undefined);
             const pnlZoom = zoomState.find(z => z.yAxisIndex !== undefined);
@@ -409,6 +410,10 @@ window.payoffChart = {
 
         if (dotNetHelper) {
             const invokeSelection = (price) => {
+                const lastZoomAt = element.__payoffLastZoomAt ?? 0;
+                if (Date.now() - lastZoomAt < 150) {
+                    return;
+                }
                 if (Number.isFinite(price) && price !== element.__payoffLastPrice) {
                     element.__payoffLastPrice = price;
                     dotNetHelper.invokeMethodAsync('OnChartPriceSelected', price);
