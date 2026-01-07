@@ -27,14 +27,6 @@ public class PositionBuilderViewModel
 
     public string[] ExpiryDateLabels { get; private set; } = Array.Empty<string>();
 
-    public string FirstExpiryDateLabel => ExpiryDateOptions.Count > 0
-        ? ExpiryDateOptions[0].ToString("yyyy-MM-dd")
-        : "--";
-
-    public string LastExpiryDateLabel => ExpiryDateOptions.Count > 0
-        ? ExpiryDateOptions[^1].ToString("yyyy-MM-dd")
-        : "--";
-
     public PositionBuilderViewModel(OptionsService optionsService, PositionStorageService storageService)
     {
         _optionsService = optionsService;
