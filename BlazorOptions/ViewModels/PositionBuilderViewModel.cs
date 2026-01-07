@@ -362,6 +362,7 @@ public class PositionBuilderViewModel
         var previousMonth = options[0].Month;
         var culture = CultureInfo.CurrentCulture;
         var dateFormat = culture.DateTimeFormat;
+        var currentYear = DateTime.UtcNow.Year;
 
         for (var i = 0; i < options.Count; i++)
         {
@@ -370,7 +371,9 @@ public class PositionBuilderViewModel
             var isNewMonth = i == 0 || date.Month != previousMonth;
 
             var primaryLabel = isNewYear
-                ? $"{date.ToString("MMM", culture)}\u00A0{date:dd}\u00A0{date:yyyy}"
+                ? date.Year == currentYear
+                    ? $"{date.ToString("MMM", culture)}\u00A0{date:dd}"
+                    : $"{date.ToString("MMM", culture)}\u00A0{date:dd}\u00A0{date:yy}"
                 : isNewMonth
                     ? $"{date.ToString("MMM", culture)}\u00A0{date:dd}"
                     : date.ToString("dd", culture);
