@@ -79,7 +79,8 @@
                                    ValueChanged="OnValuationDateChanged"
                                    Disabled="@(!ViewModel.HasExpiryDateOptions)"
                                    TickMarks="true"
-                                   TickMarkLabels="@ViewModel.ExpiryDateLabels" />
+                                   TickMarkLabels="@ViewModel.ExpiryDateLabels"
+                                   Class="valuation-date-slider" />
                         <MudStack Row="true" Justify="Justify.SpaceBetween">
                             <MudText Typo="Typo.caption">@ViewModel.FirstExpiryDateLabel</MudText>
                             <MudText Typo="Typo.caption">@ViewModel.LastExpiryDateLabel</MudText>
@@ -207,6 +208,10 @@
 
     .temp-price-field {
         max-width: 180px;
+    }
+
+    .valuation-date-slider .mud-slider-label {
+        font-size: 0.65rem;
     }
 </style>
 

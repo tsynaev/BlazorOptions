@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Linq;
 using BlazorOptions.Services;
 
@@ -24,7 +25,7 @@ public class PositionBuilderViewModel
 
     public string SelectedValuationDateLabel => SelectedValuationDate.ToString("yyyy-MM-dd");
 
-    public string[] ExpiryDateLabels => ExpiryDateOptions.Select(date => date.ToString("yyyy-MM-dd")).ToArray();
+    public string[] ExpiryDateLabels { get; private set; } = Array.Empty<string>();
 
     public string FirstExpiryDateLabel => ExpiryDateOptions.Count > 0
         ? ExpiryDateOptions[0].ToString("yyyy-MM-dd")
@@ -303,6 +304,7 @@ public class PositionBuilderViewModel
         }
 
         ExpiryDateOptions = options;
+        ExpiryDateLabels = BuildExpiryDateLabels(options);
 
         var currentDate = SelectedValuationDate == default ? DateTime.UtcNow.Date : SelectedValuationDate.Date;
         var index = options.IndexOf(currentDate);
@@ -354,6 +356,36 @@ public class PositionBuilderViewModel
         EnsureMinimumSteps(options, rangeStart, rangeEnd, 20);
 
         return options.OrderBy(d => d).ToList();
+    }
+
+    private static string[] BuildExpiryDateLabels(IReadOnlyList<DateTime> options)
+    {
+        if (options.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        var labels = new string[options.Count];
+        var previousYear = options[0].Year;
+        var previousMonth = options[0].Month;
+
+        for (var i = 0; i < options.Count; i++)
+        {
+            var date = options[i];
+            var isNewYear = i == 0 || date.Year != previousYear;
+            var isNewMonth = i == 0 || date.Month != previousMonth;
+
+            labels[i] = isNewYear
+                ? date.ToString("MMM dd yyyy", CultureInfo.CurrentCulture)
+                : isNewMonth
+                    ? date.ToString("MMM dd", CultureInfo.CurrentCulture)
+                    : date.ToString("dd", CultureInfo.CurrentCulture);
+
+            previousYear = date.Year;
+            previousMonth = date.Month;
+        }
+
+        return labels;
     }
 
     private static void AddFridays(SortedSet<DateTime> options, DateTime start, DateTime end)
