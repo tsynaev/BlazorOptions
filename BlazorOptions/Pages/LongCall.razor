@@ -74,6 +74,7 @@
                             <MudDatePicker Date="@ViewModel.SelectedValuationDate"
                                            DateChanged="OnValuationDateChanged"
                                            DateFormat="yyyy-MM-dd"
+                                           Dense="true"
                                            MinDate="@DateTime.UtcNow.Date"
                                            MaxDate="@ViewModel.MaxExpiryDate"
                                            Class="valuation-date-picker" />
@@ -217,7 +218,9 @@
     }
 
     .valuation-date-picker {
-        min-width: 140px;
+        min-width: 120px;
+        max-width: 140px;
+        width: 140px;
     }
 </style>
 
