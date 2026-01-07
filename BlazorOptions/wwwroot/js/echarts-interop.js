@@ -41,6 +41,7 @@ window.payoffChart = {
 
         const priceRange = loadRange(priceRangeKey);
         const pnlRange = loadRange(pnlRangeKey);
+        const axisPointerValue = Number.isFinite(tempPrice) ? Number(tempPrice) : undefined;
 
         const priceZoomInside = {
             type: 'inside',
@@ -186,11 +187,22 @@ window.payoffChart = {
                 axisPointer: {
                     show: true,
                     snap: true,
+                    value: axisPointerValue,
+                    lineStyle: {
+                        color: '#7581BD',
+                        width: 2
+                    },
                     label: {
+                        show: true,
                         formatter: function (params) {
                             const numeric = Number(params.value);
                             return Number.isFinite(numeric) ? numeric.toFixed(0) : '';
-                        }
+                        },
+                        backgroundColor: '#7581BD'
+                    },
+                    handle: {
+                        show: true,
+                        color: '#7581BD'
                     }
                 }
             },
@@ -368,13 +380,15 @@ window.payoffChart = {
 
         chart.off('click');
         chart.getZr().off('click');
+        chart.off('updateAxisPointer');
         if (element.__payoffDomClick) {
             element.removeEventListener('click', element.__payoffDomClick);
         }
 
         if (dotNetHelper) {
             const invokeSelection = (price) => {
-                if (Number.isFinite(price)) {
+                if (Number.isFinite(price) && price !== element.__payoffLastPrice) {
+                    element.__payoffLastPrice = price;
                     dotNetHelper.invokeMethodAsync('OnChartPriceSelected', price);
                 }
             };
@@ -450,6 +464,13 @@ window.payoffChart = {
 
             element.__payoffDomClick = domClickHandler;
             element.addEventListener('click', domClickHandler);
+
+            chart.on('updateAxisPointer', (event) => {
+                const axisInfo = event?.axesInfo?.find(info => info.axisDim === 'x');
+                if (!axisInfo) return;
+                const price = Number(axisInfo.value);
+                invokeSelection(price);
+            });
         }
 
         chart.resize();

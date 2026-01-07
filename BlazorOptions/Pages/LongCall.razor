@@ -68,19 +68,6 @@
                                  Height="100%"
                                  Style="flex:1; min-height:320px;"
                                  @ref="_chart" />
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                        <MudText Typo="Typo.subtitle2">Adjust price</MudText>
-                        <MudSlider T="double"
-                                   Value="@ViewModel.TemporaryUnderlyingPrice"
-                                   ValueChanged="OnTemporaryPriceChanged"
-                                   Disabled="@(!HasActivePosition)"
-                                   Min="@PriceSliderMin"
-                                   Max="@PriceSliderMax"
-                                   Step="1"
-                                   Immediate="true"
-                                   Style="flex:1;" />
-                        <MudText Typo="Typo.subtitle2">@ViewModel.TemporaryUnderlyingPrice.ToString("0")</MudText>
-                    </MudStack>
                 </MudStack>
             </MudPaper>
         </MudCardContent>
@@ -451,14 +438,4 @@
         return InvokeAsync(StateHasChanged);
     }
 
-    private double PriceSliderMin => ViewModel.ChartConfig.Prices.FirstOrDefault();
-
-    private double PriceSliderMax
-    {
-        get
-        {
-            var prices = ViewModel.ChartConfig.Prices;
-            return prices.Length == 0 ? PriceSliderMin + 1 : prices[^1];
-        }
-    }
 }
