@@ -366,13 +366,6 @@ public class PositionBuilderViewModel
         for (var i = 0; i < options.Count; i++)
         {
             var date = options[i];
-            if (i == 0 || i == options.Count - 1)
-            {
-                labels[i] = string.Empty;
-                previousYear = date.Year;
-                previousMonth = date.Month;
-                continue;
-            }
             var isNewYear = i == 0 || date.Year != previousYear;
             var isNewMonth = i == 0 || date.Month != previousMonth;
 
