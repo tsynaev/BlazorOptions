@@ -215,10 +215,6 @@ window.payoffChart = {
                     show: true,
                     snap: true,
                     value: axisPointerValue,
-                    lineStyle: {
-                        color: '#7581BD',
-                        width: 2
-                    },
                     label: {
                         show: true,
                         formatter: function (params) {
@@ -226,10 +222,6 @@ window.payoffChart = {
                             return Number.isFinite(numeric) ? numeric.toFixed(0) : '';
                         },
                         backgroundColor: '#7581BD'
-                    },
-                    handle: {
-                        show: true,
-                        color: '#7581BD'
                     }
                 }
             },
