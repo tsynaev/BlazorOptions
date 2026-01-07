@@ -3,10 +3,10 @@ window.payoffChart = {
         if (!element || !options) return;
 
         if (!element.isConnected) {
-            if (element.__payoffInstance) {
+            if (element.__payoffInstance && !element.__payoffInstance.isDisposed?.()) {
                 element.__payoffInstance.dispose();
-                element.__payoffInstance = null;
             }
+            element.__payoffInstance = null;
             return;
         }
 
@@ -21,6 +21,13 @@ window.payoffChart = {
         }
 
         element.__payoffRenderAttempts = 0;
+
+        if (element.__payoffInstance?.isDisposed?.()) {
+            element.__payoffInstance = null;
+        } else if (element.__payoffInstance?.getDom?.() && element.__payoffInstance.getDom() !== element) {
+            element.__payoffInstance.dispose();
+            element.__payoffInstance = null;
+        }
 
         const chart = element.__payoffInstance || echarts.init(element);
         element.__payoffInstance = chart;
@@ -493,7 +500,9 @@ window.payoffChart = {
             });
         }
 
-        chart.resize();
+        if (!chart.isDisposed?.()) {
+            chart.resize();
+        }
     }
 };
 
