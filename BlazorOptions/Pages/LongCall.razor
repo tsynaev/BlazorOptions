@@ -78,7 +78,8 @@
                                    Value="@ViewModel.SelectedExpiryIndex"
                                    ValueChanged="OnValuationDateChanged"
                                    Disabled="@(!ViewModel.HasExpiryDateOptions)"
-                                   TickMarks="true" />
+                                   TickMarks="true"
+                                   TickMarkLabels="@ViewModel.ExpiryDateLabels" />
                         <MudStack Row="true" Justify="Justify.SpaceBetween">
                             <MudText Typo="Typo.caption">@ViewModel.FirstExpiryDateLabel</MudText>
                             <MudText Typo="Typo.caption">@ViewModel.LastExpiryDateLabel</MudText>

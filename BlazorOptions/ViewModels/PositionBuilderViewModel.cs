@@ -24,6 +24,8 @@ public class PositionBuilderViewModel
 
     public string SelectedValuationDateLabel => SelectedValuationDate.ToString("yyyy-MM-dd");
 
+    public IReadOnlyList<string> ExpiryDateLabels => ExpiryDateOptions.Select(date => date.ToString("yyyy-MM-dd")).ToList();
+
     public string FirstExpiryDateLabel => ExpiryDateOptions.Count > 0
         ? ExpiryDateOptions[0].ToString("yyyy-MM-dd")
         : "--";
@@ -328,10 +330,10 @@ public class PositionBuilderViewModel
             return new List<DateTime> { DateTime.UtcNow.Date };
         }
 
-        var options = new SortedSet<DateTime>(uniqueDates)
-        {
-            DateTime.UtcNow.Date
-        };
+        var today = DateTime.UtcNow.Date;
+        var rangeStart = uniqueDates.Min();
+        var rangeEnd = uniqueDates.Max();
+        var options = new SortedSet<DateTime>(uniqueDates) { today };
 
         for (var i = 0; i < uniqueDates.Count - 1; i++)
         {
@@ -345,7 +347,53 @@ public class PositionBuilderViewModel
             }
         }
 
+        rangeStart = today < rangeStart ? today : rangeStart;
+        rangeEnd = today > rangeEnd ? today : rangeEnd;
+
+        AddFridays(options, rangeStart, rangeEnd);
+        EnsureMinimumSteps(options, rangeStart, rangeEnd, 20);
+
         return options.OrderBy(d => d).ToList();
+    }
+
+    private static void AddFridays(SortedSet<DateTime> options, DateTime start, DateTime end)
+    {
+        var firstFriday = start;
+
+        while (firstFriday.DayOfWeek != DayOfWeek.Friday)
+        {
+            firstFriday = firstFriday.AddDays(1);
+        }
+
+        for (var date = firstFriday; date <= end; date = date.AddDays(7))
+        {
+            options.Add(date);
+        }
+    }
+
+    private static void EnsureMinimumSteps(SortedSet<DateTime> options, DateTime start, DateTime end, int minimumSteps)
+    {
+        if (options.Count >= minimumSteps)
+        {
+            return;
+        }
+
+        var effectiveEnd = end;
+        var spanDays = Math.Max(0, (int)(end - start).TotalDays);
+
+        if (spanDays + 1 < minimumSteps)
+        {
+            effectiveEnd = start.AddDays(minimumSteps - 1);
+        }
+
+        var rangeDays = Math.Max(1, (int)(effectiveEnd - start).TotalDays);
+        var target = Math.Max(minimumSteps, options.Count);
+        var stepDays = Math.Max(1, (int)Math.Ceiling(rangeDays / (double)(target - 1)));
+
+        for (var date = start; date <= effectiveEnd; date = date.AddDays(stepDays))
+        {
+            options.Add(date);
+        }
     }
 
     private static DateTime FindClosestDate(IReadOnlyList<DateTime> options, DateTime target)
