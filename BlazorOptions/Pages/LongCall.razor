@@ -68,6 +68,24 @@
                                  Height="100%"
                                  Style="flex:1; min-height:320px;"
                                  @ref="_chart" />
+                    <MudStack Spacing="1">
+                        <MudText Typo="Typo.subtitle2">Valuation date</MudText>
+                        <MudText Typo="Typo.caption">@ViewModel.SelectedValuationDateLabel</MudText>
+                        <MudSlider T="int"
+                                   Min="0"
+                                   Max="@(Math.Max(0, ViewModel.ExpiryDateOptions.Count - 1))"
+                                   Step="1"
+                                   Value="@ViewModel.SelectedExpiryIndex"
+                                   ValueChanged="OnValuationDateChanged"
+                                   Disabled="@(!ViewModel.HasExpiryDateOptions)"
+                                   TickMarks="true"
+                                   TickMarkLabels="@ViewModel.ExpiryDateLabels"
+                                   Class="valuation-date-slider" />
+                        <MudStack Row="true" Justify="Justify.SpaceBetween">
+                            <MudText Typo="Typo.caption">@ViewModel.FirstExpiryDateLabel</MudText>
+                            <MudText Typo="Typo.caption">@ViewModel.LastExpiryDateLabel</MudText>
+                        </MudStack>
+                    </MudStack>
                 </MudStack>
             </MudPaper>
         </MudCardContent>
@@ -191,6 +209,17 @@
     .temp-price-field {
         max-width: 180px;
     }
+
+    .valuation-date-slider .mud-slider-label {
+        font-size: 0.42rem;
+        line-height: 1.1;
+        white-space: pre;
+        text-align: center;
+    }
+
+    .valuation-date-slider {
+        padding-bottom: 28px;
+    }
 </style>
 
 @code {
@@ -312,6 +341,12 @@
     {
         ViewModel.SetTemporaryUnderlyingPrice(price);
         await InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnValuationDateChanged(int index)
+    {
+        ViewModel.SetValuationDateIndex(index);
+        return InvokeAsync(StateHasChanged);
     }
 
     private async Task CreatePosition()
