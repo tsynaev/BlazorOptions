@@ -2,6 +2,26 @@ window.payoffChart = {
     render: function (element, options, dotNetHelper) {
         if (!element || !options) return;
 
+        if (!element.isConnected) {
+            if (element.__payoffInstance) {
+                element.__payoffInstance.dispose();
+                element.__payoffInstance = null;
+            }
+            return;
+        }
+
+        const hasSize = element.offsetWidth > 0 || element.offsetHeight > 0;
+        if (!hasSize) {
+            const attempts = (element.__payoffRenderAttempts || 0) + 1;
+            element.__payoffRenderAttempts = attempts;
+            if (attempts <= 5) {
+                requestAnimationFrame(() => window.payoffChart.render(element, options, dotNetHelper));
+            }
+            return;
+        }
+
+        element.__payoffRenderAttempts = 0;
+
         const chart = element.__payoffInstance || echarts.init(element);
         element.__payoffInstance = chart;
 
