@@ -10,4 +10,5 @@
 - fix errors and warnings (if possible)
 
 ## Testing
-don't run tests
+- don't run tests
+- don't create screenshots
