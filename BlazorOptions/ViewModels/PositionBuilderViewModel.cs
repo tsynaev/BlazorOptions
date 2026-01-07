@@ -368,6 +368,8 @@ public class PositionBuilderViewModel
         var labels = new string[options.Count];
         var previousYear = options[0].Year;
         var previousMonth = options[0].Month;
+        var culture = CultureInfo.CurrentCulture;
+        var dateFormat = culture.DateTimeFormat;
 
         for (var i = 0; i < options.Count; i++)
         {
@@ -375,11 +377,14 @@ public class PositionBuilderViewModel
             var isNewYear = i == 0 || date.Year != previousYear;
             var isNewMonth = i == 0 || date.Month != previousMonth;
 
-            labels[i] = isNewYear
-                ? date.ToString("MMM dd yyyy", CultureInfo.CurrentCulture)
+            var primaryLabel = isNewYear
+                ? date.ToString("MMM dd yyyy", culture)
                 : isNewMonth
-                    ? date.ToString("MMM dd", CultureInfo.CurrentCulture)
-                    : date.ToString("dd", CultureInfo.CurrentCulture);
+                    ? date.ToString("MMM dd", culture)
+                    : date.ToString("dd", culture);
+
+            var dayOfWeek = dateFormat.GetShortestDayName(date.DayOfWeek);
+            labels[i] = $"{primaryLabel}\n{dayOfWeek}";
 
             previousYear = date.Year;
             previousMonth = date.Month;
