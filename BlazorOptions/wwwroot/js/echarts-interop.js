@@ -424,7 +424,11 @@ window.payoffChart = {
             };
 
             const pickPriceFromPixels = (x, y) => {
-                const coords = chart.convertFromPixel({ xAxisIndex: 0 }, [x, y]);
+                const xValue = Number(x);
+                const yValue = Number.isFinite(y) ? Number(y) : chart.getHeight() / 2;
+                const fallbackY = Number.isFinite(yValue) ? yValue : 0;
+                const coords = chart.convertFromPixel({ gridIndex: 0 }, [xValue, fallbackY])
+                    ?? chart.convertFromPixel({ xAxisIndex: 0 }, [xValue, fallbackY]);
                 let price = Array.isArray(coords) ? Number(coords[0]) : Number(coords);
 
                 if (Number.isFinite(price)) {
@@ -445,8 +449,9 @@ window.payoffChart = {
                 const lower = Math.min(minPricePixel, maxPricePixel);
                 const upper = Math.max(minPricePixel, maxPricePixel);
                 const clampedX = Math.min(Math.max(x, lower), upper);
-                const safeY = Number.isFinite(y) ? y : chart.getHeight() / 2;
-                const clampedCoords = chart.convertFromPixel({ xAxisIndex: 0 }, [clampedX, safeY]);
+                const safeY = Number.isFinite(yValue) ? yValue : chart.getHeight() / 2;
+                const clampedCoords = chart.convertFromPixel({ gridIndex: 0 }, [clampedX, safeY])
+                    ?? chart.convertFromPixel({ xAxisIndex: 0 }, [clampedX, safeY]);
 
                 return Array.isArray(clampedCoords) && clampedCoords.length > 0
                     ? Number(clampedCoords[0])
