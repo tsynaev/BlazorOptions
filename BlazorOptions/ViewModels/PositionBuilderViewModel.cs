@@ -27,6 +27,8 @@ public class PositionBuilderViewModel
 
     public string[] ExpiryDateLabels { get; private set; } = Array.Empty<string>();
 
+    public string ValuationDateInput { get; private set; } = string.Empty;
+
     public PositionBuilderViewModel(OptionsService optionsService, PositionStorageService storageService)
     {
         _optionsService = optionsService;
@@ -196,6 +198,26 @@ public class PositionBuilderViewModel
 
         SelectedExpiryIndex = index;
         SelectedValuationDate = ExpiryDateOptions[index];
+        ValuationDateInput = SelectedValuationDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        UpdateTemporaryPnls();
+        UpdateChart();
+    }
+
+    public void SetValuationDateInput(string? input)
+    {
+        if (input is null)
+        {
+            return;
+        }
+
+        ValuationDateInput = input;
+
+        if (!DateTime.TryParseExact(input, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedDate))
+        {
+            return;
+        }
+
+        SelectedValuationDate = parsedDate.Date;
         UpdateTemporaryPnls();
         UpdateChart();
     }
@@ -309,6 +331,12 @@ public class PositionBuilderViewModel
 
         SelectedValuationDate = currentDate;
         SelectedExpiryIndex = index;
+
+        if (string.IsNullOrWhiteSpace(ValuationDateInput) ||
+            DateTime.TryParseExact(ValuationDateInput, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
+        {
+            ValuationDateInput = SelectedValuationDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        }
     }
 
     private static List<DateTime> BuildExpiryDateOptions(IEnumerable<OptionLegModel> legs)

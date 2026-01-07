@@ -70,7 +70,13 @@
                                  @ref="_chart" />
                     <MudStack Spacing="1">
                         <MudText Typo="Typo.subtitle2">Valuation date</MudText>
-                        <MudText Typo="Typo.caption">@ViewModel.SelectedValuationDateLabel</MudText>
+                        <MudTextField T="string"
+                                      Value="@ViewModel.ValuationDateInput"
+                                      ValueChanged="OnValuationDateInputChanged"
+                                      Variant="Variant.Outlined"
+                                      Margin="Margin.Dense"
+                                      Placeholder="yyyy-MM-dd"
+                                      Class="valuation-date-field" />
                         <MudSlider T="int"
                                    Min="0"
                                    Max="@(Math.Max(0, ViewModel.ExpiryDateOptions.Count - 1))"
@@ -219,6 +225,10 @@
     .valuation-date-slider {
         padding: 0 14px 28px;
     }
+
+    .valuation-date-field {
+        max-width: 160px;
+    }
 </style>
 
 @code {
@@ -345,6 +355,12 @@
     private Task OnValuationDateChanged(int index)
     {
         ViewModel.SetValuationDateIndex(index);
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnValuationDateInputChanged(string? value)
+    {
+        ViewModel.SetValuationDateInput(value);
         return InvokeAsync(StateHasChanged);
     }
 
