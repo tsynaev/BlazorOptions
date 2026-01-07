@@ -39,7 +39,7 @@ namespace BlazorOptions
             return (xs, profits);
         }
 
-        public (double[] xs, double[] profits, double[] theoreticalProfits) GeneratePosition(IEnumerable<OptionLegModel> legs, int points = 200)
+        public (double[] xs, double[] profits, double[] theoreticalProfits) GeneratePosition(IEnumerable<OptionLegModel> legs, int points = 200, DateTime? valuationDate = null)
         {
             var activeLegs = legs.Where(l => l.IsIncluded).ToList();
             var anchor = activeLegs.Count > 0
@@ -67,13 +67,14 @@ namespace BlazorOptions
             var xs = new double[count];
             var profits = new double[count];
             var theoreticalProfits = new double[count];
+            var evaluationDate = valuationDate ?? DateTime.UtcNow;
 
             for (int i = 0; i < count; i++)
             {
                 var s = start + adjustedStep * i;
                 xs[i] = Math.Round(s, 2);
                 profits[i] = CalculateTotalProfit(activeLegs, s);
-                theoreticalProfits[i] = CalculateTotalTheoreticalProfit(activeLegs, s);
+                theoreticalProfits[i] = CalculateTotalTheoreticalProfit(activeLegs, s, evaluationDate);
             }
 
             return (xs, profits, theoreticalProfits);
@@ -90,24 +91,26 @@ namespace BlazorOptions
             };
         }
 
-        public double CalculateLegTheoreticalProfit(OptionLegModel leg, double underlyingPrice)
+        public double CalculateLegTheoreticalProfit(OptionLegModel leg, double underlyingPrice, DateTime? valuationDate = null)
         {
+            var evaluationDate = valuationDate ?? DateTime.UtcNow;
             return leg.Type switch
             {
-                OptionLegType.Call => (_blackScholes.CalculatePrice(underlyingPrice, leg.Strike, leg.ImpliedVolatility, leg.ExpirationDate, true) - leg.Price) * leg.Size,
-                OptionLegType.Put => (_blackScholes.CalculatePrice(underlyingPrice, leg.Strike, leg.ImpliedVolatility, leg.ExpirationDate, false) - leg.Price) * leg.Size,
+                OptionLegType.Call => (_blackScholes.CalculatePrice(underlyingPrice, leg.Strike, leg.ImpliedVolatility, leg.ExpirationDate, true, evaluationDate) - leg.Price) * leg.Size,
+                OptionLegType.Put => (_blackScholes.CalculatePrice(underlyingPrice, leg.Strike, leg.ImpliedVolatility, leg.ExpirationDate, false, evaluationDate) - leg.Price) * leg.Size,
                 OptionLegType.Future => (underlyingPrice - leg.Price) * leg.Size,
                 _ => throw new ArgumentOutOfRangeException()
             };
         }
 
-        public double CalculateTotalTheoreticalProfit(IEnumerable<OptionLegModel> legs, double underlyingPrice)
+        public double CalculateTotalTheoreticalProfit(IEnumerable<OptionLegModel> legs, double underlyingPrice, DateTime? valuationDate = null)
         {
+            var evaluationDate = valuationDate ?? DateTime.UtcNow;
             double total = 0;
 
             foreach (var leg in legs)
             {
-                total += CalculateLegTheoreticalProfit(leg, underlyingPrice);
+                total += CalculateLegTheoreticalProfit(leg, underlyingPrice, evaluationDate);
             }
 
             return total;

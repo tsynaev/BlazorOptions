@@ -6,11 +6,12 @@ public class BlackScholes
 {
     private const double RiskFreeRate = 0.0;
 
-    public double CalculatePrice(double underlyingPrice, double strike, double impliedVolatility, DateTime expirationDate, bool isCall)
+    public double CalculatePrice(double underlyingPrice, double strike, double impliedVolatility, DateTime expirationDate, bool isCall, DateTime? valuationDate = null)
     {
         var adjustedUnderlying = Math.Max(underlyingPrice, 1e-6);
         var adjustedStrike = Math.Max(strike, 1e-6);
-        var timeToExpiry = Math.Max((expirationDate - DateTime.UtcNow).TotalDays / 365.0, 0);
+        var evaluationDate = valuationDate ?? DateTime.UtcNow;
+        var timeToExpiry = Math.Max((expirationDate - evaluationDate).TotalDays / 365.0, 0);
         var volatility = Math.Max(impliedVolatility / 100.0, 0);
 
         if (timeToExpiry <= 0 || volatility <= 0)
