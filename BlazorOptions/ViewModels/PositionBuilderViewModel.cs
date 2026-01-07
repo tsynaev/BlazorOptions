@@ -302,8 +302,26 @@ public class PositionBuilderViewModel
         }
 
         MaxExpiryDays = Math.Max(0, (MaxExpiryDate - today).Days);
-        SelectedValuationDate = SelectedValuationDate == default ? today : SelectedValuationDate.Date;
-        SetValuationDate(SelectedValuationDate);
+        var clampedDate = SelectedValuationDate == default ? today : SelectedValuationDate.Date;
+        if (clampedDate < today)
+        {
+            clampedDate = today;
+        }
+        else if (clampedDate > MaxExpiryDate)
+        {
+            clampedDate = MaxExpiryDate;
+        }
+
+        var clampedOffset = Math.Clamp((clampedDate - today).Days, 0, MaxExpiryDays);
+        var shouldUpdatePnls = clampedDate != SelectedValuationDate || clampedOffset != SelectedDayOffset;
+
+        SelectedValuationDate = clampedDate;
+        SelectedDayOffset = clampedOffset;
+
+        if (shouldUpdatePnls)
+        {
+            UpdateTemporaryPnls();
+        }
     }
 
 }
