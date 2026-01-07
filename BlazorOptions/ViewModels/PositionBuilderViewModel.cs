@@ -24,7 +24,7 @@ public class PositionBuilderViewModel
 
     public string SelectedValuationDateLabel => SelectedValuationDate.ToString("yyyy-MM-dd");
 
-    public IReadOnlyList<string> ExpiryDateLabels => ExpiryDateOptions.Select(date => date.ToString("yyyy-MM-dd")).ToList();
+    public string[] ExpiryDateLabels => ExpiryDateOptions.Select(date => date.ToString("yyyy-MM-dd")).ToArray();
 
     public string FirstExpiryDateLabel => ExpiryDateOptions.Count > 0
         ? ExpiryDateOptions[0].ToString("yyyy-MM-dd")
