@@ -22,7 +22,7 @@ public class PositionBuilderViewModel
 
     public int SelectedDayOffset { get; private set; }
 
-    public string DaysToExpiryLabel => $"{(MaxExpiryDate - SelectedValuationDate).Days:+#;-#;0} days";
+    public string DaysToExpiryLabel => $"{SelectedDayOffset} days";
 
     public PositionBuilderViewModel(OptionsService optionsService, PositionStorageService storageService)
     {
