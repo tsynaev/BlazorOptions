@@ -91,6 +91,25 @@ window.payoffChart = {
             endValue: pnlRange?.end ?? paddedYMax
         };
 
+        const formatPrice = (value) => {
+            const numeric = Number(value);
+            if (!Number.isFinite(numeric)) return '';
+            const abs = Math.abs(numeric);
+            if (abs >= 100) {
+                return Math.round(numeric).toString();
+            }
+            if (abs === 0) {
+                return '0';
+            }
+
+            const magnitude = Math.floor(Math.log10(abs));
+            const decimals = magnitude >= 0
+                ? Math.max(0, 2 - magnitude)
+                : Math.abs(magnitude) + 2;
+
+            return numeric.toFixed(decimals);
+        };
+
         const pricePoints = numericPrices.map((price, index) => [price, profits[index]]);
         const positivePoints = pricePoints.map(([price, value]) => [price, value > 0 ? value : null]);
         const negativePoints = pricePoints.map(([price, value]) => [price, value < 0 ? value : null]);
@@ -110,7 +129,7 @@ window.payoffChart = {
                 lineStyle: { color: '#9E9E9E', width: 1.5, type: 'dashed' },
                 label: {
                     show: true,
-                    formatter: function () { return `Future: ${Number(tempPrice).toFixed(0)}`; },
+                    formatter: function () { return `Future: ${formatPrice(tempPrice)}`; },
                     rotate: 90,
                     position: 'insideEndTop',
                     align: 'center',
@@ -166,7 +185,7 @@ window.payoffChart = {
                             if (!Number.isFinite(numeric)) return '';
 
                             if (params.axisDimension === 'x') {
-                                return numeric.toFixed(0);
+                                return formatPrice(numeric);
                             }
 
                             if (params.axisDimension === 'y') {
@@ -193,7 +212,7 @@ window.payoffChart = {
                         valuesBySeries[p.seriesName] = value;
                     });
 
-                    const lines = [`Price: ${price.toFixed(0)}`];
+                    const lines = [`Price: ${formatPrice(price)}`];
                     Object.entries(valuesBySeries).forEach(([series, value]) => {
                         lines.push(`${series}: ${Number(value).toFixed(2)}`);
                     });
@@ -208,7 +227,7 @@ window.payoffChart = {
                 boundaryGap: ['2%', '2%'],
                 axisLabel: {
                     formatter: function (value) {
-                        return Number(value).toFixed(0);
+                        return formatPrice(value);
                     }
                 },
                 axisPointer: {
@@ -218,8 +237,7 @@ window.payoffChart = {
                     label: {
                         show: true,
                         formatter: function (params) {
-                            const numeric = Number(params.value);
-                            return Number.isFinite(numeric) ? numeric.toFixed(0) : '';
+                            return formatPrice(params.value);
                         },
                         backgroundColor: '#7581BD'
                     }
@@ -343,7 +361,7 @@ window.payoffChart = {
                         itemStyle: { color: '#607D8B' },
                         label: {
                             show: true,
-                            formatter: function (params) { return Number(params.value[0]).toFixed(0); },
+                            formatter: function (params) { return formatPrice(params.value[0]); },
                             position: 'top',
                             fontSize: 10,
                             color: '#37474F',
