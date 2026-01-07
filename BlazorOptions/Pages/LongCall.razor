@@ -69,23 +69,23 @@
                                  Style="flex:1; min-height:320px;"
                                  @ref="_chart" />
                     <MudStack Spacing="1">
-                        <MudText Typo="Typo.subtitle2">Valuation date</MudText>
-                        <MudTextField T="string"
-                                      Value="@ViewModel.ValuationDateInput"
-                                      ValueChanged="OnValuationDateInputChanged"
-                                      Variant="Variant.Outlined"
-                                      Margin="Margin.Dense"
-                                      Placeholder="yyyy-MM-dd"
-                                      Class="valuation-date-field" />
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                            <MudText Typo="Typo.subtitle2">Valuation date</MudText>
+                            <MudDatePicker Date="@ViewModel.SelectedValuationDate"
+                                           DateChanged="OnValuationDateChanged"
+                                           DateFormat="yyyy-MM-dd"
+                                           MinDate="@DateTime.UtcNow.Date"
+                                           MaxDate="@ViewModel.MaxExpiryDate"
+                                           Class="valuation-date-picker" />
+                            <MudText Typo="Typo.caption">@ViewModel.DaysToExpiryLabel</MudText>
+                        </MudStack>
                         <MudSlider T="int"
                                    Min="0"
-                                   Max="@(Math.Max(0, ViewModel.ExpiryDateOptions.Count - 1))"
+                                   Max="@ViewModel.MaxExpiryDays"
                                    Step="1"
-                                   Value="@ViewModel.SelectedExpiryIndex"
-                                   ValueChanged="OnValuationDateChanged"
-                                   Disabled="@(!ViewModel.HasExpiryDateOptions)"
+                                   Value="@ViewModel.SelectedDayOffset"
+                                   ValueChanged="OnValuationDateOffsetChanged"
                                    TickMarks="true"
-                                   TickMarkLabels="@ViewModel.ExpiryDateLabels"
                                    Class="valuation-date-slider" />
                     </MudStack>
                 </MudStack>
@@ -212,22 +212,12 @@
         max-width: 180px;
     }
 
-    .valuation-date-slider .mud-slider-label {
-        font-size: 0.42rem;
-        line-height: 1.1;
-        white-space: pre;
-        text-align: center;
-        transform: translateX(-50%);
-        min-width: 1.75rem;
-        display: inline-block;
-    }
-
     .valuation-date-slider {
-        padding: 0 14px 28px;
+        padding: 0 14px 16px;
     }
 
-    .valuation-date-field {
-        max-width: 160px;
+    .valuation-date-picker {
+        min-width: 140px;
     }
 </style>
 
@@ -352,15 +342,19 @@
         await InvokeAsync(StateHasChanged);
     }
 
-    private Task OnValuationDateChanged(int index)
+    private Task OnValuationDateChanged(DateTime? date)
     {
-        ViewModel.SetValuationDateIndex(index);
+        if (date.HasValue)
+        {
+            ViewModel.SetValuationDate(date.Value);
+        }
+
         return InvokeAsync(StateHasChanged);
     }
 
-    private Task OnValuationDateInputChanged(string? value)
+    private Task OnValuationDateOffsetChanged(int offset)
     {
-        ViewModel.SetValuationDateInput(value);
+        ViewModel.SetValuationDateFromOffset(offset);
         return InvokeAsync(StateHasChanged);
     }
 
