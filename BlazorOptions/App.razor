@@ -1,9 +1,9 @@
 @inject BlazorOptions.Services.ThemeService ThemeService
-@implements IDisposable
+@inject IJSRuntime JsRuntime
+@implements IAsyncDisposable
 
 <MudThemeProvider IsDarkMode="@ThemeService.IsDarkMode"
-                  IsDarkModeChanged="ThemeService.SetIsDarkMode"
-                  OnSystemPreferenceChanged="ThemeService.UpdateSystemPreference" />
+                  IsDarkModeChanged="ThemeService.SetIsDarkMode" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
@@ -22,18 +22,40 @@
 </Router>
 
 @code {
+    private IJSObjectReference? _themeModule;
+    private DotNetObjectReference<BlazorOptions.Services.ThemeService>? _themeServiceReference;
+
     protected override void OnInitialized()
     {
         ThemeService.OnChange += HandleThemeChanged;
     }
 
-    public void Dispose()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        ThemeService.OnChange -= HandleThemeChanged;
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _themeModule = await JsRuntime.InvokeAsync<IJSObjectReference>("import", "./js/theme-preference.js");
+        _themeServiceReference = DotNetObjectReference.Create(ThemeService);
+        await _themeModule.InvokeVoidAsync("registerThemePreferenceListener", _themeServiceReference);
     }
 
     private void HandleThemeChanged()
     {
         _ = InvokeAsync(StateHasChanged);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        ThemeService.OnChange -= HandleThemeChanged;
+
+        _themeServiceReference?.Dispose();
+
+        if (_themeModule is not null)
+        {
+            await _themeModule.DisposeAsync();
+        }
     }
 }

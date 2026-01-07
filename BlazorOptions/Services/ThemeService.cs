@@ -1,3 +1,5 @@
+using Microsoft.JSInterop;
+
 namespace BlazorOptions.Services;
 
 public enum ThemeMode
@@ -30,6 +32,7 @@ public class ThemeService
         return Task.CompletedTask;
     }
 
+    [JSInvokable]
     public Task UpdateSystemPreference(bool isDarkMode)
     {
         if (IsSystemDarkMode == isDarkMode)
