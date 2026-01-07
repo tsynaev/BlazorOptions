@@ -23,14 +23,9 @@ public class ThemeService
         _ => null
     };
 
-    public Task SetIsDarkMode(bool? isDarkMode)
+    public Task SetIsDarkMode(bool isDarkMode)
     {
-        SetMode(isDarkMode switch
-        {
-            true => ThemeMode.Dark,
-            false => ThemeMode.Light,
-            null => ThemeMode.System
-        });
+        SetMode(isDarkMode ? ThemeMode.Dark : ThemeMode.Light);
 
         return Task.CompletedTask;
     }
