@@ -407,6 +407,9 @@ window.payoffChart = {
 
         chart.off('click');
         chart.getZr().off('click');
+        chart.getZr().off('mousedown');
+        chart.getZr().off('mouseup');
+        chart.getZr().off('globalout');
         chart.off('updateAxisPointer');
         if (element.__payoffDomClick) {
             element.removeEventListener('click', element.__payoffDomClick);
@@ -481,6 +484,18 @@ window.payoffChart = {
                 invokeSelection(price);
             });
 
+            chart.getZr().on('mousedown', (event) => {
+                element.__payoffHandleDrag = event?.target?.cursor === 'move';
+            });
+
+            chart.getZr().on('mouseup', () => {
+                element.__payoffHandleDrag = false;
+            });
+
+            chart.getZr().on('globalout', () => {
+                element.__payoffHandleDrag = false;
+            });
+
             const domClickHandler = (event) => {
                 const rect = element.getBoundingClientRect();
                 const localX = event.clientX - rect.left;
@@ -493,6 +508,7 @@ window.payoffChart = {
             element.addEventListener('click', domClickHandler);
 
             chart.on('updateAxisPointer', (event) => {
+                if (!element.__payoffHandleDrag) return;
                 const axisInfo = event?.axesInfo?.find(info => info.axisDim === 'x');
                 if (!axisInfo) return;
                 const price = Number(axisInfo.value);
