@@ -15,6 +15,8 @@ builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.
 builder.Services.AddSingleton<BlackScholes>();
 builder.Services.AddSingleton<OptionsService>();
 builder.Services.AddScoped<PositionStorageService>();
+builder.Services.AddSingleton<ThemeService>();
+builder.Services.AddTransient<AccountSettingsViewModel>();
 builder.Services.AddTransient<PositionBuilderViewModel>();
 builder.Services.AddMudServices();
 
