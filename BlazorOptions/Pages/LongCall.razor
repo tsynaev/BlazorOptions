@@ -1,6 +1,5 @@
 @page "/long-call"
 @inject PositionBuilderViewModel ViewModel
-@inject IJSRuntime JS
 @inject IDialogService DialogService
 @using System.Linq
 @using Microsoft.AspNetCore.Components.Web
@@ -63,9 +62,13 @@
         </MudCardContent>
         <MudCardContent Class="chart-container">
             <MudPaper Class="pa-4 chart-surface" Elevation="0">
-                <div class="chart-host">
-                    <div class="echart" @ref="_chartRef"></div>
-                </div>
+                <MudStack Spacing="2" Style="height:100%;">
+                    <PayoffChart Config="@ViewModel.ChartConfig"
+                                 PriceSelected="HandleChartPriceSelected"
+                                 Height="100%"
+                                 Style="flex:1; min-height:320px;"
+                                 @ref="_chart" />
+                </MudStack>
             </MudPaper>
         </MudCardContent>
     </MudCard>
@@ -191,9 +194,8 @@
 </style>
 
 @code {
-    private ElementReference _chartRef;
     private int _activeTabIndex;
-    private bool _chartNeedsRender;
+    private PayoffChart? _chart;
     private IEnumerable<OptionLegType> LegTypes => Enum.GetValues<OptionLegType>();
 
     private bool HasActivePosition => ViewModel.SelectedPosition is not null;
@@ -202,22 +204,12 @@
     {
         await ViewModel.InitializeAsync();
         SyncActiveTabIndex();
-        _chartNeedsRender = true;
+    }
+
+    private async Task HandleChartPriceSelected(double price)
+    {
+        ViewModel.SetTemporaryUnderlyingPrice(price);
         await InvokeAsync(StateHasChanged);
-    }
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (_chartNeedsRender)
-        {
-            _chartNeedsRender = false;
-            await RenderChartAsync();
-        }
-    }
-
-    private async Task RenderChartAsync()
-    {
-        await JS.InvokeVoidAsync("payoffChart.render", _chartRef, ViewModel.ChartConfig);
     }
 
     private Task OnSwipeEnd(SwipeEventArgs args) => args.SwipeDirection switch
@@ -245,16 +237,14 @@
     private async Task OnAddLeg()
     {
         await ViewModel.AddLegAsync();
-        ViewModel.UpdateChart();
-        await RenderChartAsync();
+        await RefreshChartAsync();
     }
 
     private async Task OnRemoveLeg(OptionLegModel leg)
     {
         if (await ViewModel.RemoveLegAsync(leg))
         {
-            ViewModel.UpdateChart();
-            await RenderChartAsync();
+            await RefreshChartAsync();
         }
     }
 
@@ -263,8 +253,7 @@
         leg.IsIncluded = include;
         await ViewModel.PersistPositionsAsync();
         ViewModel.UpdateTemporaryPnls();
-        ViewModel.UpdateChart();
-        await RenderChartAsync();
+        await RefreshChartAsync();
     }
 
     private async Task OnLegTypeChanged(OptionLegModel leg, OptionLegType type)
@@ -272,8 +261,7 @@
         leg.Type = type;
         await ViewModel.PersistPositionsAsync();
         ViewModel.UpdateTemporaryPnls();
-        ViewModel.UpdateChart();
-        await RenderChartAsync();
+        await RefreshChartAsync();
     }
 
     private async Task OnLegStrikeChanged(OptionLegModel leg, double strike)
@@ -281,8 +269,7 @@
         leg.Strike = strike;
         await ViewModel.PersistPositionsAsync();
         ViewModel.UpdateTemporaryPnls();
-        ViewModel.UpdateChart();
-        await RenderChartAsync();
+        await RefreshChartAsync();
     }
 
     private async Task OnExpirationChanged(OptionLegModel leg, DateTime? date)
@@ -294,8 +281,7 @@
 
         await ViewModel.PersistPositionsAsync();
         ViewModel.UpdateTemporaryPnls();
-        ViewModel.UpdateChart();
-        await RenderChartAsync();
+        await RefreshChartAsync();
     }
 
     private async Task OnLegSizeChanged(OptionLegModel leg, double size)
@@ -303,8 +289,7 @@
         leg.Size = size;
         await ViewModel.PersistPositionsAsync();
         ViewModel.UpdateTemporaryPnls();
-        ViewModel.UpdateChart();
-        await RenderChartAsync();
+        await RefreshChartAsync();
     }
 
     private async Task OnLegPriceChanged(OptionLegModel leg, double price)
@@ -312,8 +297,7 @@
         leg.Price = price;
         await ViewModel.PersistPositionsAsync();
         ViewModel.UpdateTemporaryPnls();
-        ViewModel.UpdateChart();
-        await RenderChartAsync();
+        await RefreshChartAsync();
     }
 
     private async Task OnLegIvChanged(OptionLegModel leg, double iv)
@@ -321,23 +305,20 @@
         leg.ImpliedVolatility = iv;
         await ViewModel.PersistPositionsAsync();
         ViewModel.UpdateTemporaryPnls();
-        ViewModel.UpdateChart();
-        await RenderChartAsync();
+        await RefreshChartAsync();
     }
 
     private async Task OnTemporaryPriceChanged(double price)
     {
         ViewModel.SetTemporaryUnderlyingPrice(price);
-        await RenderChartAsync();
-        StateHasChanged();
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task CreatePosition()
     {
         await ViewModel.AddPositionAsync();
         _activeTabIndex = Math.Max(0, ViewModel.Positions.Count - 1);
-        await RenderChartAsync();
-        StateHasChanged();
+        await RefreshChartAsync();
     }
 
     private void SyncActiveTabIndex()
@@ -367,9 +348,7 @@
         if (await ViewModel.SelectPositionAsync(positionId))
         {
             _activeTabIndex = index;
-            ViewModel.UpdateChart();
-            await RenderChartAsync();
-            StateHasChanged();
+            await RefreshChartAsync();
         }
     }
 
@@ -444,10 +423,19 @@
 
         if (await ViewModel.RemovePositionAsync(positionId))
         {
-            await JS.InvokeVoidAsync("payoffChart.clearRanges", positionId.ToString());
+            if (_chart is not null)
+            {
+                await _chart.ClearRangesAsync(positionId);
+            }
             SyncActiveTabIndex();
-            _chartNeedsRender = true;
-            await InvokeAsync(StateHasChanged);
+            await RefreshChartAsync();
         }
     }
+
+    private Task RefreshChartAsync()
+    {
+        ViewModel.UpdateChart();
+        return InvokeAsync(StateHasChanged);
+    }
+
 }

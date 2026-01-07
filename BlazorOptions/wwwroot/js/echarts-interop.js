@@ -1,6 +1,33 @@
 window.payoffChart = {
-    render: function (element, options) {
+    render: function (element, options, dotNetHelper) {
         if (!element || !options) return;
+
+        if (!element.isConnected) {
+            if (element.__payoffInstance && !element.__payoffInstance.isDisposed?.()) {
+                element.__payoffInstance.dispose();
+            }
+            element.__payoffInstance = null;
+            return;
+        }
+
+        const hasSize = element.offsetWidth > 0 || element.offsetHeight > 0;
+        if (!hasSize) {
+            const attempts = (element.__payoffRenderAttempts || 0) + 1;
+            element.__payoffRenderAttempts = attempts;
+            if (attempts <= 5) {
+                requestAnimationFrame(() => window.payoffChart.render(element, options, dotNetHelper));
+            }
+            return;
+        }
+
+        element.__payoffRenderAttempts = 0;
+
+        if (element.__payoffInstance?.isDisposed?.()) {
+            element.__payoffInstance = null;
+        } else if (element.__payoffInstance?.getDom?.() && element.__payoffInstance.getDom() !== element) {
+            element.__payoffInstance.dispose();
+            element.__payoffInstance = null;
+        }
 
         const chart = element.__payoffInstance || echarts.init(element);
         element.__payoffInstance = chart;
@@ -41,6 +68,7 @@ window.payoffChart = {
 
         const priceRange = loadRange(priceRangeKey);
         const pnlRange = loadRange(pnlRangeKey);
+        const axisPointerValue = Number.isFinite(tempPrice) ? Number(tempPrice) : undefined;
 
         const priceZoomInside = {
             type: 'inside',
@@ -63,6 +91,42 @@ window.payoffChart = {
             endValue: pnlRange?.end ?? paddedYMax
         };
 
+        const formatPrice = (value) => {
+            const numeric = Number(value);
+            if (!Number.isFinite(numeric)) return '';
+            const abs = Math.abs(numeric);
+            if (abs >= 100) {
+                return Math.round(numeric).toString();
+            }
+            if (abs === 0) {
+                return '0';
+            }
+
+            const magnitude = Math.floor(Math.log10(abs));
+            const decimals = magnitude >= 0
+                ? Math.max(0, 2 - magnitude)
+                : Math.abs(magnitude) + 2;
+
+            return numeric.toFixed(decimals);
+        };
+
+        const normalizePrice = (value) => {
+            const numeric = Number(value);
+            if (!Number.isFinite(numeric)) return null;
+            const abs = Math.abs(numeric);
+            if (abs >= 100) {
+                return Math.round(numeric);
+            }
+            if (abs === 0) {
+                return 0;
+            }
+            const magnitude = Math.floor(Math.log10(abs));
+            const decimals = magnitude >= 0
+                ? Math.max(0, 2 - magnitude)
+                : Math.abs(magnitude) + 2;
+            return Number(numeric.toFixed(decimals));
+        };
+
         const pricePoints = numericPrices.map((price, index) => [price, profits[index]]);
         const positivePoints = pricePoints.map(([price, value]) => [price, value > 0 ? value : null]);
         const negativePoints = pricePoints.map(([price, value]) => [price, value < 0 ? value : null]);
@@ -82,7 +146,7 @@ window.payoffChart = {
                 lineStyle: { color: '#9E9E9E', width: 1.5, type: 'dashed' },
                 label: {
                     show: true,
-                    formatter: function () { return `Future: ${Number(tempPrice).toFixed(0)}`; },
+                    formatter: function () { return `Future: ${formatPrice(tempPrice)}`; },
                     rotate: 90,
                     position: 'insideEndTop',
                     align: 'center',
@@ -127,7 +191,28 @@ window.payoffChart = {
             },
             tooltip: {
                 trigger: 'axis',
-                axisPointer: { type: 'line' },
+                axisPointer: {
+                    type: 'cross',
+                    snap: true,
+                    label: {
+                        show: true,
+                        backgroundColor: '#455A64',
+                        formatter: function (params) {
+                            const numeric = Number(params.value);
+                            if (!Number.isFinite(numeric)) return '';
+
+                            if (params.axisDimension === 'x') {
+                                return formatPrice(numeric);
+                            }
+
+                            if (params.axisDimension === 'y') {
+                                return numeric.toFixed(2);
+                            }
+
+                            return numeric.toFixed(2);
+                        }
+                    }
+                },
                 formatter: function (params) {
                     if (!params || !params.length) return '';
 
@@ -144,7 +229,7 @@ window.payoffChart = {
                         valuesBySeries[p.seriesName] = value;
                     });
 
-                    const lines = [`Price: ${price.toFixed(0)}`];
+                    const lines = [`Price: ${formatPrice(price)}`];
                     Object.entries(valuesBySeries).forEach(([series, value]) => {
                         lines.push(`${series}: ${Number(value).toFixed(2)}`);
                     });
@@ -159,7 +244,19 @@ window.payoffChart = {
                 boundaryGap: ['2%', '2%'],
                 axisLabel: {
                     formatter: function (value) {
-                        return Number(value).toFixed(0);
+                        return formatPrice(value);
+                    }
+                },
+                axisPointer: {
+                    show: true,
+                    snap: true,
+                    value: axisPointerValue,
+                    label: {
+                        show: true,
+                        formatter: function (params) {
+                            return formatPrice(params.value);
+                        },
+                        backgroundColor: '#7581BD'
                     }
                 }
             },
@@ -174,7 +271,17 @@ window.payoffChart = {
                         return value.toFixed(0);
                     }
                 },
-                splitLine: { lineStyle: { color: '#e0e0e0' } }
+                splitLine: { lineStyle: { color: '#e0e0e0' } },
+                axisPointer: {
+                    show: true,
+                    snap: true,
+                    label: {
+                        formatter: function (params) {
+                            const numeric = Number(params.value);
+                            return Number.isFinite(numeric) ? numeric.toFixed(2) : '';
+                        }
+                    }
+                }
             },
             dataZoom: [
                 priceZoomInside,
@@ -271,7 +378,7 @@ window.payoffChart = {
                         itemStyle: { color: '#607D8B' },
                         label: {
                             show: true,
-                            formatter: function (params) { return Number(params.value[0]).toFixed(0); },
+                            formatter: function (params) { return formatPrice(params.value[0]); },
                             position: 'top',
                             fontSize: 10,
                             color: '#37474F',
@@ -303,6 +410,7 @@ window.payoffChart = {
 
         chart.off('dataZoom');
         chart.on('dataZoom', () => {
+            element.__payoffLastZoomAt = Date.now();
             const zoomState = chart.getOption().dataZoom || [];
             const priceZoom = zoomState.find(z => z.xAxisIndex !== undefined);
             const pnlZoom = zoomState.find(z => z.yAxisIndex !== undefined);
@@ -325,7 +433,141 @@ window.payoffChart = {
             }
         });
 
-        chart.resize();
+        chart.off('click');
+        chart.getZr().off('click');
+        chart.getZr().off('mousedown');
+        chart.getZr().off('mouseup');
+        chart.getZr().off('globalout');
+        chart.off('updateAxisPointer');
+        if (element.__payoffDomClick) {
+            element.removeEventListener('click', element.__payoffDomClick);
+        }
+
+        if (dotNetHelper) {
+            const invokeSelection = (price) => {
+                const lastZoomAt = element.__payoffLastZoomAt ?? 0;
+                if (Date.now() - lastZoomAt < 150) {
+                    return;
+                }
+                const normalized = normalizePrice(price);
+                if (Number.isFinite(normalized) && normalized !== element.__payoffLastPrice) {
+                    element.__payoffLastPrice = normalized;
+                    dotNetHelper.invokeMethodAsync('OnChartPriceSelected', normalized);
+                }
+            };
+
+            const pickPriceFromPixels = (x, y) => {
+                const xValue = Number(x);
+                const yValue = Number.isFinite(y) ? Number(y) : chart.getHeight() / 2;
+                const fallbackY = Number.isFinite(yValue) ? yValue : 0;
+                const coords = chart.convertFromPixel({ gridIndex: 0 }, [xValue, fallbackY])
+                    ?? chart.convertFromPixel({ xAxisIndex: 0 }, [xValue, fallbackY]);
+                let price = Array.isArray(coords) ? Number(coords[0]) : Number(coords);
+
+                if (Number.isFinite(price)) {
+                    return price;
+                }
+
+                if (!numericPrices.length) {
+                    return null;
+                }
+
+                const minPricePixel = chart.convertToPixel({ xAxisIndex: 0 }, numericPrices[0]);
+                const maxPricePixel = chart.convertToPixel({ xAxisIndex: 0 }, numericPrices[numericPrices.length - 1]);
+
+                if (!Number.isFinite(minPricePixel) || !Number.isFinite(maxPricePixel)) {
+                    return null;
+                }
+
+                const lower = Math.min(minPricePixel, maxPricePixel);
+                const upper = Math.max(minPricePixel, maxPricePixel);
+                const clampedX = Math.min(Math.max(x, lower), upper);
+                const safeY = Number.isFinite(yValue) ? yValue : chart.getHeight() / 2;
+                const clampedCoords = chart.convertFromPixel({ gridIndex: 0 }, [clampedX, safeY])
+                    ?? chart.convertFromPixel({ xAxisIndex: 0 }, [clampedX, safeY]);
+
+                return Array.isArray(clampedCoords) && clampedCoords.length > 0
+                    ? Number(clampedCoords[0])
+                    : null;
+            };
+
+            chart.on('click', (params) => {
+                const extractValue = (value) => {
+                    if (Array.isArray(value)) {
+                        return Number(value[0]);
+                    }
+
+                    if (value !== undefined && value !== null) {
+                        const numeric = Number(value);
+                        return Number.isFinite(numeric) ? numeric : null;
+                    }
+
+                    return null;
+                };
+
+                const fromParams = extractValue(params?.value)
+                    ?? extractValue(params?.data?.value);
+
+                let price = fromParams;
+
+                if (!Number.isFinite(price) && params?.event) {
+                    price = pickPriceFromPixels(params.event.offsetX, params.event.offsetY ?? 0);
+                }
+
+                invokeSelection(price);
+            });
+
+            chart.getZr().on('click', (event) => {
+                const price = pickPriceFromPixels(event.offsetX, event.offsetY ?? 0);
+                invokeSelection(price);
+            });
+
+            chart.getZr().on('mousedown', (event) => {
+                const isHandle = event?.target?.cursor === 'move';
+                element.__payoffHandleDrag = isHandle;
+                if (!isHandle) {
+                    element.__payoffPointerValue = null;
+                }
+            });
+
+            chart.getZr().on('mouseup', () => {
+                if (element.__payoffHandleDrag && Number.isFinite(element.__payoffPointerValue)) {
+                    invokeSelection(element.__payoffPointerValue);
+                }
+                element.__payoffHandleDrag = false;
+                element.__payoffPointerValue = null;
+            });
+
+            chart.getZr().on('globalout', () => {
+                element.__payoffHandleDrag = false;
+                element.__payoffPointerValue = null;
+            });
+
+            const domClickHandler = (event) => {
+                const rect = element.getBoundingClientRect();
+                const localX = event.clientX - rect.left;
+                const localY = event.clientY - rect.top;
+                const price = pickPriceFromPixels(localX, localY);
+                invokeSelection(price);
+            };
+
+            element.__payoffDomClick = domClickHandler;
+            element.addEventListener('click', domClickHandler);
+
+            chart.on('updateAxisPointer', (event) => {
+                if (!element.__payoffHandleDrag) return;
+                const axisInfo = event?.axesInfo?.find(info => info.axisDim === 'x');
+                if (!axisInfo) return;
+                const price = Number(axisInfo.value);
+                if (Number.isFinite(price)) {
+                    element.__payoffPointerValue = price;
+                }
+            });
+        }
+
+        if (!chart.isDisposed?.()) {
+            chart.resize();
+        }
     }
 };
 
