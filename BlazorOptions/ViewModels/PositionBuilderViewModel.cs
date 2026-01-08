@@ -16,13 +16,13 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     private static readonly ObservableCollection<OptionLegModel> EmptyLegs = new();
 
-    public double? TemporaryUnderlyingPrice { get; private set; }
+    public double? SelectedPrice { get; private set; }
 
     public double? LivePrice { get; private set; }
 
-    public bool HasTemporaryUnderlyingPrice => TemporaryUnderlyingPrice.HasValue;
+    public bool HasSelectedPrice => SelectedPrice.HasValue;
 
-    public bool IsLivePriceEnabled { get; private set; } = true;
+    public bool IsLive { get; private set; } = true;
 
     public DateTime SelectedValuationDate { get; private set; } = DateTime.UtcNow.Date;
 
@@ -156,6 +156,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
     public async Task UpdatePairAsync(PositionModel position, string pair)
     {
         position.Pair = pair;
+        UpdateAssetsFromPair(position);
         await PersistPositionsAsync();
         if (SelectedPosition?.Id == position.Id)
         {
@@ -179,7 +180,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         var labels = xs.Select(x => x.ToString("0")).ToArray();
         var minProfit = Math.Min(profits.Min(), theoreticalProfits.Min());
         var maxProfit = Math.Max(profits.Max(), theoreticalProfits.Max());
-        var displayPrice = GetEffectiveUnderlyingPrice();
+        var displayPrice = GetEffectivePrice();
         var tempPnl = activeLegs.Any() ? _optionsService.CalculateTotalTheoreticalProfit(activeLegs, displayPrice, valuationDate) : (double?)null;
         var tempExpiryPnl = activeLegs.Any() ? _optionsService.CalculateTotalProfit(activeLegs, displayPrice) : (double?)null;
 
@@ -203,35 +204,35 @@ public class PositionBuilderViewModel : IAsyncDisposable
         ChartConfig = new EChartOptions(positionId, xs, labels, profits, theoreticalProfits, displayPrice, tempPnl, tempExpiryPnl, minProfit - padding, maxProfit + padding);
     }
 
-    public void SetTemporaryUnderlyingPrice(double price)
+    public void SetSelectedPrice(double price)
     {
-        TemporaryUnderlyingPrice = price;
+        SelectedPrice = price;
         UpdateTemporaryPnls();
         UpdateChart();
     }
 
-    public void ClearTemporaryUnderlyingPrice()
+    public void ClearSelectedPrice()
     {
-        TemporaryUnderlyingPrice = null;
+        SelectedPrice = null;
         UpdateTemporaryPnls();
         UpdateChart();
     }
 
-    public async Task SetLivePriceEnabledAsync(bool isEnabled)
+    public async Task SetIsLiveAsync(bool isEnabled)
     {
-        if (IsLivePriceEnabled == isEnabled)
+        if (IsLive == isEnabled)
         {
             return;
         }
 
-        IsLivePriceEnabled = isEnabled;
+        IsLive = isEnabled;
 
-        if (!IsLivePriceEnabled)
+        if (!IsLive)
         {
             await StopTickerAsync();
-            if (!TemporaryUnderlyingPrice.HasValue)
+            if (!SelectedPrice.HasValue)
             {
-                TemporaryUnderlyingPrice = LivePrice ?? CalculateAnchorPrice(Legs);
+                SelectedPrice = LivePrice ?? CalculateAnchorPrice(Legs);
                 UpdateTemporaryPnls();
                 UpdateChart();
             }
@@ -269,7 +270,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     public void UpdateTemporaryPnls()
     {
-        var price = GetEffectiveUnderlyingPrice();
+        var price = GetEffectivePrice();
 
         foreach (var leg in Legs)
         {
@@ -318,6 +319,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         {
             Pair = pair ?? "ETH/USDT"
         };
+        UpdateAssetsFromPair(position);
 
         position.Legs.Add(new OptionLegModel
         {
@@ -340,6 +342,21 @@ public class PositionBuilderViewModel : IAsyncDisposable
         });
 
         return position;
+    }
+
+    private static void UpdateAssetsFromPair(PositionModel position)
+    {
+        if (string.IsNullOrWhiteSpace(position.Pair))
+        {
+            return;
+        }
+
+        var parts = position.Pair.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length >= 2)
+        {
+            position.BaseAsset = parts[0];
+            position.QuoteAsset = parts[1];
+        }
     }
 
     private static double CalculateAnchorPrice(IEnumerable<OptionLegModel> legs)
@@ -389,16 +406,16 @@ public class PositionBuilderViewModel : IAsyncDisposable
         }
     }
 
-    private double GetEffectiveUnderlyingPrice()
+    private double GetEffectivePrice()
     {
-        if (IsLivePriceEnabled && LivePrice.HasValue)
+        if (IsLive && LivePrice.HasValue)
         {
             return LivePrice.Value;
         }
 
-        if (TemporaryUnderlyingPrice.HasValue)
+        if (SelectedPrice.HasValue)
         {
-            return TemporaryUnderlyingPrice.Value;
+            return SelectedPrice.Value;
         }
 
         return CalculateAnchorPrice(Legs);
@@ -416,13 +433,13 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     private async Task UpdateTickerSubscriptionAsync()
     {
-        if (!IsLivePriceEnabled || SelectedPosition is null)
+        if (!IsLive || SelectedPosition is null)
         {
             await StopTickerAsync();
             return;
         }
 
-        var symbol = NormalizeSymbol(SelectedPosition.Pair);
+        var symbol = NormalizeSymbol(SelectedPosition);
         if (string.IsNullOrWhiteSpace(symbol))
         {
             return;
@@ -439,7 +456,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         _tickerCts = new CancellationTokenSource();
 
         var settings = await _exchangeSettingsService.LoadBybitSettingsAsync();
-        var url = ResolveWebSocketUrl(settings.WebSocketUrl);
+        var url = _exchangeTickerService.ResolveWebSocketUrl(settings.WebSocketUrl);
 
         var subscription = new ExchangeTickerSubscription("Bybit", symbol, url);
         await _exchangeTickerService.ConnectAsync(subscription, _tickerCts.Token);
@@ -454,8 +471,17 @@ public class PositionBuilderViewModel : IAsyncDisposable
         await _exchangeTickerService.DisconnectAsync();
     }
 
-    private static string NormalizeSymbol(string? pair)
+    private static string NormalizeSymbol(PositionModel position)
     {
+        var baseAsset = position.BaseAsset?.Trim();
+        var quoteAsset = position.QuoteAsset?.Trim();
+
+        if (!string.IsNullOrWhiteSpace(baseAsset) && !string.IsNullOrWhiteSpace(quoteAsset))
+        {
+            return $"{baseAsset}{quoteAsset}".Replace(" ", string.Empty, StringComparison.OrdinalIgnoreCase).ToUpperInvariant();
+        }
+
+        var pair = position.Pair?.Trim();
         if (string.IsNullOrWhiteSpace(pair))
         {
             return string.Empty;
@@ -466,19 +492,9 @@ public class PositionBuilderViewModel : IAsyncDisposable
             .ToUpperInvariant();
     }
 
-    private static Uri ResolveWebSocketUrl(string? url)
-    {
-        if (Uri.TryCreate(url, UriKind.Absolute, out var parsed))
-        {
-            return parsed;
-        }
-
-        return new Uri("wss://stream.bybit.com/v5/public/linear");
-    }
-
     private void HandlePriceUpdated(object? sender, ExchangePriceUpdate update)
     {
-        if (!IsLivePriceEnabled)
+        if (!IsLive)
         {
             return;
         }

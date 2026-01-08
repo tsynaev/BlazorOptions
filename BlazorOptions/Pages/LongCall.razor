@@ -83,12 +83,12 @@
                             <MudSpacer />
                             <MudSwitch T="bool"
                                        Color="Color.Primary"
-                                       Value="@ViewModel.IsLivePriceEnabled"
+                                       Value="@ViewModel.IsLive"
                                        ValueChanged="OnLivePriceChanged"
                                        Label="Live" />
-                            <MudText Typo="Typo.caption" Class="ml-2">Temp P/L at price</MudText>
+                            <MudText Typo="Typo.caption" Class="ml-2">Index Price</MudText>
                             <MudNumericField T="double?"
-                                             Value="@ViewModel.TemporaryUnderlyingPrice"
+                                             Value="@ViewModel.SelectedPrice"
                                              ValueChanged="OnTemporaryPriceChanged"
                                              Variant="Variant.Outlined"
                                              Margin="Margin.Dense"
@@ -253,7 +253,7 @@
 
     private async Task HandleChartPriceSelected(double price)
     {
-        ViewModel.SetTemporaryUnderlyingPrice(price);
+        ViewModel.SetSelectedPrice(price);
         await InvokeAsync(StateHasChanged);
     }
 
@@ -357,11 +357,11 @@
     {
         if (price.HasValue)
         {
-            ViewModel.SetTemporaryUnderlyingPrice(price.Value);
+            ViewModel.SetSelectedPrice(price.Value);
         }
         else
         {
-            ViewModel.ClearTemporaryUnderlyingPrice();
+            ViewModel.ClearSelectedPrice();
         }
 
         await InvokeAsync(StateHasChanged);
@@ -369,7 +369,7 @@
 
     private async Task OnLivePriceChanged(bool isEnabled)
     {
-        await ViewModel.SetLivePriceEnabledAsync(isEnabled);
+        await ViewModel.SetIsLiveAsync(isEnabled);
         await InvokeAsync(StateHasChanged);
     }
 
