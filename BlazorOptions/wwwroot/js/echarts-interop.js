@@ -438,9 +438,9 @@ window.payoffChart = {
         chart.getZr().off('mousedown');
         chart.getZr().off('mouseup');
         chart.getZr().off('globalout');
-        chart.off('updateAxisPointer');
         if (element.__payoffDomClick) {
             element.removeEventListener('click', element.__payoffDomClick);
+            element.__payoffDomClick = null;
         }
 
         if (dotNetHelper) {
@@ -522,47 +522,6 @@ window.payoffChart = {
                 invokeSelection(price);
             });
 
-            chart.getZr().on('mousedown', (event) => {
-                const isHandle = event?.target?.cursor === 'move';
-                element.__payoffHandleDrag = isHandle;
-                if (!isHandle) {
-                    element.__payoffPointerValue = null;
-                }
-            });
-
-            chart.getZr().on('mouseup', () => {
-                if (element.__payoffHandleDrag && Number.isFinite(element.__payoffPointerValue)) {
-                    invokeSelection(element.__payoffPointerValue);
-                }
-                element.__payoffHandleDrag = false;
-                element.__payoffPointerValue = null;
-            });
-
-            chart.getZr().on('globalout', () => {
-                element.__payoffHandleDrag = false;
-                element.__payoffPointerValue = null;
-            });
-
-            const domClickHandler = (event) => {
-                const rect = element.getBoundingClientRect();
-                const localX = event.clientX - rect.left;
-                const localY = event.clientY - rect.top;
-                const price = pickPriceFromPixels(localX, localY);
-                invokeSelection(price);
-            };
-
-            element.__payoffDomClick = domClickHandler;
-            element.addEventListener('click', domClickHandler);
-
-            chart.on('updateAxisPointer', (event) => {
-                if (!element.__payoffHandleDrag) return;
-                const axisInfo = event?.axesInfo?.find(info => info.axisDim === 'x');
-                if (!axisInfo) return;
-                const price = Number(axisInfo.value);
-                if (Number.isFinite(price)) {
-                    element.__payoffPointerValue = price;
-                }
-            });
         }
 
         if (!chart.isDisposed?.()) {
