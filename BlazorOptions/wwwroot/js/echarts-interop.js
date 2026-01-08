@@ -351,7 +351,9 @@ window.payoffChart = {
                         color: '#2196F3',
                         width: 2,
                         type: 'dashed'
-                    }
+                    },
+                    z: 1,
+                    zlevel: 0
                 },
                 {
                     name: 'Temp P/L',
@@ -396,7 +398,8 @@ window.payoffChart = {
                 {
                     name: 'Break-even',
                     type: 'scatter',
-                    z: 6,
+                    z: 10,
+                    zlevel: 2,
                     data: breakEvens.map(price => ({
                         value: [price, 0],
                         symbolSize: 12,
@@ -410,7 +413,7 @@ window.payoffChart = {
                             color: '#FFFDE7',
                             textBorderColor: '#000000',
                             textBorderWidth: 3,
-                            backgroundColor: 'rgba(0, 0, 0, 0.35)',
+                            backgroundColor: 'rgba(0, 0, 0, 0.65)',
                             padding: [4, 6, 2, 6]
                         }
                     })),
@@ -419,7 +422,8 @@ window.payoffChart = {
                 {
                     name: 'Temp Break-even',
                     type: 'scatter',
-                    z: 6,
+                    z: 10,
+                    zlevel: 2,
                     data: tempBreakEvens.map(price => ({
                         value: [price, 0],
                         symbolSize: 11,
@@ -433,7 +437,7 @@ window.payoffChart = {
                             color: '#E1F5FE',
                             textBorderColor: '#0D47A1',
                             textBorderWidth: 3,
-                            backgroundColor: 'rgba(13, 71, 161, 0.35)',
+                            backgroundColor: 'rgba(13, 71, 161, 0.65)',
                             padding: [4, 6, 2, 6]
                         }
                     })),
