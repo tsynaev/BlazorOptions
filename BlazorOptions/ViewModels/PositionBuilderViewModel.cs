@@ -229,6 +229,12 @@ public class PositionBuilderViewModel : IAsyncDisposable
         if (!IsLivePriceEnabled)
         {
             await StopTickerAsync();
+            if (!TemporaryUnderlyingPrice.HasValue)
+            {
+                TemporaryUnderlyingPrice = CurrentUnderlyingPrice ?? CalculateAnchorPrice(Legs);
+                UpdateTemporaryPnls();
+                UpdateChart();
+            }
             OnChange?.Invoke();
             return;
         }

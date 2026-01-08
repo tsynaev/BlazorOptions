@@ -115,13 +115,7 @@
                                          Margin="Margin.Dense"
                                          Adornment="Adornment.End"
                                          AdornmentText="USDT"
-                                         Clearable="true"
-                                         ClearIcon="@Icons.Material.Filled.Clear"
                                          Class="temp-price-field" />
-                        <MudIconButton Icon="@Icons.Material.Filled.Clear"
-                                       Color="Color.Default"
-                                       Disabled="@(!ViewModel.HasTemporaryUnderlyingPrice)"
-                                       OnClick="ClearTemporaryPrice" />
                     </MudStack>
                 </MudStack>
             </MudStack>
@@ -380,12 +374,6 @@
     private async Task OnLivePriceChanged(bool isEnabled)
     {
         await ViewModel.SetLivePriceEnabledAsync(isEnabled);
-        await InvokeAsync(StateHasChanged);
-    }
-
-    private async Task ClearTemporaryPrice()
-    {
-        ViewModel.ClearTemporaryUnderlyingPrice();
         await InvokeAsync(StateHasChanged);
     }
 
