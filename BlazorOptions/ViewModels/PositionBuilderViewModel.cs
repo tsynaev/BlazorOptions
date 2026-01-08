@@ -13,7 +13,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
     private readonly ExchangeTickerService _exchangeTickerService;
     private CancellationTokenSource? _tickerCts;
     private string? _currentSymbol;
-    private TimeSpan _livePriceUpdateInterval = TimeSpan.FromSeconds(1);
+    private TimeSpan _livePriceUpdateInterval = TimeSpan.FromMilliseconds(1000);
     private DateTime _lastLivePriceUpdateUtc = DateTime.MinValue;
 
     private static readonly ObservableCollection<OptionLegModel> EmptyLegs = new();
@@ -461,7 +461,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
         var settings = await _exchangeSettingsService.LoadBybitSettingsAsync();
         var url = _exchangeTickerService.ResolveWebSocketUrl(settings.WebSocketUrl);
-        _livePriceUpdateInterval = TimeSpan.FromSeconds(Math.Max(1, settings.LivePriceUpdateIntervalSeconds));
+        _livePriceUpdateInterval = TimeSpan.FromMilliseconds(Math.Max(100, settings.LivePriceUpdateIntervalMilliseconds));
         _lastLivePriceUpdateUtc = DateTime.MinValue;
 
         var subscription = new ExchangeTickerSubscription("Bybit", symbol, url);

@@ -17,7 +17,7 @@ public class BybitSettingsViewModel
 
     public string WebSocketUrl { get; set; } = "wss://stream.bybit.com/v5/public/linear";
 
-    public int LivePriceUpdateIntervalSeconds { get; set; } = 1;
+    public int LivePriceUpdateIntervalMilliseconds { get; set; } = 1000;
 
     public event Action? OnChange;
 
@@ -27,7 +27,7 @@ public class BybitSettingsViewModel
         ApiKey = settings.ApiKey;
         ApiSecret = settings.ApiSecret;
         WebSocketUrl = settings.WebSocketUrl;
-        LivePriceUpdateIntervalSeconds = Math.Max(1, settings.LivePriceUpdateIntervalSeconds);
+        LivePriceUpdateIntervalMilliseconds = Math.Max(100, settings.LivePriceUpdateIntervalMilliseconds);
         OnChange?.Invoke();
     }
 
@@ -38,7 +38,7 @@ public class BybitSettingsViewModel
             ApiKey = ApiKey,
             ApiSecret = ApiSecret,
             WebSocketUrl = WebSocketUrl,
-            LivePriceUpdateIntervalSeconds = Math.Max(1, LivePriceUpdateIntervalSeconds)
+            LivePriceUpdateIntervalMilliseconds = Math.Max(100, LivePriceUpdateIntervalMilliseconds)
         };
 
         await _settingsService.SaveBybitSettingsAsync(settings);

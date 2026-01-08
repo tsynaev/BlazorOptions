@@ -24,11 +24,11 @@
                           Variant="Variant.Outlined"
                           Margin="Margin.Dense" />
             <MudNumericField T="int"
-                             Label="Live price update interval (seconds)"
-                             @bind-Value="ViewModel.LivePriceUpdateIntervalSeconds"
+                             Label="Live price update interval (milliseconds)"
+                             @bind-Value="ViewModel.LivePriceUpdateIntervalMilliseconds"
                              Variant="Variant.Outlined"
                              Margin="Margin.Dense"
-                             Min="1" />
+                             Min="100" />
             <MudText Typo="Typo.caption">
                 REST API Base Endpoint: https://bybit-exchange.github.io/docs/v5/guide
             </MudText>
