@@ -408,14 +408,16 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     private double GetEffectivePrice()
     {
-        if (IsLive && LivePrice.HasValue)
+        if (!IsLive)
+        {
+            if (SelectedPrice.HasValue)
+            {
+                return SelectedPrice.Value;
+            }
+        }
+        else if (LivePrice.HasValue)
         {
             return LivePrice.Value;
-        }
-
-        if (SelectedPrice.HasValue)
-        {
-            return SelectedPrice.Value;
         }
 
         return CalculateAnchorPrice(Legs);
