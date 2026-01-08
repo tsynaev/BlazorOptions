@@ -23,6 +23,12 @@
                           @bind-Value="ViewModel.WebSocketUrl"
                           Variant="Variant.Outlined"
                           Margin="Margin.Dense" />
+            <MudNumericField T="int"
+                             Label="Live price update interval (seconds)"
+                             @bind-Value="ViewModel.LivePriceUpdateIntervalSeconds"
+                             Variant="Variant.Outlined"
+                             Margin="Margin.Dense"
+                             Min="1" />
             <MudText Typo="Typo.caption">
                 REST API Base Endpoint: https://bybit-exchange.github.io/docs/v5/guide
             </MudText>
