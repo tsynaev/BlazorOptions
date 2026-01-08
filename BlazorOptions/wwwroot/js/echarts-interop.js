@@ -438,6 +438,7 @@ window.payoffChart = {
         chart.getZr().off('mousedown');
         chart.getZr().off('mouseup');
         chart.getZr().off('globalout');
+        chart.getZr().off('mousemove');
         chart.off('updateAxisPointer');
         if (element.__payoffDomClick) {
             element.removeEventListener('click', element.__payoffDomClick);
@@ -541,6 +542,22 @@ window.payoffChart = {
             chart.getZr().on('globalout', () => {
                 element.__payoffHandleDrag = false;
                 element.__payoffPointerValue = null;
+            });
+
+            chart.getZr().on('mousemove', (event) => {
+                if (event?.dragging || element.__payoffHandleDrag) {
+                    return;
+                }
+
+                const now = Date.now();
+                const lastHoverAt = element.__payoffLastHoverAt ?? 0;
+                if (now - lastHoverAt < 50) {
+                    return;
+                }
+
+                element.__payoffLastHoverAt = now;
+                const price = pickPriceFromPixels(event.offsetX, event.offsetY ?? 0);
+                invokeSelection(price);
             });
 
             const domClickHandler = (event) => {
