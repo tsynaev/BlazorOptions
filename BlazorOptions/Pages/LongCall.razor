@@ -1,4 +1,5 @@
 @page "/long-call"
+@implements IAsyncDisposable
 @inject PositionBuilderViewModel ViewModel
 @inject IDialogService DialogService
 @using System.Linq
@@ -74,13 +75,26 @@
                             <MudDatePicker Date="@ViewModel.SelectedValuationDate"
                                            DateChanged="OnValuationDateChanged"
                                            DateFormat="yyyy-MM-dd"
-                                           Dense="true"
                                            Clearable="true"
-                                           ClearIcon="@Icons.Material.Filled.Clear"
                                            MinDate="@DateTime.UtcNow.Date"
                                            MaxDate="@ViewModel.MaxExpiryDate"
                                            Class="valuation-date-picker" />
                             <MudText Typo="Typo.caption">@ViewModel.DaysToExpiryLabel</MudText>
+                            <MudSpacer />
+                            <MudSwitch T="bool"
+                                       Color="Color.Primary"
+                                       Value="@ViewModel.IsLive"
+                                       ValueChanged="OnLivePriceChanged"
+                                       Label="Live" />
+                            <MudText Typo="Typo.caption" Class="ml-2">Index Price</MudText>
+                            <MudNumericField T="double?"
+                                             Value="@ViewModel.SelectedPrice"
+                                             ValueChanged="OnTemporaryPriceChanged"
+                                             Variant="Variant.Outlined"
+                                             Margin="Margin.Dense"
+                                             Adornment="Adornment.End"
+                                             AdornmentText="USDT"
+                                             Class="temp-price-field" />
                         </MudStack>
                         <MudSlider T="int"
                                    Min="0"
@@ -100,15 +114,6 @@
         <MudCardHeader>
             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
                 <MudText Typo="Typo.h6">Legs</MudText>
-                <MudText Typo="Typo.caption" Class="ml-2">Temp P/L at price</MudText>
-                <MudNumericField T="double"
-                                 Value="@ViewModel.TemporaryUnderlyingPrice"
-                                 ValueChanged="OnTemporaryPriceChanged"
-                                 Variant="Variant.Outlined"
-                                 Margin="Margin.Dense"
-                                 Adornment="Adornment.End"
-                                 AdornmentText="USDT"
-                                 Class="temp-price-field" />
             </MudStack>
             <MudSpacer />
             <MudTooltip Text="Add leg">
@@ -235,13 +240,20 @@
 
     protected override async Task OnInitializedAsync()
     {
+        ViewModel.OnChange += HandleViewModelChanged;
         await ViewModel.InitializeAsync();
         SyncActiveTabIndex();
     }
 
+    public async ValueTask DisposeAsync()
+    {
+        ViewModel.OnChange -= HandleViewModelChanged;
+        await ViewModel.DisposeAsync();
+    }
+
     private async Task HandleChartPriceSelected(double price)
     {
-        ViewModel.SetTemporaryUnderlyingPrice(price);
+        ViewModel.SetSelectedPrice(price);
         await InvokeAsync(StateHasChanged);
     }
 
@@ -341,10 +353,29 @@
         await RefreshChartAsync();
     }
 
-    private async Task OnTemporaryPriceChanged(double price)
+    private async Task OnTemporaryPriceChanged(double? price)
     {
-        ViewModel.SetTemporaryUnderlyingPrice(price);
+        if (price.HasValue)
+        {
+            ViewModel.SetSelectedPrice(price.Value);
+        }
+        else
+        {
+            ViewModel.ClearSelectedPrice();
+        }
+
         await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnLivePriceChanged(bool isEnabled)
+    {
+        await ViewModel.SetIsLiveAsync(isEnabled);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleViewModelChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
     }
 
     private Task OnValuationDateChanged(DateTime? date)

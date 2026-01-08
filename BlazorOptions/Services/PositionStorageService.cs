@@ -1,26 +1,25 @@
 using System.Text.Json;
 using BlazorOptions.ViewModels;
-using Microsoft.JSInterop;
 
 namespace BlazorOptions.Services;
 
 public class PositionStorageService
 {
     private const string StorageKey = "blazor-options-positions";
-    private readonly IJSRuntime _jsRuntime;
+    private readonly LocalStorageService _localStorageService;
     private readonly JsonSerializerOptions _serializerOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    public PositionStorageService(IJSRuntime jsRuntime)
+    public PositionStorageService(LocalStorageService localStorageService)
     {
-        _jsRuntime = jsRuntime;
+        _localStorageService = localStorageService;
     }
 
     public async Task<List<PositionModel>> LoadPositionsAsync()
     {
-        var stored = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", StorageKey);
+        var stored = await _localStorageService.GetItemAsync(StorageKey);
 
         if (string.IsNullOrWhiteSpace(stored))
         {
@@ -40,6 +39,6 @@ public class PositionStorageService
     public Task SavePositionsAsync(IEnumerable<PositionModel> positions)
     {
         var payload = JsonSerializer.Serialize(positions, _serializerOptions);
-        return _jsRuntime.InvokeVoidAsync("localStorage.setItem", StorageKey, payload).AsTask();
+        return _localStorageService.SetItemAsync(StorageKey, payload).AsTask();
     }
 }
