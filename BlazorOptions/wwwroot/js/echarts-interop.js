@@ -127,7 +127,10 @@ window.payoffChart = {
             return Number(numeric.toFixed(decimals));
         };
 
-        const pricePoints = numericPrices.map((price, index) => [price, profits[index]]);
+        const pricePoints = numericPrices.map((price, index) => {
+            const value = profits[index];
+            return [price, Number.isFinite(value) ? value : null];
+        });
         const positivePoints = pricePoints.map(([price, value]) => [price, value > 0 ? value : null]);
         const negativePoints = pricePoints.map(([price, value]) => [price, value < 0 ? value : null]);
         const theoreticalPoints = numericPrices.map((price, index) => [price, theoreticalProfits[index]]);
@@ -293,18 +296,6 @@ window.payoffChart = {
                 priceZoomInside,
                 pnlZoomInside
             ],
-            visualMap: [
-                {
-                    type: 'piecewise',
-                    show: false,
-                    seriesIndex: 0,
-                    dimension: 1,
-                    pieces: [
-                        { lte: 0, color: '#F44336' },
-                        { gt: 0, color: '#4CAF50' }
-                    ]
-                }
-            ],
             series: [
                 {
                     name: 'P/L (Line)',
@@ -313,8 +304,10 @@ window.payoffChart = {
                     data: pricePoints,
                     symbol: 'none',
                     lineStyle: {
-                        width: 3
+                        width: 3,
+                        color: '#B0BEC5'
                     },
+                    z: 2,
                     markLine: indexMarkLine || undefined
                 },
                 {
