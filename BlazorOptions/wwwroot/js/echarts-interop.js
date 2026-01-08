@@ -10,6 +10,9 @@ window.payoffChart = {
             return;
         }
 
+        if (!element) {
+            return;
+        }
         const hasSize = element.offsetWidth > 0 || element.offsetHeight > 0;
         if (!hasSize) {
             const attempts = (element.__payoffRenderAttempts || 0) + 1;
