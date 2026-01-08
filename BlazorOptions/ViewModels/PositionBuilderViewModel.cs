@@ -235,9 +235,9 @@ public class PositionBuilderViewModel : IAsyncDisposable
             if (!SelectedPrice.HasValue)
             {
                 SelectedPrice = LivePrice ?? CalculateAnchorPrice(Legs);
-                UpdateTemporaryPnls();
-                UpdateChart();
             }
+            UpdateTemporaryPnls();
+            UpdateChart();
             OnChange?.Invoke();
             return;
         }
