@@ -440,6 +440,7 @@ window.payoffChart = {
         chart.getZr().off('globalout');
         if (element.__payoffDomClick) {
             element.removeEventListener('click', element.__payoffDomClick);
+            element.__payoffDomClick = null;
         }
 
         if (dotNetHelper) {
@@ -521,16 +522,6 @@ window.payoffChart = {
                 invokeSelection(price);
             });
 
-            const domClickHandler = (event) => {
-                const rect = element.getBoundingClientRect();
-                const localX = event.clientX - rect.left;
-                const localY = event.clientY - rect.top;
-                const price = pickPriceFromPixels(localX, localY);
-                invokeSelection(price);
-            };
-
-            element.__payoffDomClick = domClickHandler;
-            element.addEventListener('click', domClickHandler);
         }
 
         if (!chart.isDisposed?.()) {
