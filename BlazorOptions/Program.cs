@@ -15,8 +15,12 @@ builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.
 builder.Services.AddSingleton<BlackScholes>();
 builder.Services.AddSingleton<OptionsService>();
 builder.Services.AddScoped<PositionStorageService>();
+builder.Services.AddScoped<ExchangeSettingsService>();
+builder.Services.AddScoped<ExchangeTickerService>();
+builder.Services.AddScoped<IExchangeTickerClient, BybitTickerClient>();
 builder.Services.AddSingleton<ThemeService>();
 builder.Services.AddTransient<AccountSettingsViewModel>();
+builder.Services.AddTransient<BybitSettingsViewModel>();
 builder.Services.AddTransient<PositionBuilderViewModel>();
 builder.Services.AddMudServices();
 

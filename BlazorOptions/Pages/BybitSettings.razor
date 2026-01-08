@@ -1,0 +1,54 @@
+@page "/bybit-settings"
+@implements IDisposable
+@inject BlazorOptions.ViewModels.BybitSettingsViewModel ViewModel
+
+<PageTitle>Bybit settings</PageTitle>
+
+<MudStack Spacing="3">
+    <MudText Typo="Typo.h4">Bybit settings</MudText>
+
+    <MudPaper Class="pa-6" Elevation="1">
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.h6">API credentials</MudText>
+            <MudTextField Label="API key"
+                          @bind-Value="ViewModel.ApiKey"
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense" />
+            <MudTextField Label="API secret"
+                          @bind-Value="ViewModel.ApiSecret"
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense"
+                          InputType="InputType.Password" />
+            <MudTextField Label="WebSocket URL"
+                          @bind-Value="ViewModel.WebSocketUrl"
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">
+                Save settings
+            </MudButton>
+        </MudStack>
+    </MudPaper>
+</MudStack>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        ViewModel.OnChange += HandleViewModelChanged;
+        await ViewModel.LoadAsync();
+    }
+
+    public void Dispose()
+    {
+        ViewModel.OnChange -= HandleViewModelChanged;
+    }
+
+    private async Task SaveAsync()
+    {
+        await ViewModel.SaveAsync();
+    }
+
+    private void HandleViewModelChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+}

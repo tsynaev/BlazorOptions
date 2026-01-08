@@ -1,4 +1,5 @@
 @page "/long-call"
+@implements IAsyncDisposable
 @inject PositionBuilderViewModel ViewModel
 @inject IDialogService DialogService
 @using System.Linq
@@ -74,9 +75,7 @@
                             <MudDatePicker Date="@ViewModel.SelectedValuationDate"
                                            DateChanged="OnValuationDateChanged"
                                            DateFormat="yyyy-MM-dd"
-                                           Dense="true"
                                            Clearable="true"
-                                           ClearIcon="@Icons.Material.Filled.Clear"
                                            MinDate="@DateTime.UtcNow.Date"
                                            MaxDate="@ViewModel.MaxExpiryDate"
                                            Class="valuation-date-picker" />
@@ -101,14 +100,22 @@
             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
                 <MudText Typo="Typo.h6">Legs</MudText>
                 <MudText Typo="Typo.caption" Class="ml-2">Temp P/L at price</MudText>
-                <MudNumericField T="double"
-                                 Value="@ViewModel.TemporaryUnderlyingPrice"
-                                 ValueChanged="OnTemporaryPriceChanged"
-                                 Variant="Variant.Outlined"
-                                 Margin="Margin.Dense"
-                                 Adornment="Adornment.End"
-                                 AdornmentText="USDT"
-                                 Class="temp-price-field" />
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                    <MudNumericField T="double?"
+                                     Value="@ViewModel.TemporaryUnderlyingPrice"
+                                     ValueChanged="OnTemporaryPriceChanged"
+                                     Variant="Variant.Outlined"
+                                     Margin="Margin.Dense"
+                                     Adornment="Adornment.End"
+                                     AdornmentText="USDT"
+                                     Clearable="true"
+                                     ClearIcon="@Icons.Material.Filled.Clear"
+                                     Class="temp-price-field" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Clear"
+                                   Color="Color.Default"
+                                   Disabled="@(!ViewModel.HasTemporaryUnderlyingPrice)"
+                                   OnClick="ClearTemporaryPrice" />
+                </MudStack>
             </MudStack>
             <MudSpacer />
             <MudTooltip Text="Add leg">
@@ -235,8 +242,15 @@
 
     protected override async Task OnInitializedAsync()
     {
+        ViewModel.OnChange += HandleViewModelChanged;
         await ViewModel.InitializeAsync();
         SyncActiveTabIndex();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        ViewModel.OnChange -= HandleViewModelChanged;
+        await ViewModel.DisposeAsync();
     }
 
     private async Task HandleChartPriceSelected(double price)
@@ -341,10 +355,29 @@
         await RefreshChartAsync();
     }
 
-    private async Task OnTemporaryPriceChanged(double price)
+    private async Task OnTemporaryPriceChanged(double? price)
     {
-        ViewModel.SetTemporaryUnderlyingPrice(price);
+        if (price.HasValue)
+        {
+            ViewModel.SetTemporaryUnderlyingPrice(price.Value);
+        }
+        else
+        {
+            ViewModel.ClearTemporaryUnderlyingPrice();
+        }
+
         await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ClearTemporaryPrice()
+    {
+        ViewModel.ClearTemporaryUnderlyingPrice();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleViewModelChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
     }
 
     private Task OnValuationDateChanged(DateTime? date)
