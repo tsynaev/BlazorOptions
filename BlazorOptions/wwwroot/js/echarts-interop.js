@@ -396,6 +396,7 @@ window.payoffChart = {
                 {
                     name: 'Break-even',
                     type: 'scatter',
+                    z: 6,
                     data: breakEvens.map(price => ({
                         value: [price, 0],
                         symbolSize: 12,
@@ -404,11 +405,12 @@ window.payoffChart = {
                             show: true,
                             formatter: function (params) { return formatPrice(params.value[0]); },
                             position: 'top',
-                            offset: [0, -12],
+                            offset: [0, -14],
                             fontSize: 10,
                             color: '#FFFDE7',
                             textBorderColor: '#000000',
                             textBorderWidth: 3,
+                            backgroundColor: 'rgba(0, 0, 0, 0.35)',
                             padding: [4, 6, 2, 6]
                         }
                     })),
@@ -417,6 +419,7 @@ window.payoffChart = {
                 {
                     name: 'Temp Break-even',
                     type: 'scatter',
+                    z: 6,
                     data: tempBreakEvens.map(price => ({
                         value: [price, 0],
                         symbolSize: 11,
@@ -425,11 +428,12 @@ window.payoffChart = {
                             show: true,
                             formatter: function (params) { return formatPrice(params.value[0]); },
                             position: 'top',
-                            offset: [0, -12],
+                            offset: [0, -14],
                             fontSize: 10,
                             color: '#E1F5FE',
                             textBorderColor: '#0D47A1',
                             textBorderWidth: 3,
+                            backgroundColor: 'rgba(13, 71, 161, 0.35)',
                             padding: [4, 6, 2, 6]
                         }
                     })),
