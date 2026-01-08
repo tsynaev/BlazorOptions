@@ -163,22 +163,28 @@ window.payoffChart = {
             }
             : null;
 
-        const breakEvens = [];
-        for (let i = 1; i < pricePoints.length; i++) {
-            const [prevPrice, prevProfit] = pricePoints[i - 1];
-            const [currPrice, currProfit] = pricePoints[i];
+        const findBreakEvens = (points) => {
+            const values = [];
+            for (let i = 1; i < points.length; i++) {
+                const [prevPrice, prevProfit] = points[i - 1];
+                const [currPrice, currProfit] = points[i];
 
-            if (prevProfit === undefined || currProfit === undefined) continue;
-            if ((prevProfit <= 0 && currProfit >= 0) || (prevProfit >= 0 && currProfit <= 0)) {
-                const deltaProfit = currProfit - prevProfit;
-                const ratio = deltaProfit === 0 ? 0 : -prevProfit / deltaProfit;
-                const price = prevPrice + (currPrice - prevPrice) * ratio;
+                if (prevProfit === undefined || currProfit === undefined) continue;
+                if ((prevProfit <= 0 && currProfit >= 0) || (prevProfit >= 0 && currProfit <= 0)) {
+                    const deltaProfit = currProfit - prevProfit;
+                    const ratio = deltaProfit === 0 ? 0 : -prevProfit / deltaProfit;
+                    const price = prevPrice + (currPrice - prevPrice) * ratio;
 
-                if (Number.isFinite(price)) {
-                    breakEvens.push(price);
+                    if (Number.isFinite(price)) {
+                        values.push(price);
+                    }
                 }
             }
-        }
+            return values;
+        };
+
+        const breakEvens = findBreakEvens(pricePoints);
+        const tempBreakEvens = findBreakEvens(theoreticalPoints);
 
         chart.setOption({
             grid: { left: 60, right: 20, top: 30, bottom: 50 },
@@ -287,7 +293,30 @@ window.payoffChart = {
                 priceZoomInside,
                 pnlZoomInside
             ],
+            visualMap: [
+                {
+                    type: 'piecewise',
+                    show: false,
+                    seriesIndex: 0,
+                    dimension: 1,
+                    pieces: [
+                        { lte: 0, color: '#F44336' },
+                        { gt: 0, color: '#4CAF50' }
+                    ]
+                }
+            ],
             series: [
+                {
+                    name: 'P/L (Line)',
+                    type: 'line',
+                    smooth: true,
+                    data: pricePoints,
+                    symbol: 'none',
+                    lineStyle: {
+                        width: 3
+                    },
+                    markLine: indexMarkLine || undefined
+                },
                 {
                     name: 'P/L (Profit)',
                     type: 'line',
@@ -296,12 +325,11 @@ window.payoffChart = {
                     symbol: 'none',
                     lineStyle: {
                         color: '#4CAF50',
-                        width: 3
+                        width: 0
                     },
                     areaStyle: {
                         color: 'rgba(76, 175, 80, 0.12)'
-                    },
-                    markLine: indexMarkLine || undefined
+                    }
                 },
                 {
                     name: 'P/L (Loss)',
@@ -311,7 +339,7 @@ window.payoffChart = {
                     symbol: 'none',
                     lineStyle: {
                         color: '#F44336',
-                        width: 3
+                        width: 0
                     },
                     areaStyle: {
                         color: 'rgba(244, 67, 54, 0.15)'
@@ -374,14 +402,38 @@ window.payoffChart = {
                     type: 'scatter',
                     data: breakEvens.map(price => ({
                         value: [price, 0],
-                        symbolSize: 10,
-                        itemStyle: { color: '#607D8B' },
+                        symbolSize: 12,
+                        itemStyle: { color: '#FFC107', borderColor: '#FFF8E1', borderWidth: 2 },
                         label: {
                             show: true,
                             formatter: function (params) { return formatPrice(params.value[0]); },
                             position: 'top',
+                            offset: [0, -12],
                             fontSize: 10,
-                            color: '#37474F',
+                            color: '#FFFDE7',
+                            textBorderColor: '#000000',
+                            textBorderWidth: 3,
+                            padding: [4, 6, 2, 6]
+                        }
+                    })),
+                    tooltip: { show: false }
+                },
+                {
+                    name: 'Temp Break-even',
+                    type: 'scatter',
+                    data: tempBreakEvens.map(price => ({
+                        value: [price, 0],
+                        symbolSize: 11,
+                        itemStyle: { color: '#29B6F6', borderColor: '#E1F5FE', borderWidth: 2 },
+                        label: {
+                            show: true,
+                            formatter: function (params) { return formatPrice(params.value[0]); },
+                            position: 'top',
+                            offset: [0, -12],
+                            fontSize: 10,
+                            color: '#E1F5FE',
+                            textBorderColor: '#0D47A1',
+                            textBorderWidth: 3,
                             padding: [4, 6, 2, 6]
                         }
                     })),
