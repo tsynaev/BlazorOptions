@@ -99,27 +99,30 @@
         <MudCardHeader>
             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
                 <MudText Typo="Typo.h6">Legs</MudText>
-                <MudSwitch T="bool"
-                           Color="Color.Primary"
-                           Value="@ViewModel.IsLivePriceEnabled"
-                           ValueChanged="OnLivePriceChanged"
-                           Label="Live" />
-                <MudText Typo="Typo.caption" Class="ml-2">Temp P/L at price</MudText>
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                    <MudNumericField T="double?"
-                                     Value="@ViewModel.TemporaryUnderlyingPrice"
-                                     ValueChanged="OnTemporaryPriceChanged"
-                                     Variant="Variant.Outlined"
-                                     Margin="Margin.Dense"
-                                     Adornment="Adornment.End"
-                                     AdornmentText="USDT"
-                                     Clearable="true"
-                                     ClearIcon="@Icons.Material.Filled.Clear"
-                                     Class="temp-price-field" />
-                    <MudIconButton Icon="@Icons.Material.Filled.Clear"
-                                   Color="Color.Default"
-                                   Disabled="@(!ViewModel.HasTemporaryUnderlyingPrice)"
-                                   OnClick="ClearTemporaryPrice" />
+                <MudSpacer />
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudSwitch T="bool"
+                               Color="Color.Primary"
+                               Value="@ViewModel.IsLivePriceEnabled"
+                               ValueChanged="OnLivePriceChanged"
+                               Label="Live" />
+                    <MudText Typo="Typo.caption" Class="ml-2">Temp P/L at price</MudText>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                        <MudNumericField T="double?"
+                                         Value="@ViewModel.TemporaryUnderlyingPrice"
+                                         ValueChanged="OnTemporaryPriceChanged"
+                                         Variant="Variant.Outlined"
+                                         Margin="Margin.Dense"
+                                         Adornment="Adornment.End"
+                                         AdornmentText="USDT"
+                                         Clearable="true"
+                                         ClearIcon="@Icons.Material.Filled.Clear"
+                                         Class="temp-price-field" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Clear"
+                                       Color="Color.Default"
+                                       Disabled="@(!ViewModel.HasTemporaryUnderlyingPrice)"
+                                       OnClick="ClearTemporaryPrice" />
+                    </MudStack>
                 </MudStack>
             </MudStack>
             <MudSpacer />
