@@ -18,7 +18,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     public double? TemporaryUnderlyingPrice { get; private set; }
 
-    public double? CurrentUnderlyingPrice { get; private set; }
+    public double? LivePrice { get; private set; }
 
     public bool HasTemporaryUnderlyingPrice => TemporaryUnderlyingPrice.HasValue;
 
@@ -64,7 +64,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
             var defaultPosition = CreateDefaultPosition();
             Positions.Add(defaultPosition);
             SelectedPosition = defaultPosition;
-            CurrentUnderlyingPrice = CalculateAnchorPrice(Legs);
+            LivePrice = CalculateAnchorPrice(Legs);
             UpdateChart();
             UpdateTemporaryPnls();
             await PersistPositionsAsync();
@@ -78,7 +78,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         }
 
         SelectedPosition = Positions.FirstOrDefault();
-        CurrentUnderlyingPrice = CalculateAnchorPrice(Legs);
+        LivePrice = CalculateAnchorPrice(Legs);
         UpdateChart();
         UpdateTemporaryPnls();
         await StartTickerAsync();
@@ -128,7 +128,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         var position = CreateDefaultPosition(pair ?? $"Position {Positions.Count + 1}");
         Positions.Add(position);
         SelectedPosition = position;
-        CurrentUnderlyingPrice = CalculateAnchorPrice(Legs);
+        LivePrice = CalculateAnchorPrice(Legs);
         UpdateChart();
         UpdateTemporaryPnls();
         await PersistPositionsAsync();
@@ -145,7 +145,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         }
 
         SelectedPosition = position;
-        CurrentUnderlyingPrice = CalculateAnchorPrice(Legs);
+        LivePrice = CalculateAnchorPrice(Legs);
         UpdateChart();
         UpdateTemporaryPnls();
         await UpdateTickerSubscriptionAsync();
@@ -231,7 +231,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
             await StopTickerAsync();
             if (!TemporaryUnderlyingPrice.HasValue)
             {
-                TemporaryUnderlyingPrice = CurrentUnderlyingPrice ?? CalculateAnchorPrice(Legs);
+                TemporaryUnderlyingPrice = LivePrice ?? CalculateAnchorPrice(Legs);
                 UpdateTemporaryPnls();
                 UpdateChart();
             }
@@ -304,7 +304,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
             }
         }
 
-        CurrentUnderlyingPrice = CalculateAnchorPrice(Legs);
+        LivePrice = CalculateAnchorPrice(Legs);
         UpdateChart();
         UpdateTemporaryPnls();
         await PersistPositionsAsync();
@@ -391,14 +391,14 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     private double GetEffectiveUnderlyingPrice()
     {
+        if (IsLivePriceEnabled && LivePrice.HasValue)
+        {
+            return LivePrice.Value;
+        }
+
         if (TemporaryUnderlyingPrice.HasValue)
         {
             return TemporaryUnderlyingPrice.Value;
-        }
-
-        if (CurrentUnderlyingPrice.HasValue)
-        {
-            return CurrentUnderlyingPrice.Value;
         }
 
         return CalculateAnchorPrice(Legs);
@@ -488,7 +488,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
             return;
         }
 
-        CurrentUnderlyingPrice = (double)update.Price;
+        LivePrice = (double)update.Price;
         UpdateTemporaryPnls();
         UpdateChart();
         OnChange?.Invoke();
