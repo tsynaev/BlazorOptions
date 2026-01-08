@@ -22,6 +22,8 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     public bool HasTemporaryUnderlyingPrice => TemporaryUnderlyingPrice.HasValue;
 
+    public bool IsLivePriceEnabled { get; private set; } = true;
+
     public DateTime SelectedValuationDate { get; private set; } = DateTime.UtcNow.Date;
 
     public DateTime MaxExpiryDate { get; private set; } = DateTime.UtcNow.Date;
@@ -215,6 +217,26 @@ public class PositionBuilderViewModel : IAsyncDisposable
         UpdateChart();
     }
 
+    public async Task SetLivePriceEnabledAsync(bool isEnabled)
+    {
+        if (IsLivePriceEnabled == isEnabled)
+        {
+            return;
+        }
+
+        IsLivePriceEnabled = isEnabled;
+
+        if (!IsLivePriceEnabled)
+        {
+            await StopTickerAsync();
+            OnChange?.Invoke();
+            return;
+        }
+
+        await UpdateTickerSubscriptionAsync();
+        OnChange?.Invoke();
+    }
+
     public void SetValuationDateFromOffset(int dayOffset)
     {
         var clampedOffset = Math.Clamp(dayOffset, 0, MaxExpiryDays);
@@ -388,7 +410,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     private async Task UpdateTickerSubscriptionAsync()
     {
-        if (SelectedPosition is null)
+        if (!IsLivePriceEnabled || SelectedPosition is null)
         {
             await StopTickerAsync();
             return;
@@ -450,6 +472,11 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     private void HandlePriceUpdated(object? sender, ExchangePriceUpdate update)
     {
+        if (!IsLivePriceEnabled)
+        {
+            return;
+        }
+
         if (!string.Equals(update.Symbol, _currentSymbol, StringComparison.OrdinalIgnoreCase))
         {
             return;
