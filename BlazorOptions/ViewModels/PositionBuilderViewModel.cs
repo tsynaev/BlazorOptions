@@ -208,14 +208,22 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     public void SetSelectedPrice(double price)
     {
-        SelectedPrice = price;
-        UpdateTemporaryPnls();
-        UpdateChart();
+        UpdateSelectedPrice(price, refresh: true);
     }
 
     public void ClearSelectedPrice()
     {
-        SelectedPrice = null;
+        UpdateSelectedPrice(null, refresh: true);
+    }
+
+    public void UpdateSelectedPrice(double? price, bool refresh)
+    {
+        SelectedPrice = price;
+        if (!refresh)
+        {
+            return;
+        }
+
         UpdateTemporaryPnls();
         UpdateChart();
     }

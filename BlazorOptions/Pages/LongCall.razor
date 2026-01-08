@@ -90,7 +90,6 @@
                             <MudNumericField T="double?"
                                              Value="@ViewModel.SelectedPrice"
                                              ValueChanged="OnTemporaryPriceChanged"
-                                             Immediate="true"
                                              Variant="Variant.Outlined"
                                              Margin="Margin.Dense"
                                              Adornment="Adornment.End"
@@ -356,14 +355,8 @@
 
     private async Task OnTemporaryPriceChanged(double? price)
     {
-        if (price.HasValue)
-        {
-            ViewModel.SetSelectedPrice(price.Value);
-        }
-        else
-        {
-            ViewModel.ClearSelectedPrice();
-        }
+        var refresh = !ViewModel.IsLive;
+        ViewModel.UpdateSelectedPrice(price, refresh);
 
         await InvokeAsync(StateHasChanged);
     }
