@@ -10,6 +10,7 @@ public class OptionChainDialogViewModel : IDisposable
     private List<OptionChainTicker> _chainTickers = new();
     private string? _baseAsset;
     private DateTime? _selectedExpiration;
+    private double? _atmStrike;
 
     public OptionChainDialogViewModel(OptionsChainService optionsChainService)
     {
@@ -163,17 +164,22 @@ public class OptionChainDialogViewModel : IDisposable
         if (!_selectedExpiration.HasValue)
         {
             AvailableStrikes = Array.Empty<double>();
+            _atmStrike = null;
             return;
         }
 
-        var strikes = GetFilteredTickers()
+        var relevantTickers = GetFilteredTickers()
             .Where(ticker => ticker.ExpirationDate.Date == _selectedExpiration.Value.Date)
+            .ToList();
+
+        var strikes = relevantTickers
             .Select(ticker => ticker.Strike)
             .Distinct()
             .OrderBy(strike => strike)
             .ToList();
 
         AvailableStrikes = strikes;
+        _atmStrike = DetermineAtmStrike(relevantTickers, strikes);
     }
 
     private IEnumerable<OptionChainTicker> GetFilteredTickers()
@@ -188,6 +194,68 @@ public class OptionChainDialogViewModel : IDisposable
             .ToList();
 
         return filtered.Count > 0 ? filtered : _chainTickers;
+    }
+
+    public bool IsAtmStrike(double strike)
+    {
+        if (!_atmStrike.HasValue)
+        {
+            return false;
+        }
+
+        return Math.Abs(strike - _atmStrike.Value) < 0.01;
+    }
+
+    public double? GetStrikeImpliedVolatility(double strike)
+    {
+        if (!_selectedExpiration.HasValue)
+        {
+            return null;
+        }
+
+        var candidates = GetFilteredTickers()
+            .Where(ticker => ticker.ExpirationDate.Date == _selectedExpiration.Value.Date
+                && Math.Abs(ticker.Strike - strike) < 0.01)
+            .ToList();
+
+        if (candidates.Count == 0)
+        {
+            return null;
+        }
+
+        var callIv = candidates.FirstOrDefault(ticker => ticker.Type == OptionLegType.Call)?.MarkIv;
+        if (callIv > 0)
+        {
+            return callIv;
+        }
+
+        var putIv = candidates.FirstOrDefault(ticker => ticker.Type == OptionLegType.Put)?.MarkIv;
+        return putIv > 0 ? putIv : null;
+    }
+
+    private static double? DetermineAtmStrike(List<OptionChainTicker> tickers, List<double> strikes)
+    {
+        if (tickers.Count == 0)
+        {
+            return null;
+        }
+
+        var callByDelta = tickers
+            .Where(ticker => ticker.Type == OptionLegType.Call && ticker.Delta.HasValue)
+            .OrderBy(ticker => Math.Abs(ticker.Delta!.Value - 0.5))
+            .FirstOrDefault();
+
+        if (callByDelta is not null)
+        {
+            return callByDelta.Strike;
+        }
+
+        if (strikes.Count == 0)
+        {
+            return null;
+        }
+
+        return strikes[strikes.Count / 2];
     }
 
     private void HandleChainUpdated()

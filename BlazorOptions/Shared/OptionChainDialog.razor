@@ -25,19 +25,20 @@
                 <MudItem xs="12" sm="4">
                     <MudPaper Class="pa-2 strikes-panel">
                         <MudText Typo="Typo.subtitle2">Strikes</MudText>
-                        <MudTable Items="@ViewModel.AvailableStrikes" Dense="true" Hover="true" Bordered="true">
+                        <MudTable Items="@ViewModel.AvailableStrikes" Dense="true" Hover="true" Bordered="true" FixedHeader="true" Height="500px" RowClassFunc="StrikeRowClass">
                             <HeaderContent>
                                 <MudTh>Strike</MudTh>
-                                <MudTh></MudTh>
-                                <MudTh></MudTh>
+                                <MudTh>IV%</MudTh>
+                                <MudTh>Actions</MudTh>
                             </HeaderContent>
                             <RowTemplate>
                                 <MudTd DataLabel="Strike">@context.ToString("0")</MudTd>
-                                <MudTd DataLabel="Call">
-                                    <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Primary" OnClick="() => ViewModel.AddLeg(context, OptionLegType.Call)">Call</MudButton>
-                                </MudTd>
-                                <MudTd DataLabel="Put">
-                                    <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Secondary" OnClick="() => ViewModel.AddLeg(context, OptionLegType.Put)">Put</MudButton>
+                                <MudTd DataLabel="IV%">@FormatStrikeIv(context)</MudTd>
+                                <MudTd DataLabel="Actions">
+                                    <MudStack Row="true" Spacing="1">
+                                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Primary" OnClick="() => ViewModel.AddLeg(context, OptionLegType.Call)">C</MudButton>
+                                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Secondary" OnClick="() => ViewModel.AddLeg(context, OptionLegType.Put)">P</MudButton>
+                                    </MudStack>
                                 </MudTd>
                             </RowTemplate>
                         </MudTable>
@@ -127,9 +128,27 @@
         return value?.ToString("0.###") ?? "0";
     }
 
+    private string FormatStrikeIv(double strike)
+    {
+        var iv = ViewModel.GetStrikeImpliedVolatility(strike);
+        return iv?.ToString("0.##") ?? "0";
+    }
+
+    private string StrikeRowClass(double strike, int index)
+    {
+        return ViewModel.IsAtmStrike(strike) ? "atm-strike-row" : string.Empty;
+    }
+
     public void Dispose()
     {
         ViewModel.OnChange -= HandleChange;
         ViewModel.Dispose();
     }
 }
+
+<style>
+    .atm-strike-row > td {
+        background-color: rgba(33, 150, 243, 0.12);
+        font-weight: 600;
+    }
+</style>
