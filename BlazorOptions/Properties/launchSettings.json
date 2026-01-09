@@ -3,7 +3,7 @@
     "http": {
       "commandName": "Project",
       "launchBrowser": true,
-      "launchUrl": "long-call",
+      "launchUrl": "positions",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       },

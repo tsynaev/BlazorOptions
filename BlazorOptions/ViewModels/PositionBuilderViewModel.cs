@@ -761,6 +761,11 @@ public class PositionBuilderViewModel : IAsyncDisposable
     public event Action? OnChange;
     public event Action<string>? NotificationRequested;
 
+    public void NotifyStateChanged()
+    {
+        OnChange?.Invoke();
+    }
+
     public async ValueTask DisposeAsync()
     {
         _exchangeTickerService.PriceUpdated -= HandlePriceUpdated;

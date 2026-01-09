@@ -1,0 +1,86 @@
+@using BlazorOptions.ViewModels
+@using Microsoft.AspNetCore.Components.Web
+
+<MudCard>
+    <MudCardHeader>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="flex-grow-1">
+            <MudText Typo="Typo.h6">Legs</MudText>
+            <MudTextField T="string"
+                          @bind-Value="ViewModel.QuickLegInput"
+                          Label="Quick add"
+                          Placeholder="+1 C 3400"
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense"
+                          Immediate="true"
+                          OnKeyDown="ViewModel.OnQuickLegKeyDown"
+                          Class="quick-leg-input" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="async () => await ViewModel.AddQuickLegAsync()">
+                Add
+            </MudButton>
+        </MudStack>
+        <MudSpacer />
+        <MudTooltip Text="Add leg">
+            <MudIconButton Icon="@Icons.Material.Filled.AddCircle" Color="Color.Primary" OnClick="async () => await ViewModel.AddLegAsync()" />
+        </MudTooltip>
+    </MudCardHeader>
+    <MudCardContent>
+        <MudTable Items="@ViewModel.Legs" Dense="true" Hover="true" Class="leg-table">
+            <HeaderContent>
+                <MudTh>Include</MudTh>
+                <MudTh>Type</MudTh>
+                <MudTh>Strike</MudTh>
+                <MudTh>Expiration</MudTh>
+                <MudTh>Size</MudTh>
+                <MudTh>Price</MudTh>
+                <MudTh>Temp P/L</MudTh>
+                <MudTh>IV</MudTh>
+                <MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Include">
+                    <MudCheckBox T="bool"
+                                 Value="@context.IsIncluded"
+                                 ValueChanged="async checkedValue => await ViewModel.UpdateLegIncludedAsync(context, checkedValue)" />
+                </MudTd>
+                <MudTd DataLabel="Type">
+                    <MudSelect T="OptionLegType" Value="@context.Type" ValueChanged="async type => await ViewModel.UpdateLegTypeAsync(context, type)" Dense="true">
+                        @foreach (var type in ViewModel.LegTypes)
+                        {
+                            <MudSelectItem Value="@type">@type</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudTd>
+                <MudTd DataLabel="Strike">
+                    <MudNumericField T="double" Value="@context.Strike" ValueChanged="async value => await ViewModel.UpdateLegStrikeAsync(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="USDT" />
+                </MudTd>
+                <MudTd DataLabel="Expiration">
+                    <MudDatePicker Date="context.ExpirationDate"
+                                   DateChanged="date => ViewModel.UpdateLegExpirationAsync(context, date)"
+                                   DateFormat="yyyy-MM-dd"
+                                   Class="full-width" />
+                </MudTd>
+                <MudTd DataLabel="Size">
+                    <MudNumericField T="double" Value="@context.Size" ValueChanged="async value => await ViewModel.UpdateLegSizeAsync(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudTd>
+                <MudTd DataLabel="Price">
+                    <MudNumericField T="double" Value="@context.Price" ValueChanged="async value => await ViewModel.UpdateLegPriceAsync(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="USDT" />
+                </MudTd>
+                <MudTd DataLabel="Temp P/L">
+                    <MudText Typo="Typo.body2" Color="@(context.TemporaryPnl >= 0 ? Color.Success : Color.Error)">
+                        @context.TemporaryPnl.ToString("0.##")
+                    </MudText>
+                </MudTd>
+                <MudTd DataLabel="IV">
+                    <MudNumericField T="double" Value="@context.ImpliedVolatility" ValueChanged="async value => await ViewModel.UpdateLegIvAsync(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="%" />
+                </MudTd>
+                <MudTd DataLabel="Actions" Style="text-align:right;">
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="async () => await ViewModel.RemoveLegAsync(context)" />
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudCardContent>
+</MudCard>
+
+@code {
+    [Parameter, EditorRequired] public LegsViewModel ViewModel { get; set; } = default!;
+}
