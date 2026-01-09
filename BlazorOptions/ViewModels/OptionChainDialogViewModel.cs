@@ -136,8 +136,7 @@ public class OptionChainDialogViewModel : IDisposable
 
     private void UpdateExpirations()
     {
-        var expirations = _chainTickers
-            .Where(ticker => string.IsNullOrWhiteSpace(_baseAsset) || string.Equals(ticker.BaseAsset, _baseAsset, StringComparison.OrdinalIgnoreCase))
+        var expirations = GetFilteredTickers()
             .Select(ticker => ticker.ExpirationDate.Date)
             .Distinct()
             .OrderBy(date => date)
@@ -167,16 +166,28 @@ public class OptionChainDialogViewModel : IDisposable
             return;
         }
 
-        var strikes = _chainTickers
-            .Where(ticker =>
-                string.Equals(ticker.BaseAsset, _baseAsset, StringComparison.OrdinalIgnoreCase)
-                && ticker.ExpirationDate.Date == _selectedExpiration.Value.Date)
+        var strikes = GetFilteredTickers()
+            .Where(ticker => ticker.ExpirationDate.Date == _selectedExpiration.Value.Date)
             .Select(ticker => ticker.Strike)
             .Distinct()
             .OrderBy(strike => strike)
             .ToList();
 
         AvailableStrikes = strikes;
+    }
+
+    private IEnumerable<OptionChainTicker> GetFilteredTickers()
+    {
+        if (string.IsNullOrWhiteSpace(_baseAsset))
+        {
+            return _chainTickers;
+        }
+
+        var filtered = _chainTickers
+            .Where(ticker => string.Equals(ticker.BaseAsset, _baseAsset, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        return filtered.Count > 0 ? filtered : _chainTickers;
     }
 
     private void HandleChainUpdated()

@@ -145,8 +145,13 @@ public class OptionsChainService
         }
     }
 
-    private static List<OptionChainTicker> ParseTickersFromDocument(JsonDocument document)
+    private static List<OptionChainTicker> ParseTickersFromDocument(JsonDocument? document)
     {
+        if (document is null)
+        {
+            return new List<OptionChainTicker>();
+        }
+
         if (!document.RootElement.TryGetProperty("result", out var resultElement))
         {
             return new List<OptionChainTicker>();
@@ -219,7 +224,8 @@ public class OptionsChainService
                     continue;
                 }
 
-                if (!TryParseJson(decoded, out var document))
+                var document = TryParseJson(decoded);
+                if (document is null)
                 {
                     continue;
                 }
@@ -242,17 +248,15 @@ public class OptionsChainService
         }
     }
 
-    private static bool TryParseJson(string content, out JsonDocument document)
+    private static JsonDocument? TryParseJson(string content)
     {
         try
         {
-            document = JsonDocument.Parse(content);
-            return true;
+            return JsonDocument.Parse(content);
         }
         catch
         {
-            document = null!;
-            return false;
+            return null;
         }
     }
 
