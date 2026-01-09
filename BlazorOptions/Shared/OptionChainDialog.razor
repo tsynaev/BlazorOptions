@@ -5,14 +5,17 @@
 <MudDialog Class="option-chain-dialog">
     <DialogContent>
         <MudStack Spacing="2">
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudStack Spacing="1">
                 <MudText Typo="Typo.subtitle2">Expiration</MudText>
-                <MudSelect T="DateTime?" Dense="true" Value="@ViewModel.SelectedExpiration" ValueChanged="ViewModel.SetSelectedExpiration" ToStringFunc="FormatExpiration">
-                    @foreach (var expiration in ViewModel.AvailableExpirations)
+                <MudTabs Rounded="true" Elevation="0" Color="Color.Primary" ActivePanelIndex="@SelectedExpirationIndex" ActivePanelIndexChanged="OnExpirationTabChanged">
+                    @for (var index = 0; index < ViewModel.AvailableExpirations.Count; index++)
                     {
-                        <MudSelectItem T="DateTime?" Value="@expiration">@expiration.ToString("yyyy-MM-dd")</MudSelectItem>
+                        var expiration = ViewModel.AvailableExpirations[index];
+                        <MudTabPanel Text="@FormatExpirationTab(expiration)" />
                     }
-                </MudSelect>
+                </MudTabs>
+            </MudStack>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
                 <MudSpacer />
                 @if (ViewModel.IsRefreshing)
                 {
@@ -99,14 +102,20 @@
 @code {
     [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
     [Parameter] public PositionModel? Position { get; set; }
+    private int SelectedExpirationIndex { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
         ViewModel.OnChange += HandleChange;
         await ViewModel.InitializeAsync(Position);
+        UpdateSelectedExpirationIndex();
     }
 
-    private void HandleChange() => InvokeAsync(StateHasChanged);
+    private void HandleChange()
+    {
+        UpdateSelectedExpirationIndex();
+        InvokeAsync(StateHasChanged);
+    }
 
     private void Submit()
     {
@@ -118,9 +127,34 @@
         Dialog.Cancel();
     }
 
-    private string FormatExpiration(DateTime? value)
+    private string FormatExpirationTab(DateTime value)
     {
-        return value?.ToString("yyyy-MM-dd") ?? string.Empty;
+        return value.ToString("dd MMM yyyy").ToUpperInvariant();
+    }
+
+    private void OnExpirationTabChanged(int index)
+    {
+        if (index < 0 || index >= ViewModel.AvailableExpirations.Count)
+        {
+            return;
+        }
+
+        SelectedExpirationIndex = index;
+        ViewModel.SetSelectedExpiration(ViewModel.AvailableExpirations[index]);
+    }
+
+    private void UpdateSelectedExpirationIndex()
+    {
+        if (ViewModel.SelectedExpiration is null)
+        {
+            SelectedExpirationIndex = 0;
+            return;
+        }
+
+        var index = ViewModel.AvailableExpirations
+            .Select((date, position) => (date, position))
+            .FirstOrDefault(item => item.date.Date == ViewModel.SelectedExpiration.Value.Date);
+        SelectedExpirationIndex = index == default ? 0 : index.position;
     }
 
     private static string FormatMetric(double? value)
