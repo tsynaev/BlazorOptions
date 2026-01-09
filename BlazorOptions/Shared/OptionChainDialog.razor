@@ -52,17 +52,8 @@
                         <MudTable Items="@ViewModel.Legs" Dense="true" Hover="true" Bordered="true" CustomHeader="true" CustomFooter="true" Class="legs-table">
                             <HeaderContent>
                                 <MudTHeadRow>
-                                    <MudTh colspan="2">Contract</MudTh>
-                                    <MudTh colspan="4">Greeks</MudTh>
-                                    <MudTh rowspan="2"></MudTh>
-                                </MudTHeadRow>
-                                <MudTHeadRow>
-                                    <MudTh>Qty</MudTh>
+                                    <MudTh>Contract</MudTh>
                                     <MudTh>Input</MudTh>
-                                    <MudTh>Delta</MudTh>
-                                    <MudTh>Gamma</MudTh>
-                                    <MudTh>Vega</MudTh>
-                                    <MudTh>Theta</MudTh>
                                     <MudTh></MudTh>
                                 </MudTHeadRow>
                             </HeaderContent>
@@ -70,15 +61,15 @@
                                 @{
                                     var ticker = ViewModel.GetTickerForLeg(context);
                                 }
-                                <MudTd colspan="7" Class="contract-row">
+                                <MudTd colspan="3" Class="contract-row">
                                     <table class="contract-inner-table">
                                         <tr>
-                                            <td colspan="2" class="contract-cell">
+                                            <td class="contract-cell">
                                                 <MudText Typo="Typo.subtitle2" Class="contract-symbol">@ViewModel.GetContractSymbol(context)</MudText>
                                                 <MudText Typo="Typo.caption" Class="contract-description">@ViewModel.GetContractDescription(context)</MudText>
                                             </td>
-                                            <td colspan="4"></td>
                                             <td></td>
+                                            <td class="actions-cell"></td>
                                         </tr>
                                         <tr>
                                             <td class="qty-cell">
@@ -94,7 +85,7 @@
                                                     <MudIconButton Icon="@Icons.Material.Filled.AddCircle" Size="Size.Small" Class="qty-button" OnClick="() => ViewModel.AdjustLegSize(context, 1)" />
                                                 </MudStack>
                                             </td>
-                                            <td>
+                                            <td class="input-cell">
                                                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                                                     <MudNumericField T="double"
                                                                      Value="@ViewModel.GetLegInputValue(context)"
@@ -107,11 +98,10 @@
                                                                      Class="input-field" />
                                                     <MudIconButton Icon="@Icons.Material.Filled.Autorenew" Size="Size.Small" OnClick="() => ViewModel.ToggleLegInputMode(context)" />
                                                 </MudStack>
+                                                <MudText Typo="Typo.caption" Class="greek-line">
+                                                    Δ @FormatMetric(ViewModel.GetLegGreekValue(context, t => t.Delta)) · Γ @FormatMetric(ViewModel.GetLegGreekValue(context, t => t.Gamma)) · ν @FormatMetric(ViewModel.GetLegGreekValue(context, t => t.Vega)) · Θ @FormatMetric(ViewModel.GetLegGreekValue(context, t => t.Theta))
+                                                </MudText>
                                             </td>
-                                            <td>@FormatMetric(ticker?.Delta)</td>
-                                            <td>@FormatMetric(ticker?.Gamma)</td>
-                                            <td>@FormatMetric(ticker?.Vega)</td>
-                                            <td>@FormatMetric(ticker?.Theta)</td>
                                             <td class="actions-cell">
                                                 <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Error" OnClick="() => ViewModel.RemoveLeg(context)" />
                                             </td>
@@ -121,17 +111,14 @@
                             </RowTemplate>
                             <FooterContent>
                                 <MudTFootRow>
-                                    <MudTd DataLabel="Qty" Class="qty-cell">
+                                    <MudTd DataLabel="Contract">
                                         <MudText Typo="Typo.subtitle2">Totals</MudText>
                                     </MudTd>
                                     <MudTd DataLabel="Input">
                                         <MudText Typo="Typo.caption">Premium: @ViewModel.GetTotalPremium().ToString("0.##")</MudText>
                                         <MudText Typo="Typo.caption">IV Avg: @ViewModel.GetAverageImpliedVolatility().ToString("0.##")%</MudText>
+                                        <MudText Typo="Typo.caption">Δ @ViewModel.GetTotalGreek(t => t.Delta).ToString("0.###") · Γ @ViewModel.GetTotalGreek(t => t.Gamma).ToString("0.###") · ν @ViewModel.GetTotalGreek(t => t.Vega).ToString("0.###") · Θ @ViewModel.GetTotalGreek(t => t.Theta).ToString("0.###")</MudText>
                                     </MudTd>
-                                    <MudTd DataLabel="Delta">@ViewModel.GetTotalGreek(t => t.Delta).ToString("0.###")</MudTd>
-                                    <MudTd DataLabel="Gamma">@ViewModel.GetTotalGreek(t => t.Gamma).ToString("0.###")</MudTd>
-                                    <MudTd DataLabel="Vega">@ViewModel.GetTotalGreek(t => t.Vega).ToString("0.###")</MudTd>
-                                    <MudTd DataLabel="Theta">@ViewModel.GetTotalGreek(t => t.Theta).ToString("0.###")</MudTd>
                                     <MudTd></MudTd>
                                 </MudTFootRow>
                             </FooterContent>
@@ -290,5 +277,24 @@
 
     .legs-table .contract-inner-table .actions-cell {
         width: 48px;
+    }
+
+    .legs-table .input-cell {
+        min-width: 240px;
+    }
+
+    .legs-table .greek-line {
+        margin-top: 4px;
+        color: var(--mud-palette-text-secondary);
+        font-size: 0.65rem;
+    }
+
+    .legs-table .qty-field {
+        min-width: 46px;
+        width: 46px;
+    }
+
+    .legs-table .input-field {
+        min-width: 72px;
     }
 </style>

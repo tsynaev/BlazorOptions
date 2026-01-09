@@ -329,6 +329,12 @@ public class OptionChainDialogViewModel : IDisposable
         });
     }
 
+    public double GetLegGreekValue(OptionLegModel leg, Func<OptionChainTicker, double?> selector)
+    {
+        var ticker = GetTickerForLeg(leg);
+        return ticker is null ? 0 : selector(ticker) ?? 0;
+    }
+
     private static double? DetermineAtmStrike(List<OptionChainTicker> tickers, List<double> strikes, double? underlyingPrice)
     {
         if (underlyingPrice.HasValue && strikes.Count > 0)
