@@ -102,12 +102,13 @@
 @code {
     [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
     [Parameter] public PositionModel? Position { get; set; }
+    [Parameter] public double? UnderlyingPrice { get; set; }
     private int SelectedExpirationIndex { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
         ViewModel.OnChange += HandleChange;
-        await ViewModel.InitializeAsync(Position);
+        await ViewModel.InitializeAsync(Position, UnderlyingPrice);
         UpdateSelectedExpirationIndex();
     }
 

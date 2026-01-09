@@ -11,6 +11,7 @@ public class OptionChainDialogViewModel : IDisposable
     private string? _baseAsset;
     private DateTime? _selectedExpiration;
     private double? _atmStrike;
+    private double? _underlyingPrice;
 
     public OptionChainDialogViewModel(OptionsChainService optionsChainService)
     {
@@ -33,10 +34,11 @@ public class OptionChainDialogViewModel : IDisposable
 
     public event Action? OnChange;
 
-    public Task InitializeAsync(PositionModel? position)
+    public Task InitializeAsync(PositionModel? position, double? underlyingPrice)
     {
         _position = position;
         _baseAsset = position?.BaseAsset;
+        _underlyingPrice = underlyingPrice;
         Legs.Clear();
 
         _optionsChainService.ChainUpdated += HandleChainUpdated;
@@ -179,7 +181,7 @@ public class OptionChainDialogViewModel : IDisposable
             .ToList();
 
         AvailableStrikes = strikes;
-        _atmStrike = DetermineAtmStrike(relevantTickers, strikes);
+        _atmStrike = DetermineAtmStrike(relevantTickers, strikes, _underlyingPrice);
     }
 
     private IEnumerable<OptionChainTicker> GetFilteredTickers()
@@ -233,8 +235,15 @@ public class OptionChainDialogViewModel : IDisposable
         return putIv > 0 ? putIv : null;
     }
 
-    private static double? DetermineAtmStrike(List<OptionChainTicker> tickers, List<double> strikes)
+    private static double? DetermineAtmStrike(List<OptionChainTicker> tickers, List<double> strikes, double? underlyingPrice)
     {
+        if (underlyingPrice.HasValue && strikes.Count > 0)
+        {
+            return strikes
+                .OrderBy(strike => Math.Abs(strike - underlyingPrice.Value))
+                .First();
+        }
+
         if (tickers.Count == 0)
         {
             return null;

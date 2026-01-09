@@ -289,7 +289,8 @@
 
         var parameters = new DialogParameters
         {
-            [nameof(OptionChainDialog.Position)] = ViewModel.SelectedPosition
+            [nameof(OptionChainDialog.Position)] = ViewModel.SelectedPosition,
+            [nameof(OptionChainDialog.UnderlyingPrice)] = ViewModel.SelectedPrice ?? ViewModel.LivePrice
         };
 
         var options = new DialogOptions
