@@ -114,16 +114,8 @@
 
     <MudCard>
         <MudCardHeader>
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="flex-grow-1">
                 <MudText Typo="Typo.h6">Legs</MudText>
-            </MudStack>
-            <MudSpacer />
-            <MudTooltip Text="Add leg">
-                <MudIconButton Icon="@Icons.Material.Filled.AddCircle" Color="Color.Primary" OnClick="OnAddLeg" />
-            </MudTooltip>
-        </MudCardHeader>
-        <MudCardContent>
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-2">
                 <MudTextField T="string"
                               @bind-Value="ViewModel.QuickLegInput"
                               Label="Quick add"
@@ -137,6 +129,12 @@
                     Add
                 </MudButton>
             </MudStack>
+            <MudSpacer />
+            <MudTooltip Text="Add leg">
+                <MudIconButton Icon="@Icons.Material.Filled.AddCircle" Color="Color.Primary" OnClick="OnAddLeg" />
+            </MudTooltip>
+        </MudCardHeader>
+        <MudCardContent>
             <MudTable Items="@ViewModel.Legs" Dense="true" Hover="true" Class="leg-table">
                 <HeaderContent>
                     <MudTh>Include</MudTh>
@@ -247,8 +245,7 @@
     }
 
     .quick-leg-input {
-        flex: 1;
-        min-width: 220px;
+        width: 220px;
     }
 </style>
 

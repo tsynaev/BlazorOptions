@@ -209,8 +209,8 @@ public class PositionBuilderViewModel : IAsyncDisposable
             Strike = tickerMatch.Strike,
             ExpirationDate = expirationDate.Date,
             Size = size,
-            Price = priceOverride ?? tickerMatch.MarkPrice,
-            ImpliedVolatility = ivOverride ?? tickerMatch.MarkIv,
+            Price = RoundPrice(priceOverride ?? tickerMatch.MarkPrice),
+            ImpliedVolatility = ivOverride ?? 0,
             ChainSymbol = tickerMatch.Symbol
         };
 
@@ -933,6 +933,11 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
         expirationDate = default;
         return false;
+    }
+
+    private static double RoundPrice(double value)
+    {
+        return Math.Round(value, 2, MidpointRounding.AwayFromZero);
     }
 
     private static DateTime BuildDateFromMonthDay(int month, int day)
