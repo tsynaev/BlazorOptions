@@ -12,6 +12,7 @@ public class OptionChainDialogViewModel : IDisposable
     private DateTime? _selectedExpiration;
     private double? _atmStrike;
     private double? _underlyingPrice;
+    private readonly HashSet<Guid> _ivModeLegIds = new();
 
     public OptionChainDialogViewModel(OptionsChainService optionsChainService)
     {
@@ -80,6 +81,67 @@ public class OptionChainDialogViewModel : IDisposable
     public OptionChainTicker? GetTickerForLeg(OptionLegModel leg)
     {
         return _optionsChainService.FindTickerForLeg(leg, _baseAsset);
+    }
+
+    public bool IsLegIvMode(OptionLegModel leg) => _ivModeLegIds.Contains(leg.Id);
+
+    public void ToggleLegInputMode(OptionLegModel leg)
+    {
+        if (!_ivModeLegIds.Add(leg.Id))
+        {
+            _ivModeLegIds.Remove(leg.Id);
+        }
+
+        OnChange?.Invoke();
+    }
+
+    public double GetLegInputValue(OptionLegModel leg)
+    {
+        return IsLegIvMode(leg) ? leg.ImpliedVolatility : leg.Price;
+    }
+
+    public void SetLegInputValue(OptionLegModel leg, double value)
+    {
+        if (IsLegIvMode(leg))
+        {
+            leg.ImpliedVolatility = value;
+        }
+        else
+        {
+            leg.Price = value;
+        }
+
+        OnChange?.Invoke();
+    }
+
+    public void SetLegSize(OptionLegModel leg, double size)
+    {
+        leg.Size = size;
+        OnChange?.Invoke();
+    }
+
+    public void AdjustLegSize(OptionLegModel leg, double delta)
+    {
+        leg.Size = Math.Max(0, leg.Size + delta);
+        OnChange?.Invoke();
+    }
+
+    public string GetContractSymbol(OptionLegModel leg)
+    {
+        return leg.ChainSymbol ?? GetTickerForLeg(leg)?.Symbol ?? string.Empty;
+    }
+
+    public string GetContractDescription(OptionLegModel leg)
+    {
+        var typeLabel = leg.Type switch
+        {
+            OptionLegType.Call => "CALL",
+            OptionLegType.Put => "PUT",
+            _ => "FUT"
+        };
+
+        var dte = (leg.ExpirationDate.Date - DateTime.UtcNow.Date).TotalDays;
+        return $"({typeLabel} {leg.Strike:0}, Exp: {leg.ExpirationDate:dd.MM}, DTE: {dte:0.0})";
     }
 
     public void AddLeg(double strike, OptionLegType type)
@@ -233,6 +295,38 @@ public class OptionChainDialogViewModel : IDisposable
 
         var putIv = candidates.FirstOrDefault(ticker => ticker.Type == OptionLegType.Put)?.MarkIv;
         return putIv > 0 ? putIv : null;
+    }
+
+    public double GetTotalQuantity()
+    {
+        return Legs.Sum(leg => leg.Size);
+    }
+
+    public double GetTotalPremium()
+    {
+        return Legs.Sum(leg => leg.Price * leg.Size);
+    }
+
+    public double GetAverageImpliedVolatility()
+    {
+        var weighted = Legs.Sum(leg => leg.ImpliedVolatility * leg.Size);
+        var totalSize = Legs.Sum(leg => leg.Size);
+        if (totalSize <= 0)
+        {
+            return 0;
+        }
+
+        return weighted / totalSize;
+    }
+
+    public double GetTotalGreek(Func<OptionChainTicker, double?> selector)
+    {
+        return Legs.Sum(leg =>
+        {
+            var ticker = GetTickerForLeg(leg);
+            var greek = ticker is null ? 0 : selector(ticker) ?? 0;
+            return greek * leg.Size;
+        });
     }
 
     private static double? DetermineAtmStrike(List<OptionChainTicker> tickers, List<double> strikes, double? underlyingPrice)
