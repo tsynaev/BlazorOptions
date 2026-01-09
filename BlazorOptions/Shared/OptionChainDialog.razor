@@ -10,7 +10,7 @@
                 <MudSelect T="DateTime?" Dense="true" Value="@ViewModel.SelectedExpiration" ValueChanged="ViewModel.SetSelectedExpiration">
                     @foreach (var expiration in ViewModel.AvailableExpirations)
                     {
-                        <MudSelectItem Value="@expiration">@expiration:yyyy-MM-dd</MudSelectItem>
+                        <MudSelectItem T="DateTime?" Value="@expiration">@expiration:yyyy-MM-dd</MudSelectItem>
                     }
                 </MudSelect>
                 <MudSpacer />
