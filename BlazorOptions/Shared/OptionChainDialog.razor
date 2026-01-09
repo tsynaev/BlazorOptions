@@ -1,0 +1,124 @@
+@using BlazorOptions.Services
+@implements IDisposable
+@inject OptionChainDialogViewModel ViewModel
+
+<MudDialog Class="option-chain-dialog">
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudText Typo="Typo.subtitle2">Expiration</MudText>
+                <MudSelect T="DateTime?" Dense="true" Value="@ViewModel.SelectedExpiration" ValueChanged="ViewModel.SetSelectedExpiration">
+                    @foreach (var expiration in ViewModel.AvailableExpirations)
+                    {
+                        <MudSelectItem Value="@expiration">@expiration:yyyy-MM-dd</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudSpacer />
+                @if (ViewModel.IsRefreshing)
+                {
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                    <MudText Typo="Typo.caption">Updating chain...</MudText>
+                }
+            </MudStack>
+
+            <MudGrid>
+                <MudItem xs="12" sm="4">
+                    <MudPaper Class="pa-2 strikes-panel">
+                        <MudText Typo="Typo.subtitle2">Strikes</MudText>
+                        <MudTable Items="@ViewModel.AvailableStrikes" Dense="true" Hover="true" Bordered="true">
+                            <HeaderContent>
+                                <MudTh>Strike</MudTh>
+                                <MudTh></MudTh>
+                                <MudTh></MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Strike">@context.ToString("0")</MudTd>
+                                <MudTd DataLabel="Call">
+                                    <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Primary" OnClick="() => ViewModel.AddLeg(context, OptionLegType.Call)">Call</MudButton>
+                                </MudTd>
+                                <MudTd DataLabel="Put">
+                                    <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Secondary" OnClick="() => ViewModel.AddLeg(context, OptionLegType.Put)">Put</MudButton>
+                                </MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" sm="8">
+                    <MudPaper Class="pa-2">
+                        <MudTable Items="@ViewModel.Legs" Dense="true" Hover="true" Bordered="true">
+                            <HeaderContent>
+                                <MudTh>Qty</MudTh>
+                                <MudTh>Strike</MudTh>
+                                <MudTh>Type</MudTh>
+                                <MudTh>Expire</MudTh>
+                                <MudTh>Vol%</MudTh>
+                                <MudTh>Price</MudTh>
+                                <MudTh>Delta</MudTh>
+                                <MudTh>Gamma</MudTh>
+                                <MudTh>Vega</MudTh>
+                                <MudTh>Theta</MudTh>
+                                <MudTh></MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                @{
+                                    var ticker = ViewModel.GetTickerForLeg(context);
+                                }
+                                <MudTd DataLabel="Qty">
+                                    <MudNumericField T="double" Value="@context.Size" ValueChanged="value => context.Size = value" Margin="Margin.Dense" Variant="Variant.Outlined" />
+                                </MudTd>
+                                <MudTd DataLabel="Strike">@context.Strike.ToString("0")</MudTd>
+                                <MudTd DataLabel="Type">@context.Type</MudTd>
+                                <MudTd DataLabel="Expire">@context.ExpirationDate.ToString("yyyy-MM-dd")</MudTd>
+                                <MudTd DataLabel="Vol%">
+                                    <MudNumericField T="double" Value="@context.ImpliedVolatility" ValueChanged="value => context.ImpliedVolatility = value" Margin="Margin.Dense" Variant="Variant.Outlined" />
+                                </MudTd>
+                                <MudTd DataLabel="Price">
+                                    <MudNumericField T="double" Value="@context.Price" ValueChanged="value => context.Price = value" Margin="Margin.Dense" Variant="Variant.Outlined" />
+                                </MudTd>
+                                <MudTd DataLabel="Delta">@ticker?.Delta?.ToString("0.###")</MudTd>
+                                <MudTd DataLabel="Gamma">@ticker?.Gamma?.ToString("0.###")</MudTd>
+                                <MudTd DataLabel="Vega">@ticker?.Vega?.ToString("0.###")</MudTd>
+                                <MudTd DataLabel="Theta">@ticker?.Theta?.ToString("0.###")</MudTd>
+                                <MudTd DataLabel="Actions">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Error" OnClick="() => ViewModel.RemoveLeg(context)" />
+                                </MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    </MudPaper>
+                </MudItem>
+            </MudGrid>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="Submit">OK</MudButton>
+        <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    [Parameter] public PositionModel? Position { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        ViewModel.OnChange += HandleChange;
+        await ViewModel.InitializeAsync(Position);
+    }
+
+    private void HandleChange() => InvokeAsync(StateHasChanged);
+
+    private void Submit()
+    {
+        Dialog.Close(DialogResult.Ok(ViewModel.Legs.ToList()));
+    }
+
+    private void Cancel()
+    {
+        Dialog.Cancel();
+    }
+
+    public void Dispose()
+    {
+        ViewModel.OnChange -= HandleChange;
+    }
+}

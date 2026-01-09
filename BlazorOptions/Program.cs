@@ -19,10 +19,12 @@ builder.Services.AddScoped<PositionStorageService>();
 builder.Services.AddScoped<ExchangeSettingsService>();
 builder.Services.AddScoped<ExchangeTickerService>();
 builder.Services.AddScoped<IExchangeTickerClient, BybitTickerClient>();
+builder.Services.AddScoped<OptionsChainService>();
 builder.Services.AddSingleton<ThemeService>();
 builder.Services.AddTransient<AccountSettingsViewModel>();
 builder.Services.AddTransient<BybitSettingsViewModel>();
 builder.Services.AddTransient<PositionBuilderViewModel>();
+builder.Services.AddTransient<OptionChainDialogViewModel>();
 builder.Services.AddMudServices();
 
 await builder.Build().RunAsync();

@@ -27,6 +27,8 @@ public class OptionLegModel
 
     public double ImpliedVolatility { get; set; } = 65;
 
+    public string? ChainSymbol { get; set; }
+
     [JsonIgnore]
     public double TemporaryPnl { get; set; }
 }

@@ -11,6 +11,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
     private readonly PositionStorageService _storageService;
     private readonly ExchangeSettingsService _exchangeSettingsService;
     private readonly ExchangeTickerService _exchangeTickerService;
+    private readonly OptionsChainService _optionsChainService;
     private CancellationTokenSource? _tickerCts;
     private string? _currentSymbol;
     private TimeSpan _livePriceUpdateInterval = TimeSpan.FromMilliseconds(1000);
@@ -40,13 +41,16 @@ public class PositionBuilderViewModel : IAsyncDisposable
         OptionsService optionsService,
         PositionStorageService storageService,
         ExchangeSettingsService exchangeSettingsService,
-        ExchangeTickerService exchangeTickerService)
+        ExchangeTickerService exchangeTickerService,
+        OptionsChainService optionsChainService)
     {
         _optionsService = optionsService;
         _storageService = storageService;
         _exchangeSettingsService = exchangeSettingsService;
         _exchangeTickerService = exchangeTickerService;
+        _optionsChainService = optionsChainService;
         _exchangeTickerService.PriceUpdated += HandlePriceUpdated;
+        _optionsChainService.ChainUpdated += HandleChainUpdated;
     }
 
     public ObservableCollection<PositionModel> Positions { get; } = new();
@@ -71,6 +75,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
             UpdateTemporaryPnls();
             await PersistPositionsAsync();
             await StartTickerAsync();
+            UpdateLegTickerSubscription();
             return;
         }
 
@@ -84,6 +89,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         UpdateChart();
         UpdateTemporaryPnls();
         await StartTickerAsync();
+        UpdateLegTickerSubscription();
     }
 
     public async Task AddLegAsync()
@@ -105,6 +111,26 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
         UpdateTemporaryPnls();
         await PersistPositionsAsync();
+        UpdateLegTickerSubscription();
+    }
+
+    public async Task UpdateLegsAsync(IEnumerable<OptionLegModel> legs)
+    {
+        if (SelectedPosition is null)
+        {
+            return;
+        }
+
+        SelectedPosition.Legs.Clear();
+        foreach (var leg in legs)
+        {
+            SelectedPosition.Legs.Add(leg);
+        }
+
+        UpdateTemporaryPnls();
+        UpdateChart();
+        await PersistPositionsAsync();
+        UpdateLegTickerSubscription();
     }
 
     public async Task<bool> RemoveLegAsync(OptionLegModel leg)
@@ -119,6 +145,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
             SelectedPosition.Legs.Remove(leg);
             await PersistPositionsAsync();
             UpdateTemporaryPnls();
+            UpdateLegTickerSubscription();
             return true;
         }
 
@@ -135,6 +162,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         UpdateTemporaryPnls();
         await PersistPositionsAsync();
         await UpdateTickerSubscriptionAsync();
+        UpdateLegTickerSubscription();
     }
 
     public async Task<bool> SelectPositionAsync(Guid positionId)
@@ -151,6 +179,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         UpdateChart();
         UpdateTemporaryPnls();
         await UpdateTickerSubscriptionAsync();
+        UpdateLegTickerSubscription();
         await Task.CompletedTask;
         return true;
     }
@@ -164,6 +193,8 @@ public class PositionBuilderViewModel : IAsyncDisposable
         {
             await UpdateTickerSubscriptionAsync();
         }
+
+        UpdateLegTickerSubscription();
     }
 
     public async Task PersistPositionsAsync()
@@ -174,7 +205,8 @@ public class PositionBuilderViewModel : IAsyncDisposable
     public void UpdateChart()
     {
         var legs = SelectedPosition?.Legs ?? Enumerable.Empty<OptionLegModel>();
-        var activeLegs = legs.Where(l => l.IsIncluded).ToList();
+        var calculationLegs = ResolveLegsForCalculation(legs).ToList();
+        var activeLegs = calculationLegs.Where(l => l.IsIncluded).ToList();
         RefreshValuationDateBounds(legs);
         var valuationDate = SelectedValuationDate;
         var (xs, profits, theoreticalProfits) = _optionsService.GeneratePosition(activeLegs, 180, valuationDate);
@@ -251,6 +283,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         }
 
         await UpdateTickerSubscriptionAsync();
+        UpdateLegTickerSubscription();
         OnChange?.Invoke();
     }
 
@@ -281,12 +314,28 @@ public class PositionBuilderViewModel : IAsyncDisposable
     public void UpdateTemporaryPnls()
     {
         var price = GetEffectivePrice();
+        var baseAsset = SelectedPosition?.BaseAsset;
 
         foreach (var leg in Legs)
         {
-            leg.TemporaryPnl = leg.IsIncluded
-                ? _optionsService.CalculateLegTheoreticalProfit(leg, price, SelectedValuationDate)
-                : 0;
+            if (!leg.IsIncluded)
+            {
+                leg.TemporaryPnl = 0;
+                continue;
+            }
+
+            if (IsLive && leg.Type != OptionLegType.Future)
+            {
+                var ticker = _optionsChainService.FindTickerForLeg(leg, baseAsset);
+                if (ticker is not null)
+                {
+                    leg.TemporaryPnl = (ticker.MarkPrice - leg.Price) * leg.Size;
+                    continue;
+                }
+            }
+
+            var calculationLeg = ResolveLegForCalculation(leg, baseAsset);
+            leg.TemporaryPnl = _optionsService.CalculateLegTheoreticalProfit(calculationLeg, price, SelectedValuationDate);
         }
     }
 
@@ -476,6 +525,21 @@ public class PositionBuilderViewModel : IAsyncDisposable
         await _exchangeTickerService.ConnectAsync(subscription, _tickerCts.Token);
     }
 
+    private void UpdateLegTickerSubscription()
+    {
+        if (SelectedPosition is null)
+        {
+            return;
+        }
+
+        _optionsChainService.TrackLegs(SelectedPosition.Legs, SelectedPosition.BaseAsset);
+
+        if (IsLive)
+        {
+            _ = _optionsChainService.RefreshAsync();
+        }
+    }
+
     private async Task StopTickerAsync()
     {
         _tickerCts?.Cancel();
@@ -531,11 +595,65 @@ public class PositionBuilderViewModel : IAsyncDisposable
         OnChange?.Invoke();
     }
 
+    private void HandleChainUpdated()
+    {
+        if (!IsLive)
+        {
+            return;
+        }
+
+        UpdateTemporaryPnls();
+        UpdateChart();
+        OnChange?.Invoke();
+    }
+
+    private OptionLegModel ResolveLegForCalculation(OptionLegModel leg, string? baseAsset)
+    {
+        var impliedVolatility = leg.ImpliedVolatility;
+        if (impliedVolatility <= 0)
+        {
+            var ticker = _optionsChainService.FindTickerForLeg(leg, baseAsset);
+            if (ticker is not null && ticker.MarkIv > 0)
+            {
+                impliedVolatility = ticker.MarkIv;
+            }
+        }
+
+        if (Math.Abs(impliedVolatility - leg.ImpliedVolatility) < 0.0001)
+        {
+            return leg;
+        }
+
+        return new OptionLegModel
+        {
+            Id = leg.Id,
+            IsIncluded = leg.IsIncluded,
+            Type = leg.Type,
+            Strike = leg.Strike,
+            ExpirationDate = leg.ExpirationDate,
+            Size = leg.Size,
+            Price = leg.Price,
+            ImpliedVolatility = impliedVolatility,
+            ChainSymbol = leg.ChainSymbol
+        };
+    }
+
+    private IEnumerable<OptionLegModel> ResolveLegsForCalculation(IEnumerable<OptionLegModel> legs)
+    {
+        var baseAsset = SelectedPosition?.BaseAsset;
+
+        foreach (var leg in legs)
+        {
+            yield return ResolveLegForCalculation(leg, baseAsset);
+        }
+    }
+
     public event Action? OnChange;
 
     public async ValueTask DisposeAsync()
     {
         _exchangeTickerService.PriceUpdated -= HandlePriceUpdated;
+        _optionsChainService.ChainUpdated -= HandleChainUpdated;
         await StopTickerAsync();
     }
 
