@@ -1,0 +1,387 @@
+@using BlazorOptions.Services
+@implements IDisposable
+@inject OptionChainDialogViewModel ViewModel
+
+<MudDialog Class="option-chain-dialog">
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudStack Spacing="1">
+                <MudText Typo="Typo.subtitle2">Expiration</MudText>
+                <MudTabs Rounded="true" Elevation="0" Color="Color.Primary" ActivePanelIndex="@SelectedExpirationIndex" ActivePanelIndexChanged="OnExpirationTabChanged">
+                    @for (var index = 0; index < ViewModel.AvailableExpirations.Count; index++)
+                    {
+                        var expiration = ViewModel.AvailableExpirations[index];
+                        <MudTabPanel Text="@FormatExpirationTab(expiration)" />
+                    }
+                </MudTabs>
+            </MudStack>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudSpacer />
+                @if (ViewModel.IsRefreshing)
+                {
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                    <MudText Typo="Typo.caption">Updating chain...</MudText>
+                }
+            </MudStack>
+
+            <MudGrid>
+                <MudItem xs="12" sm="4">
+                    <MudPaper Class="pa-2 strikes-panel">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mb-2">
+                            <MudText Typo="Typo.caption">ATM ±</MudText>
+                            <MudNumericField T="int"
+                                             Value="@ViewModel.StrikeWindowSize"
+                                             ValueChanged="ViewModel.SetStrikeWindowSizeAsync"
+                                             Margin="Margin.Dense"
+                                             Variant="Variant.Outlined"
+                                             HideSpinButtons="true"
+                                             Class="strike-window-field" />
+                        </MudStack>
+                        <table class="strikes-table">
+                            <thead>
+                                <tr>
+                                    <th colspan="3">CALLS</th>
+                                    <th rowspan="2">Strike</th>
+                                    <th colspan="3">PUTS</th>
+                                </tr>
+                                <tr>
+                                    <th>Bid</th>
+                                    <th>Mark</th>
+                                    <th>Ask</th>
+                                    <th>Bid</th>
+                                    <th>Mark</th>
+                                    <th>Ask</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var strike in ViewModel.DisplayStrikes)
+                                {
+                                    var call = ViewModel.GetStrikeTicker(strike, OptionLegType.Call);
+                                    var put = ViewModel.GetStrikeTicker(strike, OptionLegType.Put);
+                                    var rowClass = StrikeRowClass(strike, 0);
+                                    <tr class="@rowClass">
+                                        <td>
+                                            @if (call is not null && call.BidPrice > 0)
+                                            {
+                                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Class="quote-button sell" OnClick="() => ViewModel.AddLegFromQuote(strike, OptionLegType.Call, call.BidPrice, call.BidIv)">
+                                                    <MudStack Spacing="0">
+                                                        <MudText Typo="Typo.caption">SELL</MudText>
+                                                        <MudText Typo="Typo.caption">@FormatQuotePrice(call.BidPrice)</MudText>
+                                                        <MudText Typo="Typo.caption">@FormatQuoteIv(call.BidIv)</MudText>
+                                                    </MudStack>
+                                                </MudButton>
+                                            }
+                                        </td>
+                                        <td>@FormatQuotePrice(call?.MarkPrice ?? 0)</td>
+                                        <td>
+                                            @if (call is not null && call.AskPrice > 0)
+                                            {
+                                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Class="quote-button buy" OnClick="() => ViewModel.AddLegFromQuote(strike, OptionLegType.Call, call.AskPrice, call.AskIv)">
+                                                    <MudStack Spacing="0">
+                                                        <MudText Typo="Typo.caption">BUY</MudText>
+                                                        <MudText Typo="Typo.caption">@FormatQuotePrice(call.AskPrice)</MudText>
+                                                        <MudText Typo="Typo.caption">@FormatQuoteIv(call.AskIv)</MudText>
+                                                    </MudStack>
+                                                </MudButton>
+                                            }
+                                        </td>
+                                        <td>@strike.ToString("0")</td>
+                                        <td>
+                                            @if (put is not null && put.BidPrice > 0)
+                                            {
+                                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Class="quote-button sell" OnClick="() => ViewModel.AddLegFromQuote(strike, OptionLegType.Put, put.BidPrice, put.BidIv)">
+                                                    <MudStack Spacing="0">
+                                                        <MudText Typo="Typo.caption">SELL</MudText>
+                                                        <MudText Typo="Typo.caption">@FormatQuotePrice(put.BidPrice)</MudText>
+                                                        <MudText Typo="Typo.caption">@FormatQuoteIv(put.BidIv)</MudText>
+                                                    </MudStack>
+                                                </MudButton>
+                                            }
+                                        </td>
+                                        <td>@FormatQuotePrice(put?.MarkPrice ?? 0)</td>
+                                        <td>
+                                            @if (put is not null && put.AskPrice > 0)
+                                            {
+                                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Class="quote-button buy" OnClick="() => ViewModel.AddLegFromQuote(strike, OptionLegType.Put, put.AskPrice, put.AskIv)">
+                                                    <MudStack Spacing="0">
+                                                        <MudText Typo="Typo.caption">BUY</MudText>
+                                                        <MudText Typo="Typo.caption">@FormatQuotePrice(put.AskPrice)</MudText>
+                                                        <MudText Typo="Typo.caption">@FormatQuoteIv(put.AskIv)</MudText>
+                                                    </MudStack>
+                                                </MudButton>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" sm="8">
+                    <MudPaper Class="pa-2">
+                        <table class="legs-table">
+                            <tbody>
+                                @foreach (var leg in ViewModel.Legs)
+                                {
+                                    <tr class="contract-row">
+                                        <td class="contract-cell" colspan="2">
+                                            <MudText Typo="Typo.subtitle2" Class="contract-symbol">@ViewModel.GetContractSymbol(leg)</MudText>
+                                            <MudText Typo="Typo.caption" Class="contract-description">@ViewModel.GetContractDescription(leg)</MudText>
+                                        </td>
+                                        <td class="actions-cell"></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="qty-cell">
+                                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                                <MudIconButton Icon="@Icons.Material.Filled.RemoveCircle" Size="Size.Small" Class="qty-button" OnClick="() => ViewModel.AdjustLegSize(leg, -1)" />
+                                                <MudNumericField T="double"
+                                                                 Value="@leg.Size"
+                                                                 ValueChanged="value => ViewModel.SetLegSize(leg, value)"
+                                                                 Margin="Margin.Dense"
+                                                                 Variant="Variant.Outlined"
+                                                                 HideSpinButtons="true"
+                                                                 Class="qty-field" />
+                                                <MudIconButton Icon="@Icons.Material.Filled.AddCircle" Size="Size.Small" Class="qty-button" OnClick="() => ViewModel.AdjustLegSize(leg, 1)" />
+                                            </MudStack>
+                                        </td>
+                                        <td class="input-cell">
+                                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                                <MudNumericField T="double"
+                                                                 Value="@ViewModel.GetLegInputValue(leg)"
+                                                                 ValueChanged="value => ViewModel.SetLegInputValue(leg, value)"
+                                                                 Margin="Margin.Dense"
+                                                                 Variant="Variant.Outlined"
+                                                                 Adornment="Adornment.End"
+                                                                 AdornmentText="@(ViewModel.IsLegIvMode(leg) ? "%" : "USDT")"
+                                                                 HideSpinButtons="true"
+                                                                 Class="input-field" />
+                                                <MudIconButton Icon="@Icons.Material.Filled.Autorenew" Size="Size.Small" OnClick="() => ViewModel.ToggleLegInputMode(leg)" />
+                                            </MudStack>
+                                        </td>
+                                        <td class="actions-cell">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Error" OnClick="() => ViewModel.RemoveLeg(leg)" />
+                                        </td>
+                                    </tr>
+                                    <tr class="leg-separator">
+                                        <td class="greek-cell" colspan="2">
+                                            <MudText Typo="Typo.caption" Class="greek-line">
+                                                Δ @FormatMetric(ViewModel.GetLegGreekValue(leg, t => t.Delta)) · Γ @FormatMetric(ViewModel.GetLegGreekValue(leg, t => t.Gamma)) · ν @FormatMetric(ViewModel.GetLegGreekValue(leg, t => t.Vega)) · Θ @FormatMetric(ViewModel.GetLegGreekValue(leg, t => t.Theta))
+                                            </MudText>
+                                        </td>
+                                        <td class="actions-cell"></td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <td colspan="2">
+                                        <MudText Typo="Typo.subtitle2">Totals</MudText>
+                                        <MudText Typo="Typo.caption">Premium: @ViewModel.GetTotalPremium().ToString("0.##")</MudText>
+                                        <MudText Typo="Typo.caption">IV Avg: @ViewModel.GetAverageImpliedVolatility().ToString("0.##")%</MudText>
+                                        <MudText Typo="Typo.caption">Δ @ViewModel.GetTotalGreek(t => t.Delta).ToString("0.###") · Γ @ViewModel.GetTotalGreek(t => t.Gamma).ToString("0.###") · ν @ViewModel.GetTotalGreek(t => t.Vega).ToString("0.###") · Θ @ViewModel.GetTotalGreek(t => t.Theta).ToString("0.###")</MudText>
+                                    </td>
+                                    <td></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </MudPaper>
+                </MudItem>
+            </MudGrid>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="Submit">OK</MudButton>
+        <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    [Parameter] public PositionModel? Position { get; set; }
+    [Parameter] public double? UnderlyingPrice { get; set; }
+    private int SelectedExpirationIndex { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        ViewModel.OnChange += HandleChange;
+        await ViewModel.InitializeAsync(Position, UnderlyingPrice);
+        UpdateSelectedExpirationIndex();
+    }
+
+    private void HandleChange()
+    {
+        UpdateSelectedExpirationIndex();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void Submit()
+    {
+        Dialog.Close(DialogResult.Ok(ViewModel.Legs.ToList()));
+    }
+
+    private void Cancel()
+    {
+        Dialog.Cancel();
+    }
+
+    private string FormatExpirationTab(DateTime value)
+    {
+        return value.ToString("dd MMM yyyy").ToUpperInvariant();
+    }
+
+    private void OnExpirationTabChanged(int index)
+    {
+        if (index < 0 || index >= ViewModel.AvailableExpirations.Count)
+        {
+            return;
+        }
+
+        SelectedExpirationIndex = index;
+        ViewModel.SetSelectedExpiration(ViewModel.AvailableExpirations[index]);
+    }
+
+    private void UpdateSelectedExpirationIndex()
+    {
+        if (ViewModel.SelectedExpiration is null)
+        {
+            SelectedExpirationIndex = 0;
+            return;
+        }
+
+        var index = ViewModel.AvailableExpirations
+            .Select((date, position) => (date, position))
+            .FirstOrDefault(item => item.date.Date == ViewModel.SelectedExpiration.Value.Date);
+        SelectedExpirationIndex = index == default ? 0 : index.position;
+    }
+
+    private static string FormatMetric(double? value)
+    {
+        return value?.ToString("0.###") ?? "0";
+    }
+
+    private static string FormatQuotePrice(double value)
+    {
+        return value <= 0 ? "-" : value.ToString("0.###");
+    }
+
+    private static string FormatQuoteIv(double value)
+    {
+        return value <= 0 ? "-" : $"{value * 100:0.#}%";
+    }
+
+    private string StrikeRowClass(double strike, int index)
+    {
+        return ViewModel.IsAtmStrike(strike) ? "atm-strike-row" : string.Empty;
+    }
+
+    public void Dispose()
+    {
+        ViewModel.OnChange -= HandleChange;
+        ViewModel.Dispose();
+    }
+}
+
+<style>
+    .atm-strike-row > td {
+        background-color: rgba(33, 150, 243, 0.12);
+        font-weight: 600;
+    }
+
+    .contract-symbol {
+        color: var(--mud-palette-text-secondary);
+        font-size: 0.78rem;
+        line-height: 1.1;
+    }
+
+    .contract-description {
+        color: var(--mud-palette-text-secondary);
+        font-size: 0.6rem;
+        line-height: 1.1;
+    }
+
+    .legs-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .legs-table th,
+    .legs-table td {
+        padding: 8px;
+    }
+
+    .legs-table .leg-separator td {
+        border-bottom: 1px solid var(--mud-palette-table-lines);
+    }
+
+    .legs-table .qty-cell {
+        width: 140px;
+    }
+
+    .legs-table .contract-cell {
+        padding-bottom: 8px;
+    }
+
+    .legs-table .qty-field {
+        min-width: 60px;
+        width: 60px;
+    }
+
+
+    .legs-table .qty-button {
+        padding: 4px;
+    }
+
+    .legs-table .input-cell {
+        min-width: 180px;
+    }
+
+    .legs-table .greek-line {
+        margin-top: 4px;
+        color: var(--mud-palette-text-secondary);
+        font-size: 0.65rem;
+    }
+
+    .legs-table .greek-cell {
+        padding-top: 0;
+    }
+
+    .legs-table .qty-field {
+        min-width: 46px;
+        width: 46px;
+    }
+
+    .legs-table .input-field {
+        min-width: 56px;
+        width: 56px;
+    }
+
+    .strike-window-field {
+        max-width: 70px;
+    }
+
+    .quote-button {
+        min-width: 64px;
+        padding: 4px;
+        text-transform: none;
+    }
+
+    .quote-button .mud-typography {
+        line-height: 1.1;
+    }
+
+    .strikes-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .strikes-table th,
+    .strikes-table td {
+        border-bottom: 1px solid var(--mud-palette-table-lines);
+        padding: 6px;
+        text-align: center;
+    }
+
+    .strikes-table thead th {
+        font-weight: 600;
+    }
+</style>

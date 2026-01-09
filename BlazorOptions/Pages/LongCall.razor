@@ -282,7 +282,33 @@
 
     private async Task OnAddLeg()
     {
-        await ViewModel.AddLegAsync();
+        if (ViewModel.SelectedPosition is null)
+        {
+            return;
+        }
+
+        var parameters = new DialogParameters
+        {
+            [nameof(OptionChainDialog.Position)] = ViewModel.SelectedPosition,
+            [nameof(OptionChainDialog.UnderlyingPrice)] = ViewModel.SelectedPrice ?? ViewModel.LivePrice
+        };
+
+        var options = new DialogOptions
+        {
+            CloseOnEscapeKey = true,
+            MaxWidth = MaxWidth.Large,
+            FullWidth = true
+        };
+
+        var dialog = await DialogService.ShowAsync<OptionChainDialog>("Add leg", parameters, options);
+        var result = await dialog.Result;
+
+        if (result is null || result.Canceled || result.Data is not IEnumerable<OptionLegModel> legs)
+        {
+            return;
+        }
+
+        await ViewModel.UpdateLegsAsync(legs);
         await RefreshChartAsync();
     }
 
