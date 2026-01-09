@@ -53,9 +53,6 @@
                             <HeaderContent>
                                 <MudTh>Contract</MudTh>
                                 <MudTh>Qty</MudTh>
-                                <MudTh>Strike</MudTh>
-                                <MudTh>Type</MudTh>
-                                <MudTh>Expire</MudTh>
                                 <MudTh>Input</MudTh>
                                 <MudTh>Delta</MudTh>
                                 <MudTh>Gamma</MudTh>
@@ -84,9 +81,6 @@
                                         <MudIconButton Icon="@Icons.Material.Filled.AddCircle" Size="Size.Small" OnClick="() => ViewModel.AdjustLegSize(context, 1)" />
                                     </MudStack>
                                 </MudTd>
-                                <MudTd DataLabel="Strike">@context.Strike.ToString("0")</MudTd>
-                                <MudTd DataLabel="Type">@context.Type</MudTd>
-                                <MudTd DataLabel="Expire">@context.ExpirationDate.ToString("yyyy-MM-dd")</MudTd>
                                 <MudTd DataLabel="Input">
                                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                                         <MudNumericField T="double"
@@ -114,9 +108,6 @@
                                     <MudText Typo="Typo.subtitle2">Totals</MudText>
                                 </MudTd>
                                 <MudTd DataLabel="Qty">@ViewModel.GetTotalQuantity().ToString("0.##")</MudTd>
-                                <MudTd></MudTd>
-                                <MudTd></MudTd>
-                                <MudTd></MudTd>
                                 <MudTd DataLabel="Input">
                                     <MudText Typo="Typo.caption">Premium: @ViewModel.GetTotalPremium().ToString("0.##")</MudText>
                                     <MudText Typo="Typo.caption">IV Avg: @ViewModel.GetAverageImpliedVolatility().ToString("0.##")%</MudText>
