@@ -51,72 +51,82 @@
                     <MudPaper Class="pa-2">
                         <MudTable Items="@ViewModel.Legs" Dense="true" Hover="true" Bordered="true">
                             <HeaderContent>
-                                <MudTh>Contract</MudTh>
-                                <MudTh>Qty</MudTh>
-                                <MudTh>Input</MudTh>
-                                <MudTh>Delta</MudTh>
-                                <MudTh>Gamma</MudTh>
-                                <MudTh>Vega</MudTh>
-                                <MudTh>Theta</MudTh>
-                                <MudTh></MudTh>
+                                <MudTr>
+                                    <MudTh colspan="7">Contract</MudTh>
+                                </MudTr>
+                                <MudTr>
+                                    <MudTh>Qty</MudTh>
+                                    <MudTh>Input</MudTh>
+                                    <MudTh>Delta</MudTh>
+                                    <MudTh>Gamma</MudTh>
+                                    <MudTh>Vega</MudTh>
+                                    <MudTh>Theta</MudTh>
+                                    <MudTh></MudTh>
+                                </MudTr>
                             </HeaderContent>
                             <RowTemplate>
                                 @{
                                     var ticker = ViewModel.GetTickerForLeg(context);
                                 }
-                                <MudTd DataLabel="Contract">
-                                    <MudText Typo="Typo.caption" Class="contract-symbol">@ViewModel.GetContractSymbol(context)</MudText>
-                                    <MudText Typo="Typo.caption" Class="contract-description">@ViewModel.GetContractDescription(context)</MudText>
-                                </MudTd>
-                                <MudTd DataLabel="Qty">
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                                        <MudIconButton Icon="@Icons.Material.Filled.RemoveCircle" Size="Size.Small" OnClick="() => ViewModel.AdjustLegSize(context, -1)" />
-                                        <MudNumericField T="double"
-                                                         Value="@context.Size"
-                                                         ValueChanged="value => ViewModel.SetLegSize(context, value)"
-                                                         Margin="Margin.Dense"
-                                                         Variant="Variant.Outlined"
-                                                         HideSpinButtons="true"
-                                                         Class="qty-field" />
-                                        <MudIconButton Icon="@Icons.Material.Filled.AddCircle" Size="Size.Small" OnClick="() => ViewModel.AdjustLegSize(context, 1)" />
-                                    </MudStack>
-                                </MudTd>
-                                <MudTd DataLabel="Input">
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                                        <MudNumericField T="double"
-                                                         Value="@ViewModel.GetLegInputValue(context)"
-                                                         ValueChanged="value => ViewModel.SetLegInputValue(context, value)"
-                                                         Margin="Margin.Dense"
-                                                         Variant="Variant.Outlined"
-                                                         Adornment="Adornment.End"
-                                                         AdornmentText="@(ViewModel.IsLegIvMode(context) ? "%" : "USDT")"
-                                                         HideSpinButtons="true"
-                                                         Class="input-field" />
-                                        <MudIconButton Icon="@Icons.Material.Filled.Autorenew" Size="Size.Small" OnClick="() => ViewModel.ToggleLegInputMode(context)" />
-                                    </MudStack>
-                                </MudTd>
-                                <MudTd DataLabel="Delta">@FormatMetric(ticker?.Delta)</MudTd>
-                                <MudTd DataLabel="Gamma">@FormatMetric(ticker?.Gamma)</MudTd>
-                                <MudTd DataLabel="Vega">@FormatMetric(ticker?.Vega)</MudTd>
-                                <MudTd DataLabel="Theta">@FormatMetric(ticker?.Theta)</MudTd>
-                                <MudTd DataLabel="Actions">
-                                    <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Error" OnClick="() => ViewModel.RemoveLeg(context)" />
-                                </MudTd>
+                                <MudTr>
+                                    <MudTd colspan="7">
+                                        <MudText Typo="Typo.subtitle2" Class="contract-symbol">@ViewModel.GetContractSymbol(context)</MudText>
+                                        <MudText Typo="Typo.caption" Class="contract-description">@ViewModel.GetContractDescription(context)</MudText>
+                                    </MudTd>
+                                </MudTr>
+                                <MudTr>
+                                    <MudTd DataLabel="Qty">
+                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                            <MudIconButton Icon="@Icons.Material.Filled.RemoveCircle" Size="Size.Small" OnClick="() => ViewModel.AdjustLegSize(context, -1)" />
+                                            <MudNumericField T="double"
+                                                             Value="@context.Size"
+                                                             ValueChanged="value => ViewModel.SetLegSize(context, value)"
+                                                             Margin="Margin.Dense"
+                                                             Variant="Variant.Outlined"
+                                                             HideSpinButtons="true"
+                                                             Class="qty-field" />
+                                            <MudIconButton Icon="@Icons.Material.Filled.AddCircle" Size="Size.Small" OnClick="() => ViewModel.AdjustLegSize(context, 1)" />
+                                        </MudStack>
+                                    </MudTd>
+                                    <MudTd DataLabel="Input">
+                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                            <MudNumericField T="double"
+                                                             Value="@ViewModel.GetLegInputValue(context)"
+                                                             ValueChanged="value => ViewModel.SetLegInputValue(context, value)"
+                                                             Margin="Margin.Dense"
+                                                             Variant="Variant.Outlined"
+                                                             Adornment="Adornment.End"
+                                                             AdornmentText="@(ViewModel.IsLegIvMode(context) ? "%" : "USDT")"
+                                                             HideSpinButtons="true"
+                                                             Class="input-field" />
+                                            <MudIconButton Icon="@Icons.Material.Filled.Autorenew" Size="Size.Small" OnClick="() => ViewModel.ToggleLegInputMode(context)" />
+                                        </MudStack>
+                                    </MudTd>
+                                    <MudTd DataLabel="Delta">@FormatMetric(ticker?.Delta)</MudTd>
+                                    <MudTd DataLabel="Gamma">@FormatMetric(ticker?.Gamma)</MudTd>
+                                    <MudTd DataLabel="Vega">@FormatMetric(ticker?.Vega)</MudTd>
+                                    <MudTd DataLabel="Theta">@FormatMetric(ticker?.Theta)</MudTd>
+                                    <MudTd DataLabel="Actions">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Error" OnClick="() => ViewModel.RemoveLeg(context)" />
+                                    </MudTd>
+                                </MudTr>
                             </RowTemplate>
                             <FooterContent>
-                                <MudTd DataLabel="Contract">
-                                    <MudText Typo="Typo.subtitle2">Totals</MudText>
-                                </MudTd>
-                                <MudTd DataLabel="Qty">@ViewModel.GetTotalQuantity().ToString("0.##")</MudTd>
-                                <MudTd DataLabel="Input">
-                                    <MudText Typo="Typo.caption">Premium: @ViewModel.GetTotalPremium().ToString("0.##")</MudText>
-                                    <MudText Typo="Typo.caption">IV Avg: @ViewModel.GetAverageImpliedVolatility().ToString("0.##")%</MudText>
-                                </MudTd>
-                                <MudTd DataLabel="Delta">@ViewModel.GetTotalGreek(t => t.Delta).ToString("0.###")</MudTd>
-                                <MudTd DataLabel="Gamma">@ViewModel.GetTotalGreek(t => t.Gamma).ToString("0.###")</MudTd>
-                                <MudTd DataLabel="Vega">@ViewModel.GetTotalGreek(t => t.Vega).ToString("0.###")</MudTd>
-                                <MudTd DataLabel="Theta">@ViewModel.GetTotalGreek(t => t.Theta).ToString("0.###")</MudTd>
-                                <MudTd></MudTd>
+                                <MudTr>
+                                    <MudTd DataLabel="Qty">
+                                        <MudText Typo="Typo.subtitle2">Totals</MudText>
+                                        <MudText Typo="Typo.caption">@ViewModel.GetTotalQuantity().ToString("0.##")</MudText>
+                                    </MudTd>
+                                    <MudTd DataLabel="Input">
+                                        <MudText Typo="Typo.caption">Premium: @ViewModel.GetTotalPremium().ToString("0.##")</MudText>
+                                        <MudText Typo="Typo.caption">IV Avg: @ViewModel.GetAverageImpliedVolatility().ToString("0.##")%</MudText>
+                                    </MudTd>
+                                    <MudTd DataLabel="Delta">@ViewModel.GetTotalGreek(t => t.Delta).ToString("0.###")</MudTd>
+                                    <MudTd DataLabel="Gamma">@ViewModel.GetTotalGreek(t => t.Gamma).ToString("0.###")</MudTd>
+                                    <MudTd DataLabel="Vega">@ViewModel.GetTotalGreek(t => t.Vega).ToString("0.###")</MudTd>
+                                    <MudTd DataLabel="Theta">@ViewModel.GetTotalGreek(t => t.Theta).ToString("0.###")</MudTd>
+                                    <MudTd></MudTd>
+                                </MudTr>
                             </FooterContent>
                         </MudTable>
                     </MudPaper>
@@ -197,7 +207,7 @@
     private string FormatStrikeIv(double strike)
     {
         var iv = ViewModel.GetStrikeImpliedVolatility(strike);
-        return iv?.ToString("0.##") ?? "0";
+        return iv.HasValue ? $"{iv.Value * 100:0.#}%" : "0%";
     }
 
     private string StrikeRowClass(double strike, int index)
@@ -220,18 +230,18 @@
 
     .contract-symbol {
         color: var(--mud-palette-text-secondary);
-        font-size: 0.72rem;
+        font-size: 0.78rem;
         line-height: 1.1;
     }
 
     .contract-description {
         color: var(--mud-palette-text-secondary);
-        font-size: 0.68rem;
+        font-size: 0.6rem;
         line-height: 1.1;
     }
 
     .qty-field,
     .input-field {
-        min-width: 110px;
+        min-width: 80px;
     }
 </style>

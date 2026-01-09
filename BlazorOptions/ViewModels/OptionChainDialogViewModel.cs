@@ -122,7 +122,7 @@ public class OptionChainDialogViewModel : IDisposable
 
     public void AdjustLegSize(OptionLegModel leg, double delta)
     {
-        leg.Size = Math.Max(0, leg.Size + delta);
+        leg.Size += delta;
         OnChange?.Invoke();
     }
 
