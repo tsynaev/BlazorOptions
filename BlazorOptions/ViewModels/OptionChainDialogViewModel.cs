@@ -55,9 +55,9 @@ public class OptionChainDialogViewModel : IDisposable
         {
             SelectedExpiration = Legs.Max(leg => leg.ExpirationDate.Date);
         }
-        else
+        else if (AvailableExpirations.Count > 0)
         {
-            SelectedExpiration ??= AvailableExpirations.FirstOrDefault();
+            SelectedExpiration ??= AvailableExpirations.First();
         }
 
         UpdateStrikes();
@@ -145,7 +145,11 @@ public class OptionChainDialogViewModel : IDisposable
 
         AvailableExpirations = expirations;
 
-        if (_selectedExpiration.HasValue && !AvailableExpirations.Contains(_selectedExpiration.Value.Date))
+        if (AvailableExpirations.Count == 0)
+        {
+            SelectedExpiration = null;
+        }
+        else if (_selectedExpiration.HasValue && !AvailableExpirations.Contains(_selectedExpiration.Value.Date))
         {
             SelectedExpiration = AvailableExpirations.FirstOrDefault();
         }

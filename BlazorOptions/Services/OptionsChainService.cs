@@ -1,5 +1,7 @@
 using System.Globalization;
+using System.Net;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using BlazorOptions.ViewModels;
 
 namespace BlazorOptions.Services;
@@ -7,6 +9,7 @@ namespace BlazorOptions.Services;
 public class OptionsChainService
 {
     private const string BybitOptionsTickerUrl = "https://api.bybit.com/v5/market/tickers?category=option";
+    private const string BybitOptionsDocsUrl = "https://bybit-exchange.github.io/docs/v5/market/tickers";
     private static readonly string[] ExpirationFormats = { "ddMMMyy", "ddMMMyyyy" };
     private readonly HttpClient _httpClient;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
@@ -128,62 +131,128 @@ public class OptionsChainService
             using var response = await _httpClient.GetAsync(BybitOptionsTickerUrl, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
-                return new List<OptionChainTicker>();
+                return await FetchTickersFromDocumentationAsync(cancellationToken);
             }
 
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
             using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
 
-            if (!document.RootElement.TryGetProperty("result", out var resultElement))
+            return ParseTickersFromDocument(document);
+        }
+        catch
+        {
+            return await FetchTickersFromDocumentationAsync(cancellationToken);
+        }
+    }
+
+    private static List<OptionChainTicker> ParseTickersFromDocument(JsonDocument document)
+    {
+        if (!document.RootElement.TryGetProperty("result", out var resultElement))
+        {
+            return new List<OptionChainTicker>();
+        }
+
+        if (!resultElement.TryGetProperty("list", out var listElement) || listElement.ValueKind != JsonValueKind.Array)
+        {
+            return new List<OptionChainTicker>();
+        }
+
+        var tickers = new List<OptionChainTicker>();
+
+        foreach (var entry in listElement.EnumerateArray())
+        {
+            if (!TryReadString(entry, "symbol", out var symbol))
+            {
+                continue;
+            }
+
+            if (!TryParseSymbol(symbol, out var baseAsset, out var expirationDate, out var strike, out var type))
+            {
+                continue;
+            }
+
+            var markPrice = ReadDouble(entry, "markPrice");
+            var markIv = ReadDouble(entry, "markIv");
+            var delta = ReadNullableDouble(entry, "delta");
+            var gamma = ReadNullableDouble(entry, "gamma");
+            var vega = ReadNullableDouble(entry, "vega");
+            var theta = ReadNullableDouble(entry, "theta");
+
+            tickers.Add(new OptionChainTicker(
+                symbol,
+                baseAsset,
+                expirationDate,
+                strike,
+                type,
+                markPrice,
+                markIv,
+                delta,
+                gamma,
+                vega,
+                theta));
+        }
+
+        return tickers;
+    }
+
+    private async Task<List<OptionChainTicker>> FetchTickersFromDocumentationAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await _httpClient.GetAsync(BybitOptionsDocsUrl, cancellationToken);
+            if (!response.IsSuccessStatusCode)
             {
                 return new List<OptionChainTicker>();
             }
 
-            if (!resultElement.TryGetProperty("list", out var listElement) || listElement.ValueKind != JsonValueKind.Array)
-            {
-                return new List<OptionChainTicker>();
-            }
+            var html = await response.Content.ReadAsStringAsync(cancellationToken);
+            var codeBlocks = Regex.Matches(html, "<code[^>]*>(.*?)</code>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
 
-            var tickers = new List<OptionChainTicker>();
-
-            foreach (var entry in listElement.EnumerateArray())
+            foreach (Match match in codeBlocks)
             {
-                if (!TryReadString(entry, "symbol", out var symbol))
+                var rawBlock = match.Groups[1].Value;
+                var withoutTags = Regex.Replace(rawBlock, "<[^>]+>", string.Empty);
+                var decoded = WebUtility.HtmlDecode(withoutTags);
+
+                if (!decoded.Contains("\"category\"", StringComparison.OrdinalIgnoreCase) || !decoded.Contains("\"option\"", StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
 
-                if (!TryParseSymbol(symbol, out var baseAsset, out var expirationDate, out var strike, out var type))
+                if (!TryParseJson(decoded, out var document))
                 {
                     continue;
                 }
 
-                var markPrice = ReadDouble(entry, "markPrice");
-                var markIv = ReadDouble(entry, "markIv");
-                var delta = ReadNullableDouble(entry, "delta");
-                var gamma = ReadNullableDouble(entry, "gamma");
-                var vega = ReadNullableDouble(entry, "vega");
-                var theta = ReadNullableDouble(entry, "theta");
-
-                tickers.Add(new OptionChainTicker(
-                    symbol,
-                    baseAsset,
-                    expirationDate,
-                    strike,
-                    type,
-                    markPrice,
-                    markIv,
-                    delta,
-                    gamma,
-                    vega,
-                    theta));
+                using (document)
+                {
+                    var tickers = ParseTickersFromDocument(document);
+                    if (tickers.Count > 0)
+                    {
+                        return tickers;
+                    }
+                }
             }
 
-            return tickers;
+            return new List<OptionChainTicker>();
         }
         catch
         {
             return new List<OptionChainTicker>();
+        }
+    }
+
+    private static bool TryParseJson(string content, out JsonDocument document)
+    {
+        try
+        {
+            document = JsonDocument.Parse(content);
+            return true;
+        }
+        catch
+        {
+            document = null!;
+            return false;
         }
     }
 
