@@ -50,22 +50,14 @@
                 <MudItem xs="12" sm="8">
                     <MudPaper Class="pa-2">
                         <table class="legs-table">
-                            <thead>
-                                <tr>
-                                    <th>Contract</th>
-                                    <th>Input</th>
-                                    <th></th>
-                                </tr>
-                            </thead>
                             <tbody>
                                 @foreach (var leg in ViewModel.Legs)
                                 {
                                     <tr class="contract-row">
-                                        <td class="contract-cell">
+                                        <td class="contract-cell" colspan="2">
                                             <MudText Typo="Typo.subtitle2" Class="contract-symbol">@ViewModel.GetContractSymbol(leg)</MudText>
                                             <MudText Typo="Typo.caption" Class="contract-description">@ViewModel.GetContractDescription(leg)</MudText>
                                         </td>
-                                        <td class="input-cell"></td>
                                         <td class="actions-cell"></td>
                                     </tr>
                                     <tr>
@@ -95,22 +87,25 @@
                                                                  Class="input-field" />
                                                 <MudIconButton Icon="@Icons.Material.Filled.Autorenew" Size="Size.Small" OnClick="() => ViewModel.ToggleLegInputMode(leg)" />
                                             </MudStack>
-                                            <MudText Typo="Typo.caption" Class="greek-line">
-                                                Δ @FormatMetric(ViewModel.GetLegGreekValue(leg, t => t.Delta)) · Γ @FormatMetric(ViewModel.GetLegGreekValue(leg, t => t.Gamma)) · ν @FormatMetric(ViewModel.GetLegGreekValue(leg, t => t.Vega)) · Θ @FormatMetric(ViewModel.GetLegGreekValue(leg, t => t.Theta))
-                                            </MudText>
                                         </td>
                                         <td class="actions-cell">
                                             <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Error" OnClick="() => ViewModel.RemoveLeg(leg)" />
                                         </td>
                                     </tr>
+                                    <tr>
+                                        <td class="greek-cell" colspan="2">
+                                            <MudText Typo="Typo.caption" Class="greek-line">
+                                                Δ @FormatMetric(ViewModel.GetLegGreekValue(leg, t => t.Delta)) · Γ @FormatMetric(ViewModel.GetLegGreekValue(leg, t => t.Gamma)) · ν @FormatMetric(ViewModel.GetLegGreekValue(leg, t => t.Vega)) · Θ @FormatMetric(ViewModel.GetLegGreekValue(leg, t => t.Theta))
+                                            </MudText>
+                                        </td>
+                                        <td class="actions-cell"></td>
+                                    </tr>
                                 }
                             </tbody>
                             <tfoot>
                                 <tr>
-                                    <td>
+                                    <td colspan="2">
                                         <MudText Typo="Typo.subtitle2">Totals</MudText>
-                                    </td>
-                                    <td>
                                         <MudText Typo="Typo.caption">Premium: @ViewModel.GetTotalPremium().ToString("0.##")</MudText>
                                         <MudText Typo="Typo.caption">IV Avg: @ViewModel.GetAverageImpliedVolatility().ToString("0.##")%</MudText>
                                         <MudText Typo="Typo.caption">Δ @ViewModel.GetTotalGreek(t => t.Delta).ToString("0.###") · Γ @ViewModel.GetTotalGreek(t => t.Gamma).ToString("0.###") · ν @ViewModel.GetTotalGreek(t => t.Vega).ToString("0.###") · Θ @ViewModel.GetTotalGreek(t => t.Theta).ToString("0.###")</MudText>
@@ -270,6 +265,10 @@
         margin-top: 4px;
         color: var(--mud-palette-text-secondary);
         font-size: 0.65rem;
+    }
+
+    .legs-table .greek-cell {
+        padding-top: 0;
     }
 
     .legs-table .qty-field {
