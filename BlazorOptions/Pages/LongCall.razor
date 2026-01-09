@@ -2,6 +2,7 @@
 @implements IAsyncDisposable
 @inject PositionBuilderViewModel ViewModel
 @inject IDialogService DialogService
+@inject ISnackbar Snackbar
 @using System.Linq
 @using Microsoft.AspNetCore.Components.Web
 @using BlazorOptions.Shared
@@ -113,8 +114,20 @@
 
     <MudCard>
         <MudCardHeader>
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="flex-grow-1">
                 <MudText Typo="Typo.h6">Legs</MudText>
+                <MudTextField T="string"
+                              @bind-Value="ViewModel.QuickLegInput"
+                              Label="Quick add"
+                              Placeholder="+1 C 3400"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              Immediate="true"
+                              OnKeyDown="OnQuickLegKeyDown"
+                              Class="quick-leg-input" />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OnQuickAddLeg">
+                    Add
+                </MudButton>
             </MudStack>
             <MudSpacer />
             <MudTooltip Text="Add leg">
@@ -230,6 +243,10 @@
         max-width: 170px;
         width: 170px;
     }
+
+    .quick-leg-input {
+        width: 220px;
+    }
 </style>
 
 @code {
@@ -242,6 +259,7 @@
     protected override async Task OnInitializedAsync()
     {
         ViewModel.OnChange += HandleViewModelChanged;
+        ViewModel.NotificationRequested += HandleNotificationRequested;
         await ViewModel.InitializeAsync();
         SyncActiveTabIndex();
     }
@@ -249,6 +267,7 @@
     public async ValueTask DisposeAsync()
     {
         ViewModel.OnChange -= HandleViewModelChanged;
+        ViewModel.NotificationRequested -= HandleNotificationRequested;
         await ViewModel.DisposeAsync();
     }
 
@@ -310,6 +329,22 @@
 
         await ViewModel.UpdateLegsAsync(legs);
         await RefreshChartAsync();
+    }
+
+    private async Task OnQuickAddLeg()
+    {
+        if (await ViewModel.AddLegFromTextAsync(ViewModel.QuickLegInput))
+        {
+            await RefreshChartAsync();
+        }
+    }
+
+    private async Task OnQuickLegKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            await OnQuickAddLeg();
+        }
     }
 
     private async Task OnRemoveLeg(OptionLegModel leg)
@@ -397,6 +432,14 @@
     private void HandleViewModelChanged()
     {
         _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleNotificationRequested(string message)
+    {
+        if (!string.IsNullOrWhiteSpace(message))
+        {
+            Snackbar.Add(message, Severity.Warning);
+        }
     }
 
     private Task OnValuationDateChanged(DateTime? date)
