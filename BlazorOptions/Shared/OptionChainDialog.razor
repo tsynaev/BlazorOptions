@@ -27,21 +27,87 @@
             <MudGrid>
                 <MudItem xs="12" sm="4">
                     <MudPaper Class="pa-2 strikes-panel">
-                        <MudText Typo="Typo.subtitle2">Strikes</MudText>
-                        <MudTable Items="@ViewModel.AvailableStrikes" Dense="true" Hover="true" Bordered="true" FixedHeader="true" Height="500px" RowClassFunc="StrikeRowClass">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mb-2">
+                            <MudText Typo="Typo.caption">ATM ±</MudText>
+                            <MudNumericField T="int"
+                                             Value="@ViewModel.StrikeWindowSize"
+                                             ValueChanged="ViewModel.SetStrikeWindowSizeAsync"
+                                             Margin="Margin.Dense"
+                                             Variant="Variant.Outlined"
+                                             HideSpinButtons="true"
+                                             Class="strike-window-field" />
+                        </MudStack>
+                        <MudTable Items="@ViewModel.DisplayStrikes" Dense="true" Hover="true" Bordered="true" FixedHeader="true" Height="500px" RowClassFunc="StrikeRowClass">
                             <HeaderContent>
-                                <MudTh>Strike</MudTh>
-                                <MudTh>IV%</MudTh>
-                                <MudTh>Actions</MudTh>
+                                <MudTr>
+                                    <MudTh colspan="3">CALLS</MudTh>
+                                    <MudTh rowspan="2">Strike</MudTh>
+                                    <MudTh colspan="3">PUTS</MudTh>
+                                </MudTr>
+                                <MudTr>
+                                    <MudTh>Bid</MudTh>
+                                    <MudTh>Mark</MudTh>
+                                    <MudTh>Ask</MudTh>
+                                    <MudTh>Bid</MudTh>
+                                    <MudTh>Mark</MudTh>
+                                    <MudTh>Ask</MudTh>
+                                </MudTr>
                             </HeaderContent>
                             <RowTemplate>
+                                @{
+                                    var call = ViewModel.GetStrikeTicker(context, OptionLegType.Call);
+                                    var put = ViewModel.GetStrikeTicker(context, OptionLegType.Put);
+                                }
+                                <MudTd DataLabel="Call Bid">
+                                    @if (call is not null && call.BidPrice > 0)
+                                    {
+                                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Class="quote-button sell" OnClick="() => ViewModel.AddLegFromQuote(context, OptionLegType.Call, call.BidPrice, call.BidIv)">
+                                            <MudStack Spacing="0">
+                                                <MudText Typo="Typo.caption">SELL</MudText>
+                                                <MudText Typo="Typo.caption">@FormatQuotePrice(call.BidPrice)</MudText>
+                                                <MudText Typo="Typo.caption">@FormatQuoteIv(call.BidIv)</MudText>
+                                            </MudStack>
+                                        </MudButton>
+                                    }
+                                </MudTd>
+                                <MudTd DataLabel="Call Mark">@FormatQuotePrice(call?.MarkPrice ?? 0)</MudTd>
+                                <MudTd DataLabel="Call Ask">
+                                    @if (call is not null && call.AskPrice > 0)
+                                    {
+                                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Class="quote-button buy" OnClick="() => ViewModel.AddLegFromQuote(context, OptionLegType.Call, call.AskPrice, call.AskIv)">
+                                            <MudStack Spacing="0">
+                                                <MudText Typo="Typo.caption">BUY</MudText>
+                                                <MudText Typo="Typo.caption">@FormatQuotePrice(call.AskPrice)</MudText>
+                                                <MudText Typo="Typo.caption">@FormatQuoteIv(call.AskIv)</MudText>
+                                            </MudStack>
+                                        </MudButton>
+                                    }
+                                </MudTd>
                                 <MudTd DataLabel="Strike">@context.ToString("0")</MudTd>
-                                <MudTd DataLabel="IV%">@FormatStrikeIv(context)</MudTd>
-                                <MudTd DataLabel="Actions">
-                                    <MudStack Row="true" Spacing="1">
-                                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Primary" OnClick="() => ViewModel.AddLeg(context, OptionLegType.Call)">C</MudButton>
-                                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Secondary" OnClick="() => ViewModel.AddLeg(context, OptionLegType.Put)">P</MudButton>
-                                    </MudStack>
+                                <MudTd DataLabel="Put Bid">
+                                    @if (put is not null && put.BidPrice > 0)
+                                    {
+                                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Class="quote-button sell" OnClick="() => ViewModel.AddLegFromQuote(context, OptionLegType.Put, put.BidPrice, put.BidIv)">
+                                            <MudStack Spacing="0">
+                                                <MudText Typo="Typo.caption">SELL</MudText>
+                                                <MudText Typo="Typo.caption">@FormatQuotePrice(put.BidPrice)</MudText>
+                                                <MudText Typo="Typo.caption">@FormatQuoteIv(put.BidIv)</MudText>
+                                            </MudStack>
+                                        </MudButton>
+                                    }
+                                </MudTd>
+                                <MudTd DataLabel="Put Mark">@FormatQuotePrice(put?.MarkPrice ?? 0)</MudTd>
+                                <MudTd DataLabel="Put Ask">
+                                    @if (put is not null && put.AskPrice > 0)
+                                    {
+                                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Class="quote-button buy" OnClick="() => ViewModel.AddLegFromQuote(context, OptionLegType.Put, put.AskPrice, put.AskIv)">
+                                            <MudStack Spacing="0">
+                                                <MudText Typo="Typo.caption">BUY</MudText>
+                                                <MudText Typo="Typo.caption">@FormatQuotePrice(put.AskPrice)</MudText>
+                                                <MudText Typo="Typo.caption">@FormatQuoteIv(put.AskIv)</MudText>
+                                            </MudStack>
+                                        </MudButton>
+                                    }
                                 </MudTd>
                             </RowTemplate>
                         </MudTable>
@@ -189,10 +255,14 @@
         return value?.ToString("0.###") ?? "0";
     }
 
-    private string FormatStrikeIv(double strike)
+    private static string FormatQuotePrice(double value)
     {
-        var iv = ViewModel.GetStrikeImpliedVolatility(strike);
-        return iv.HasValue ? $"{iv.Value * 100:0.#}%" : "0%";
+        return value <= 0 ? "-" : value.ToString("0.###");
+    }
+
+    private static string FormatQuoteIv(double value)
+    {
+        return value <= 0 ? "-" : $"{value * 100:0.#}%";
     }
 
     private string StrikeRowClass(double strike, int index)
@@ -279,5 +349,19 @@
     .legs-table .input-field {
         min-width: 56px;
         width: 56px;
+    }
+
+    .strike-window-field {
+        max-width: 70px;
+    }
+
+    .quote-button {
+        min-width: 64px;
+        padding: 4px;
+        text-transform: none;
+    }
+
+    .quote-button .mud-typography {
+        line-height: 1.1;
     }
 </style>

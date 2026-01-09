@@ -191,6 +191,10 @@ public class OptionsChainService
 
             var markPrice = ReadDouble(entry, "markPrice");
             var markIv = ReadDouble(entry, "markIv");
+            var bidPrice = ReadDouble(entry, "bid1Price");
+            var askPrice = ReadDouble(entry, "ask1Price");
+            var bidIv = ReadDouble(entry, "bid1Iv");
+            var askIv = ReadDouble(entry, "ask1Iv");
             var delta = ReadNullableDouble(entry, "delta");
             var gamma = ReadNullableDouble(entry, "gamma");
             var vega = ReadNullableDouble(entry, "vega");
@@ -204,6 +208,10 @@ public class OptionsChainService
                 type,
                 markPrice,
                 markIv,
+                bidPrice,
+                askPrice,
+                bidIv,
+                askIv,
                 delta,
                 gamma,
                 vega,

@@ -5,7 +5,9 @@ namespace BlazorOptions.ViewModels;
 
 public class OptionChainDialogViewModel : IDisposable
 {
+    private const string StrikeWindowKey = "optionChainDialog:strikeWindow";
     private readonly OptionsChainService _optionsChainService;
+    private readonly LocalStorageService _localStorageService;
     private PositionModel? _position;
     private List<OptionChainTicker> _chainTickers = new();
     private string? _baseAsset;
@@ -13,10 +15,12 @@ public class OptionChainDialogViewModel : IDisposable
     private double? _atmStrike;
     private double? _underlyingPrice;
     private readonly HashSet<Guid> _ivModeLegIds = new();
+    private int _strikeWindowSize = 10;
 
-    public OptionChainDialogViewModel(OptionsChainService optionsChainService)
+    public OptionChainDialogViewModel(OptionsChainService optionsChainService, LocalStorageService localStorageService)
     {
         _optionsChainService = optionsChainService;
+        _localStorageService = localStorageService;
     }
 
     public ObservableCollection<OptionLegModel> Legs { get; } = new();
@@ -24,6 +28,10 @@ public class OptionChainDialogViewModel : IDisposable
     public IReadOnlyList<DateTime> AvailableExpirations { get; private set; } = Array.Empty<DateTime>();
 
     public IReadOnlyList<double> AvailableStrikes { get; private set; } = Array.Empty<double>();
+
+    public IReadOnlyList<double> DisplayStrikes { get; private set; } = Array.Empty<double>();
+
+    public int StrikeWindowSize => _strikeWindowSize;
 
     public DateTime? SelectedExpiration
     {
@@ -35,7 +43,7 @@ public class OptionChainDialogViewModel : IDisposable
 
     public event Action? OnChange;
 
-    public Task InitializeAsync(PositionModel? position, double? underlyingPrice)
+    public async Task InitializeAsync(PositionModel? position, double? underlyingPrice)
     {
         _position = position;
         _baseAsset = position?.BaseAsset;
@@ -43,6 +51,8 @@ public class OptionChainDialogViewModel : IDisposable
         Legs.Clear();
 
         _optionsChainService.ChainUpdated += HandleChainUpdated;
+
+        await LoadStrikeWindowAsync();
 
         if (position is not null)
         {
@@ -68,12 +78,30 @@ public class OptionChainDialogViewModel : IDisposable
         OnChange?.Invoke();
 
         _ = RefreshChainAsync();
-        return Task.CompletedTask;
     }
 
     public void SetSelectedExpiration(DateTime? expiration)
     {
         SelectedExpiration = expiration;
+        UpdateStrikes();
+        OnChange?.Invoke();
+    }
+
+    public async Task SetStrikeWindowSizeAsync(int value)
+    {
+        var newValue = value;
+        if (newValue < 1)
+        {
+            newValue = 1;
+        }
+
+        if (newValue == _strikeWindowSize)
+        {
+            return;
+        }
+
+        _strikeWindowSize = newValue;
+        await _localStorageService.SetItemAsync(StrikeWindowKey, newValue.ToString());
         UpdateStrikes();
         OnChange?.Invoke();
     }
@@ -172,6 +200,34 @@ public class OptionChainDialogViewModel : IDisposable
         OnChange?.Invoke();
     }
 
+    public void AddLegFromQuote(double strike, OptionLegType type, double price, double iv)
+    {
+        if (!_selectedExpiration.HasValue)
+        {
+            return;
+        }
+
+        var ticker = _chainTickers.FirstOrDefault(item =>
+            string.Equals(item.BaseAsset, _baseAsset, StringComparison.OrdinalIgnoreCase)
+            && item.ExpirationDate.Date == _selectedExpiration.Value.Date
+            && item.Type == type
+            && Math.Abs(item.Strike - strike) < 0.01);
+
+        var leg = new OptionLegModel
+        {
+            Type = type,
+            Strike = strike,
+            ExpirationDate = _selectedExpiration.Value.Date,
+            Size = 1,
+            Price = price > 0 ? price : ticker?.MarkPrice ?? 0,
+            ImpliedVolatility = iv > 0 ? iv : ticker?.MarkIv ?? 0,
+            ChainSymbol = ticker?.Symbol
+        };
+
+        Legs.Add(leg);
+        OnChange?.Invoke();
+    }
+
     public void RemoveLeg(OptionLegModel leg)
     {
         if (Legs.Contains(leg))
@@ -244,6 +300,7 @@ public class OptionChainDialogViewModel : IDisposable
 
         AvailableStrikes = strikes;
         _atmStrike = DetermineAtmStrike(relevantTickers, strikes, _underlyingPrice);
+        DisplayStrikes = BuildStrikeWindow(strikes, _atmStrike, _strikeWindowSize);
     }
 
     private IEnumerable<OptionChainTicker> GetFilteredTickers()
@@ -295,6 +352,19 @@ public class OptionChainDialogViewModel : IDisposable
 
         var putIv = candidates.FirstOrDefault(ticker => ticker.Type == OptionLegType.Put)?.MarkIv;
         return putIv > 0 ? putIv : null;
+    }
+
+    public OptionChainTicker? GetStrikeTicker(double strike, OptionLegType type)
+    {
+        if (!_selectedExpiration.HasValue)
+        {
+            return null;
+        }
+
+        return GetFilteredTickers()
+            .FirstOrDefault(ticker => ticker.ExpirationDate.Date == _selectedExpiration.Value.Date
+                && ticker.Type == type
+                && Math.Abs(ticker.Strike - strike) < 0.01);
     }
 
     public double GetTotalQuantity()
@@ -394,5 +464,39 @@ public class OptionChainDialogViewModel : IDisposable
     public void Dispose()
     {
         _optionsChainService.ChainUpdated -= HandleChainUpdated;
+    }
+
+    private async Task LoadStrikeWindowAsync()
+    {
+        var stored = await _localStorageService.GetItemAsync(StrikeWindowKey);
+        if (int.TryParse(stored, out var parsed) && parsed > 0)
+        {
+            _strikeWindowSize = parsed;
+        }
+    }
+
+    private static IReadOnlyList<double> BuildStrikeWindow(IReadOnlyList<double> strikes, double? atmStrike, int windowSize)
+    {
+        if (strikes.Count == 0 || windowSize <= 0 || !atmStrike.HasValue)
+        {
+            return strikes;
+        }
+
+        var atmIndex = strikes
+            .Select((strike, index) => (strike, index))
+            .OrderBy(item => Math.Abs(item.strike - atmStrike.Value))
+            .First()
+            .index;
+
+        var start = Math.Max(0, atmIndex - windowSize);
+        var end = Math.Min(strikes.Count - 1, atmIndex + windowSize);
+
+        var window = new List<double>();
+        for (var i = start; i <= end; i++)
+        {
+            window.Add(strikes[i]);
+        }
+
+        return window;
     }
 }

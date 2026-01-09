@@ -12,6 +12,10 @@ public class OptionChainTicker
         OptionLegType type,
         double markPrice,
         double markIv,
+        double bidPrice,
+        double askPrice,
+        double bidIv,
+        double askIv,
         double? delta,
         double? gamma,
         double? vega,
@@ -24,6 +28,10 @@ public class OptionChainTicker
         Type = type;
         MarkPrice = markPrice;
         MarkIv = markIv;
+        BidPrice = bidPrice;
+        AskPrice = askPrice;
+        BidIv = bidIv;
+        AskIv = askIv;
         Delta = delta;
         Gamma = gamma;
         Vega = vega;
@@ -43,6 +51,14 @@ public class OptionChainTicker
     public double MarkPrice { get; }
 
     public double MarkIv { get; }
+
+    public double BidPrice { get; }
+
+    public double AskPrice { get; }
+
+    public double BidIv { get; }
+
+    public double AskIv { get; }
 
     public double? Delta { get; }
 
