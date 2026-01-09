@@ -163,6 +163,8 @@ public class OptionsChainService
             return new List<OptionChainTicker>();
         }
 
+        ThrowIfRetCodeError(document.RootElement);
+
         if (!document.RootElement.TryGetProperty("result", out var resultElement))
         {
             return new List<OptionChainTicker>();
@@ -209,6 +211,42 @@ public class OptionsChainService
         }
 
         return tickers;
+    }
+
+    private static void ThrowIfRetCodeError(JsonElement rootElement)
+    {
+        if (!rootElement.TryGetProperty("retCode", out var retCodeElement))
+        {
+            return;
+        }
+
+        if (!TryReadInt(retCodeElement, out var retCode) || retCode == 0)
+        {
+            return;
+        }
+
+        var message = rootElement.TryGetProperty("retMsg", out var retMsgElement)
+            ? retMsgElement.GetString()
+            : null;
+        throw new InvalidOperationException($"Bybit API error {retCode}: {message ?? "Unknown error"}");
+    }
+
+    private static bool TryReadInt(JsonElement element, out int value)
+    {
+        value = 0;
+
+        if (element.ValueKind == JsonValueKind.Number && element.TryGetInt32(out value))
+        {
+            return true;
+        }
+
+        if (element.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        var raw = element.GetString();
+        return int.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out value);
     }
 
     private async Task<List<OptionChainTicker>> FetchTickersFromDocumentationAsync(CancellationToken cancellationToken)
