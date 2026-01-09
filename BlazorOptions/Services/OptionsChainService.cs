@@ -44,7 +44,7 @@ public class OptionsChainService
         }
     }
 
-    public async Task RefreshAsync(CancellationToken cancellationToken = default)
+    public async Task RefreshAsync(string? baseAsset = null, CancellationToken cancellationToken = default)
     {
         if (!await _refreshLock.WaitAsync(0, cancellationToken))
         {
@@ -54,7 +54,7 @@ public class OptionsChainService
         try
         {
             IsRefreshing = true;
-            var updated = await FetchTickersAsync(cancellationToken);
+            var updated = await FetchTickersAsync(baseAsset, cancellationToken);
 
             if (updated.Count > 0)
             {
@@ -124,11 +124,12 @@ public class OptionsChainService
         }
     }
 
-    private async Task<List<OptionChainTicker>> FetchTickersAsync(CancellationToken cancellationToken)
+    private async Task<List<OptionChainTicker>> FetchTickersAsync(string? baseAsset, CancellationToken cancellationToken)
     {
         try
         {
-            using var response = await _httpClient.GetAsync(BybitOptionsTickerUrl, cancellationToken);
+            var requestUrl = BuildTickerUrl(baseAsset);
+            using var response = await _httpClient.GetAsync(requestUrl, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
                 return await FetchTickersFromDocumentationAsync(cancellationToken);
@@ -143,6 +144,16 @@ public class OptionsChainService
         {
             return await FetchTickersFromDocumentationAsync(cancellationToken);
         }
+    }
+
+    private static string BuildTickerUrl(string? baseAsset)
+    {
+        if (string.IsNullOrWhiteSpace(baseAsset))
+        {
+            return BybitOptionsTickerUrl;
+        }
+
+        return $"{BybitOptionsTickerUrl}&baseCoin={Uri.EscapeDataString(baseAsset.Trim())}";
     }
 
     private static List<OptionChainTicker> ParseTickersFromDocument(JsonDocument? document)

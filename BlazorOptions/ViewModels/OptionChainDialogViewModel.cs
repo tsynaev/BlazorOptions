@@ -126,7 +126,7 @@ public class OptionChainDialogViewModel : IDisposable
         IsRefreshing = true;
         OnChange?.Invoke();
 
-        await _optionsChainService.RefreshAsync();
+        await _optionsChainService.RefreshAsync(_baseAsset);
         _chainTickers = _optionsChainService.GetSnapshot().ToList();
         UpdateExpirations();
         UpdateStrikes();

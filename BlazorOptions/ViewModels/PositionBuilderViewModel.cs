@@ -536,7 +536,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
         if (IsLive)
         {
-            _ = _optionsChainService.RefreshAsync();
+            _ = _optionsChainService.RefreshAsync(SelectedPosition?.BaseAsset);
         }
     }
 
