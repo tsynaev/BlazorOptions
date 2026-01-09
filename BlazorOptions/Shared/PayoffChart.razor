@@ -13,6 +13,9 @@
     public EventCallback<double> PriceSelected { get; set; }
 
     [Parameter]
+    public EventCallback<LegendSelectionChangedEventArgs> LegendSelectionChanged { get; set; }
+
+    [Parameter]
     public string Height { get; set; } = "360px";
 
     [Parameter]
@@ -54,6 +57,19 @@
         }
 
         return Task.CompletedTask;
+    }
+
+    [JSInvokable]
+    public Task OnLegendSelectionChanged(string collectionId, bool isVisible)
+    {
+        if (!LegendSelectionChanged.HasDelegate)
+        {
+            return Task.CompletedTask;
+        }
+
+        return Guid.TryParse(collectionId, out var parsed)
+            ? LegendSelectionChanged.InvokeAsync(new LegendSelectionChangedEventArgs(parsed, isVisible))
+            : Task.CompletedTask;
     }
 
     public ValueTask ClearRangesAsync(Guid positionId)

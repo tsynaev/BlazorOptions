@@ -24,8 +24,9 @@ builder.Services.AddSingleton<ThemeService>();
 builder.Services.AddTransient<AccountSettingsViewModel>();
 builder.Services.AddTransient<BybitSettingsViewModel>();
 builder.Services.AddScoped<PositionBuilderViewModel>();
-builder.Services.AddScoped<LegsViewModel>();
+builder.Services.AddScoped<LegsCollectionViewModelFactory>();
 builder.Services.AddTransient<OptionChainDialogViewModel>();
+builder.Services.AddTransient<PortfolioSettingsDialogViewModel>();
 builder.Services.AddMudServices();
 
 await builder.Build().RunAsync();

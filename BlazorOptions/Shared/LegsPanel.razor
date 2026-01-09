@@ -4,24 +4,52 @@
 <MudCard>
     <MudCardHeader>
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="flex-grow-1">
-            <MudText Typo="Typo.h6">Legs</MudText>
-            <MudTextField T="string"
-                          @bind-Value="ViewModel.QuickLegInput"
-                          Label="Quick add"
-                          Placeholder="+1 C 3400"
-                          Variant="Variant.Outlined"
-                          Margin="Margin.Dense"
-                          Immediate="true"
-                          OnKeyDown="ViewModel.OnQuickLegKeyDown"
-                          Class="quick-leg-input" />
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="async () => await ViewModel.AddQuickLegAsync()">
-                Add
-            </MudButton>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                <MudCheckBox T="bool"
+                             Value="@ViewModel.IsVisible"
+                             ValueChanged="async visible => await ViewModel.SetVisibilityAsync(visible)" />
+                <MudPaper Class="portfolio-color-swatch" Style="@($"background-color:{ViewModel.Color};")" Elevation="0" />
+                <MudText Typo="Typo.h6">@ViewModel.Name</MudText>
+            </MudStack>
+            <MudSpacer />
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                <MudTextField T="string"
+                              @bind-Value="ViewModel.QuickLegInput"
+                              Label="Quick add"
+                              Placeholder="+1 C 3400"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              Immediate="true"
+                              OnKeyDown="ViewModel.OnQuickLegKeyDown"
+                              Class="quick-leg-input"
+                              Disabled="@(!ViewModel.HasActivePosition)" />
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           Disabled="@(!ViewModel.HasActivePosition)"
+                           OnClick="async () => await ViewModel.AddQuickLegAsync()">
+                    Add
+                </MudButton>
+                <MudTooltip Text="Duplicate portfolio">
+                    <MudIconButton Icon="@Icons.Material.Filled.FileCopy"
+                                   Color="Color.Default"
+                                   Disabled="@(!ViewModel.HasActivePosition)"
+                                   OnClick="async () => await ViewModel.DuplicateCollectionAsync()" />
+                </MudTooltip>
+                <MudTooltip Text="Add leg">
+                    <MudIconButton Icon="@Icons.Material.Filled.AddCircle"
+                                   Color="Color.Primary"
+                                   Disabled="@(!ViewModel.HasActivePosition)"
+                                   OnClick="async () => await ViewModel.AddLegAsync()" />
+                </MudTooltip>
+                <MudTooltip Text="Portfolio settings">
+                    <MudIconButton Icon="@Icons.Material.Filled.MoreVert"
+                                   Color="Color.Default"
+                                   Disabled="@(!ViewModel.HasActivePosition)"
+                                   OnClick="async () => await ViewModel.OpenSettingsAsync()" />
+                </MudTooltip>
+            </MudStack>
         </MudStack>
-        <MudSpacer />
-        <MudTooltip Text="Add leg">
-            <MudIconButton Icon="@Icons.Material.Filled.AddCircle" Color="Color.Primary" OnClick="async () => await ViewModel.AddLegAsync()" />
-        </MudTooltip>
+
     </MudCardHeader>
     <MudCardContent>
         <MudTable Items="@ViewModel.Legs" Dense="true" Hover="true" Class="leg-table">
@@ -82,5 +110,41 @@
 </MudCard>
 
 @code {
-    [Parameter, EditorRequired] public LegsViewModel ViewModel { get; set; } = default!;
+    [Parameter, EditorRequired] public LegsCollectionModel Collection { get; set; } = default!;
+
+    [Inject] private LegsCollectionViewModelFactory ViewModelFactory { get; set; } = default!;
+
+    private LegsCollectionViewModel ViewModel { get; set; } = default!;
+
+    protected override void OnParametersSet()
+    {
+        if (ViewModel is null || ViewModel.Collection.Id != Collection.Id)
+        {
+            ViewModel = ViewModelFactory.Create(Collection);
+        }
+    }
 }
+
+<style>
+    .portfolio-color-swatch {
+        width: 24px;
+        height: 24px;
+        border-radius: 4px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .portfolio-color-picker input {
+        padding: 0;
+        width: 28px;
+        height: 28px;
+    }
+
+    .portfolio-color-picker .mud-input-root {
+        padding: 0;
+    }
+
+    .portfolio-color-picker .mud-input-underline,
+    .portfolio-color-picker .mud-input-outlined-border {
+        border: 0;
+    }
+</style>

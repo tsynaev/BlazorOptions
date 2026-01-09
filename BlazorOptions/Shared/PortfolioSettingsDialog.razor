@@ -1,0 +1,96 @@
+@using BlazorOptions.ViewModels
+@using MudBlazor
+@inject PortfolioSettingsDialogViewModel ViewModel
+@inherits OwningComponentBase
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudTextField T="string"
+                          Label="Name"
+                          Value="@ViewModel.Name"
+                          ValueChanged="ViewModel.SetName"
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense" />
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                <MudPaper Class="portfolio-color-swatch" Style="@($"background-color:{ViewModel.Color};")" Elevation="0" />
+                <MudTextField T="string"
+                              Label="Color"
+                              Value="@ViewModel.Color"
+                              ValueChanged="ViewModel.SetColor"
+                              InputType="InputType.Color"
+                              Variant="Variant.Text"
+                              Margin="Margin.Dense"
+                              Class="portfolio-color-picker" />
+            </MudStack>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudSpacer />
+        <MudButton Variant="Variant.Text"
+                   Color="Color.Error"
+                   Disabled="@(!ViewModel.CanRemove)"
+                   OnClick="RemoveAsync">
+            Remove
+        </MudButton>
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   OnClick="SaveAsync">
+            Save
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public Guid CollectionId { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        ViewModel.Load(CollectionId);
+    }
+
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+
+    private async Task SaveAsync()
+    {
+        await ViewModel.SaveAsync();
+        MudDialog.Close();
+    }
+
+    private async Task RemoveAsync()
+    {
+        if (await ViewModel.RemoveAsync())
+        {
+            MudDialog.Close();
+        }
+    }
+}
+
+<style>
+    .portfolio-color-swatch {
+        width: 24px;
+        height: 24px;
+        border-radius: 4px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .portfolio-color-picker input {
+        padding: 0;
+        width: 28px;
+        height: 28px;
+    }
+
+    .portfolio-color-picker .mud-input-root {
+        padding: 0;
+    }
+
+    .portfolio-color-picker .mud-input-underline,
+    .portfolio-color-picker .mud-input-outlined-border {
+        border: 0;
+    }
+</style>

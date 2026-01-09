@@ -1,7 +1,6 @@
 @page "/positions"
 @implements IAsyncDisposable
 @inject PositionBuilderViewModel ViewModel
-@inject LegsViewModel LegsViewModel
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @using System.Linq
@@ -68,6 +67,7 @@
                 <MudStack Spacing="2" Style="height:100%;">
                     <PayoffChart Config="@ViewModel.ChartConfig"
                                  PriceSelected="HandleChartPriceSelected"
+                                 LegendSelectionChanged="HandleLegendSelectionChanged"
                                  Height="100%"
                                  Style="flex:1; min-height:320px;"
                                  @ref="_chart" />
@@ -113,7 +113,22 @@
         </MudCardContent>
     </MudCard>
 
-    <LegsPanel ViewModel="@LegsViewModel" />
+    <MudStack Spacing="2">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+            <MudText Typo="Typo.h6">Portfolios</MudText>
+            <MudSpacer />
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       Disabled="@(!HasActivePosition)"
+                       OnClick="async () => await ViewModel.AddCollectionAsync()">
+                Add portfolio
+            </MudButton>
+        </MudStack>
+        @foreach (var collection in ViewModel.Collections)
+        {
+            <LegsPanel Collection="@collection" @key="collection.Id" />
+        }
+    </MudStack>
 </MudStack>
 
 <style>
@@ -265,6 +280,11 @@
     {
         ViewModel.SetValuationDateFromOffset(offset);
         return InvokeAsync(StateHasChanged);
+    }
+
+    private Task HandleLegendSelectionChanged(LegendSelectionChangedEventArgs args)
+    {
+        return ViewModel.UpdateCollectionVisibilityAsync(args.CollectionId, args.IsVisible);
     }
 
     private async Task CreatePosition()
