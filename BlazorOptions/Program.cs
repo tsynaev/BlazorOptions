@@ -23,7 +23,8 @@ builder.Services.AddScoped<OptionsChainService>();
 builder.Services.AddSingleton<ThemeService>();
 builder.Services.AddTransient<AccountSettingsViewModel>();
 builder.Services.AddTransient<BybitSettingsViewModel>();
-builder.Services.AddTransient<PositionBuilderViewModel>();
+builder.Services.AddScoped<PositionBuilderViewModel>();
+builder.Services.AddScoped<LegsViewModel>();
 builder.Services.AddTransient<OptionChainDialogViewModel>();
 builder.Services.AddMudServices();
 
