@@ -18,6 +18,12 @@ public class LegsViewModel
 
     public ObservableCollection<OptionLegModel> Legs => _positionBuilder.Legs;
 
+    public ObservableCollection<LegsCollectionModel> Collections => _positionBuilder.Collections;
+
+    public LegsCollectionModel? SelectedCollection => _positionBuilder.SelectedCollection;
+
+    public Guid? SelectedCollectionId => SelectedCollection?.Id;
+
     public IEnumerable<OptionLegType> LegTypes => Enum.GetValues<OptionLegType>();
 
     public string QuickLegInput
@@ -27,6 +33,8 @@ public class LegsViewModel
     }
 
     public bool HasActivePosition => _positionBuilder.SelectedPosition is not null;
+
+    public bool HasActiveCollection => _positionBuilder.SelectedCollection is not null;
 
     public async Task OnQuickLegKeyDown(KeyboardEventArgs args)
     {
@@ -43,7 +51,7 @@ public class LegsViewModel
 
     public async Task AddLegAsync()
     {
-        if (_positionBuilder.SelectedPosition is null)
+        if (_positionBuilder.SelectedPosition is null || _positionBuilder.SelectedCollection is null)
         {
             return;
         }
@@ -51,6 +59,7 @@ public class LegsViewModel
         var parameters = new DialogParameters
         {
             [nameof(OptionChainDialog.Position)] = _positionBuilder.SelectedPosition,
+            [nameof(OptionChainDialog.Collection)] = _positionBuilder.SelectedCollection,
             [nameof(OptionChainDialog.UnderlyingPrice)] = _positionBuilder.SelectedPrice ?? _positionBuilder.LivePrice
         };
 
@@ -71,6 +80,26 @@ public class LegsViewModel
 
         await _positionBuilder.UpdateLegsAsync(legs);
         _positionBuilder.NotifyStateChanged();
+    }
+
+    public Task SelectCollectionAsync(Guid? collectionId)
+    {
+        if (!collectionId.HasValue)
+        {
+            return Task.CompletedTask;
+        }
+
+        return _positionBuilder.SelectCollectionAsync(collectionId.Value);
+    }
+
+    public async Task AddCollectionAsync()
+    {
+        await _positionBuilder.AddCollectionAsync();
+    }
+
+    public async Task DuplicateCollectionAsync()
+    {
+        await _positionBuilder.DuplicateCollectionAsync();
     }
 
     public async Task RemoveLegAsync(OptionLegModel leg)

@@ -43,7 +43,7 @@ public class OptionChainDialogViewModel : IDisposable
 
     public event Action? OnChange;
 
-    public async Task InitializeAsync(PositionModel? position, double? underlyingPrice)
+    public async Task InitializeAsync(PositionModel? position, LegsCollectionModel? collection, double? underlyingPrice)
     {
         _position = position;
         _baseAsset = position?.BaseAsset;
@@ -54,12 +54,14 @@ public class OptionChainDialogViewModel : IDisposable
 
         await LoadStrikeWindowAsync();
 
-        if (position is not null)
+        var sourceLegs = collection?.Legs
+            ?? position?.Collections.FirstOrDefault()?.Legs
+            ?? position?.Legs
+            ?? Enumerable.Empty<OptionLegModel>();
+
+        foreach (var leg in sourceLegs)
         {
-            foreach (var leg in position.Legs)
-            {
-                Legs.Add(CloneLeg(leg));
-            }
+            Legs.Add(CloneLeg(leg));
         }
 
         _chainTickers = _optionsChainService.GetSnapshot().ToList();
