@@ -3,7 +3,7 @@ using BlazorOptions.Services;
 
 namespace BlazorOptions.ViewModels;
 
-public class OptionChainDialogViewModel
+public class OptionChainDialogViewModel : IDisposable
 {
     private readonly OptionsChainService _optionsChainService;
     private PositionModel? _position;
@@ -37,6 +37,8 @@ public class OptionChainDialogViewModel
         _position = position;
         _baseAsset = position?.BaseAsset;
         Legs.Clear();
+
+        _optionsChainService.ChainUpdated += HandleChainUpdated;
 
         if (position is not null)
         {
@@ -147,6 +149,10 @@ public class OptionChainDialogViewModel
         {
             SelectedExpiration = AvailableExpirations.FirstOrDefault();
         }
+        else if (!_selectedExpiration.HasValue && AvailableExpirations.Count > 0)
+        {
+            SelectedExpiration = AvailableExpirations.First();
+        }
     }
 
     private void UpdateStrikes()
@@ -169,6 +175,14 @@ public class OptionChainDialogViewModel
         AvailableStrikes = strikes;
     }
 
+    private void HandleChainUpdated()
+    {
+        _chainTickers = _optionsChainService.GetSnapshot().ToList();
+        UpdateExpirations();
+        UpdateStrikes();
+        OnChange?.Invoke();
+    }
+
     private static OptionLegModel CloneLeg(OptionLegModel leg)
     {
         return new OptionLegModel
@@ -183,5 +197,10 @@ public class OptionChainDialogViewModel
             ImpliedVolatility = leg.ImpliedVolatility,
             ChainSymbol = leg.ChainSymbol
         };
+    }
+
+    public void Dispose()
+    {
+        _optionsChainService.ChainUpdated -= HandleChainUpdated;
     }
 }

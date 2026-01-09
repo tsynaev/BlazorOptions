@@ -120,5 +120,6 @@
     public void Dispose()
     {
         ViewModel.OnChange -= HandleChange;
+        ViewModel.Dispose();
     }
 }
