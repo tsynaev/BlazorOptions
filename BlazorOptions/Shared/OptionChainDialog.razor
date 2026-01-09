@@ -49,80 +49,76 @@
                 </MudItem>
                 <MudItem xs="12" sm="8">
                     <MudPaper Class="pa-2">
-                        <MudTable Items="@ViewModel.Legs" Dense="true" Hover="true" Bordered="true" CustomHeader="true" CustomFooter="true" Class="legs-table">
-                            <HeaderContent>
-                                <MudTHeadRow>
-                                    <MudTh>Contract</MudTh>
-                                    <MudTh>Input</MudTh>
-                                    <MudTh></MudTh>
-                                </MudTHeadRow>
-                            </HeaderContent>
-                            <RowTemplate>
-                                @{
-                                    var ticker = ViewModel.GetTickerForLeg(context);
+                        <table class="legs-table">
+                            <thead>
+                                <tr>
+                                    <th>Contract</th>
+                                    <th>Input</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var leg in ViewModel.Legs)
+                                {
+                                    <tr class="contract-row">
+                                        <td class="contract-cell">
+                                            <MudText Typo="Typo.subtitle2" Class="contract-symbol">@ViewModel.GetContractSymbol(leg)</MudText>
+                                            <MudText Typo="Typo.caption" Class="contract-description">@ViewModel.GetContractDescription(leg)</MudText>
+                                        </td>
+                                        <td class="input-cell"></td>
+                                        <td class="actions-cell"></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="qty-cell">
+                                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                                <MudIconButton Icon="@Icons.Material.Filled.RemoveCircle" Size="Size.Small" Class="qty-button" OnClick="() => ViewModel.AdjustLegSize(leg, -1)" />
+                                                <MudNumericField T="double"
+                                                                 Value="@leg.Size"
+                                                                 ValueChanged="value => ViewModel.SetLegSize(leg, value)"
+                                                                 Margin="Margin.Dense"
+                                                                 Variant="Variant.Outlined"
+                                                                 HideSpinButtons="true"
+                                                                 Class="qty-field" />
+                                                <MudIconButton Icon="@Icons.Material.Filled.AddCircle" Size="Size.Small" Class="qty-button" OnClick="() => ViewModel.AdjustLegSize(leg, 1)" />
+                                            </MudStack>
+                                        </td>
+                                        <td class="input-cell">
+                                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                                <MudNumericField T="double"
+                                                                 Value="@ViewModel.GetLegInputValue(leg)"
+                                                                 ValueChanged="value => ViewModel.SetLegInputValue(leg, value)"
+                                                                 Margin="Margin.Dense"
+                                                                 Variant="Variant.Outlined"
+                                                                 Adornment="Adornment.End"
+                                                                 AdornmentText="@(ViewModel.IsLegIvMode(leg) ? "%" : "USDT")"
+                                                                 HideSpinButtons="true"
+                                                                 Class="input-field" />
+                                                <MudIconButton Icon="@Icons.Material.Filled.Autorenew" Size="Size.Small" OnClick="() => ViewModel.ToggleLegInputMode(leg)" />
+                                            </MudStack>
+                                            <MudText Typo="Typo.caption" Class="greek-line">
+                                                Δ @FormatMetric(ViewModel.GetLegGreekValue(leg, t => t.Delta)) · Γ @FormatMetric(ViewModel.GetLegGreekValue(leg, t => t.Gamma)) · ν @FormatMetric(ViewModel.GetLegGreekValue(leg, t => t.Vega)) · Θ @FormatMetric(ViewModel.GetLegGreekValue(leg, t => t.Theta))
+                                            </MudText>
+                                        </td>
+                                        <td class="actions-cell">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Error" OnClick="() => ViewModel.RemoveLeg(leg)" />
+                                        </td>
+                                    </tr>
                                 }
-                                <MudTd colspan="3" Class="contract-row">
-                                    <table class="contract-inner-table">
-                                        <tr>
-                                            <td class="contract-cell">
-                                                <MudText Typo="Typo.subtitle2" Class="contract-symbol">@ViewModel.GetContractSymbol(context)</MudText>
-                                                <MudText Typo="Typo.caption" Class="contract-description">@ViewModel.GetContractDescription(context)</MudText>
-                                            </td>
-                                            <td></td>
-                                            <td class="actions-cell"></td>
-                                        </tr>
-                                        <tr>
-                                            <td class="qty-cell">
-                                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                                                    <MudIconButton Icon="@Icons.Material.Filled.RemoveCircle" Size="Size.Small" Class="qty-button" OnClick="() => ViewModel.AdjustLegSize(context, -1)" />
-                                                    <MudNumericField T="double"
-                                                                     Value="@context.Size"
-                                                                     ValueChanged="value => ViewModel.SetLegSize(context, value)"
-                                                                     Margin="Margin.Dense"
-                                                                     Variant="Variant.Outlined"
-                                                                     HideSpinButtons="true"
-                                                                     Class="qty-field" />
-                                                    <MudIconButton Icon="@Icons.Material.Filled.AddCircle" Size="Size.Small" Class="qty-button" OnClick="() => ViewModel.AdjustLegSize(context, 1)" />
-                                                </MudStack>
-                                            </td>
-                                            <td class="input-cell">
-                                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                                                    <MudNumericField T="double"
-                                                                     Value="@ViewModel.GetLegInputValue(context)"
-                                                                     ValueChanged="value => ViewModel.SetLegInputValue(context, value)"
-                                                                     Margin="Margin.Dense"
-                                                                     Variant="Variant.Outlined"
-                                                                     Adornment="Adornment.End"
-                                                                     AdornmentText="@(ViewModel.IsLegIvMode(context) ? "%" : "USDT")"
-                                                                     HideSpinButtons="true"
-                                                                     Class="input-field" />
-                                                    <MudIconButton Icon="@Icons.Material.Filled.Autorenew" Size="Size.Small" OnClick="() => ViewModel.ToggleLegInputMode(context)" />
-                                                </MudStack>
-                                                <MudText Typo="Typo.caption" Class="greek-line">
-                                                    Δ @FormatMetric(ViewModel.GetLegGreekValue(context, t => t.Delta)) · Γ @FormatMetric(ViewModel.GetLegGreekValue(context, t => t.Gamma)) · ν @FormatMetric(ViewModel.GetLegGreekValue(context, t => t.Vega)) · Θ @FormatMetric(ViewModel.GetLegGreekValue(context, t => t.Theta))
-                                                </MudText>
-                                            </td>
-                                            <td class="actions-cell">
-                                                <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Error" OnClick="() => ViewModel.RemoveLeg(context)" />
-                                            </td>
-                                        </tr>
-                                    </table>
-                                </MudTd>
-                            </RowTemplate>
-                            <FooterContent>
-                                <MudTFootRow>
-                                    <MudTd DataLabel="Contract">
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <td>
                                         <MudText Typo="Typo.subtitle2">Totals</MudText>
-                                    </MudTd>
-                                    <MudTd DataLabel="Input">
+                                    </td>
+                                    <td>
                                         <MudText Typo="Typo.caption">Premium: @ViewModel.GetTotalPremium().ToString("0.##")</MudText>
                                         <MudText Typo="Typo.caption">IV Avg: @ViewModel.GetAverageImpliedVolatility().ToString("0.##")%</MudText>
                                         <MudText Typo="Typo.caption">Δ @ViewModel.GetTotalGreek(t => t.Delta).ToString("0.###") · Γ @ViewModel.GetTotalGreek(t => t.Gamma).ToString("0.###") · ν @ViewModel.GetTotalGreek(t => t.Vega).ToString("0.###") · Θ @ViewModel.GetTotalGreek(t => t.Theta).ToString("0.###")</MudText>
-                                    </MudTd>
-                                    <MudTd></MudTd>
-                                </MudTFootRow>
-                            </FooterContent>
-                        </MudTable>
+                                    </td>
+                                    <td></td>
+                                </tr>
+                            </tfoot>
+                        </table>
                     </MudPaper>
                 </MudItem>
             </MudGrid>
@@ -234,6 +230,17 @@
         line-height: 1.1;
     }
 
+    .legs-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .legs-table th,
+    .legs-table td {
+        border-bottom: 1px solid var(--mud-palette-table-lines);
+        padding: 8px;
+    }
+
     .legs-table .qty-cell {
         width: 140px;
     }
@@ -255,32 +262,8 @@
         padding: 4px;
     }
 
-    .legs-table .contract-row {
-        padding: 0;
-    }
-
-    .legs-table .contract-inner-table {
-        width: 100%;
-        border-collapse: collapse;
-    }
-
-    .legs-table .contract-inner-table td {
-        border-right: 1px solid var(--mud-palette-table-lines);
-        padding: 8px;
-        vertical-align: middle;
-    }
-
-    .legs-table .contract-inner-table td:last-child {
-        border-right: none;
-        text-align: center;
-    }
-
-    .legs-table .contract-inner-table .actions-cell {
-        width: 48px;
-    }
-
     .legs-table .input-cell {
-        min-width: 240px;
+        min-width: 220px;
     }
 
     .legs-table .greek-line {
