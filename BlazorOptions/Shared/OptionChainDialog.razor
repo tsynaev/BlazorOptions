@@ -52,7 +52,9 @@
                         <MudTable Items="@ViewModel.Legs" Dense="true" Hover="true" Bordered="true" Class="legs-table">
                             <HeaderContent>
                                 <MudTr>
-                                    <MudTh colspan="7">Contract</MudTh>
+                                    <MudTh colspan="2">Contract</MudTh>
+                                    <MudTh colspan="4">Greeks</MudTh>
+                                    <MudTh rowspan="2"></MudTh>
                                 </MudTr>
                                 <MudTr>
                                     <MudTh>Qty</MudTh>
@@ -69,10 +71,12 @@
                                     var ticker = ViewModel.GetTickerForLeg(context);
                                 }
                                 <MudTr>
-                                    <MudTd colspan="7">
+                                    <MudTd colspan="2" Class="contract-cell">
                                         <MudText Typo="Typo.subtitle2" Class="contract-symbol">@ViewModel.GetContractSymbol(context)</MudText>
                                         <MudText Typo="Typo.caption" Class="contract-description">@ViewModel.GetContractDescription(context)</MudText>
                                     </MudTd>
+                                    <MudTd colspan="4"></MudTd>
+                                    <MudTd></MudTd>
                                 </MudTr>
                                 <MudTr>
                                     <MudTd DataLabel="Qty" Class="qty-cell">
@@ -113,7 +117,7 @@
                             </RowTemplate>
                             <FooterContent>
                                 <MudTr>
-                                    <MudTd DataLabel="Qty">
+                                    <MudTd DataLabel="Qty" Class="qty-cell">
                                         <MudText Typo="Typo.subtitle2">Totals</MudText>
                                         <MudText Typo="Typo.caption">@ViewModel.GetTotalQuantity().ToString("0.##")</MudText>
                                     </MudTd>
@@ -242,6 +246,10 @@
 
     .legs-table .qty-cell {
         width: 140px;
+    }
+
+    .legs-table .contract-cell {
+        padding-bottom: 8px;
     }
 
     .legs-table .qty-field {
