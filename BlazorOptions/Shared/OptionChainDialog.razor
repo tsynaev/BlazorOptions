@@ -7,10 +7,10 @@
         <MudStack Spacing="2">
             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
                 <MudText Typo="Typo.subtitle2">Expiration</MudText>
-                <MudSelect T="DateTime?" Dense="true" Value="@ViewModel.SelectedExpiration" ValueChanged="ViewModel.SetSelectedExpiration">
+                <MudSelect T="DateTime?" Dense="true" Value="@ViewModel.SelectedExpiration" ValueChanged="ViewModel.SetSelectedExpiration" ToStringFunc="FormatExpiration">
                     @foreach (var expiration in ViewModel.AvailableExpirations)
                     {
-                        <MudSelectItem T="DateTime?" Value="@expiration">@expiration:yyyy-MM-dd</MudSelectItem>
+                        <MudSelectItem T="DateTime?" Value="@expiration">@expiration.ToString("yyyy-MM-dd")</MudSelectItem>
                     }
                 </MudSelect>
                 <MudSpacer />
@@ -75,10 +75,10 @@
                                 <MudTd DataLabel="Price">
                                     <MudNumericField T="double" Value="@context.Price" ValueChanged="value => context.Price = value" Margin="Margin.Dense" Variant="Variant.Outlined" />
                                 </MudTd>
-                                <MudTd DataLabel="Delta">@ticker?.Delta?.ToString("0.###")</MudTd>
-                                <MudTd DataLabel="Gamma">@ticker?.Gamma?.ToString("0.###")</MudTd>
-                                <MudTd DataLabel="Vega">@ticker?.Vega?.ToString("0.###")</MudTd>
-                                <MudTd DataLabel="Theta">@ticker?.Theta?.ToString("0.###")</MudTd>
+                                <MudTd DataLabel="Delta">@FormatMetric(ticker?.Delta)</MudTd>
+                                <MudTd DataLabel="Gamma">@FormatMetric(ticker?.Gamma)</MudTd>
+                                <MudTd DataLabel="Vega">@FormatMetric(ticker?.Vega)</MudTd>
+                                <MudTd DataLabel="Theta">@FormatMetric(ticker?.Theta)</MudTd>
                                 <MudTd DataLabel="Actions">
                                     <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Error" OnClick="() => ViewModel.RemoveLeg(context)" />
                                 </MudTd>
@@ -115,6 +115,16 @@
     private void Cancel()
     {
         Dialog.Cancel();
+    }
+
+    private string FormatExpiration(DateTime? value)
+    {
+        return value?.ToString("yyyy-MM-dd") ?? string.Empty;
+    }
+
+    private static string FormatMetric(double? value)
+    {
+        return value?.ToString("0.###") ?? "0";
     }
 
     public void Dispose()
