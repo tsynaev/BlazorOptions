@@ -51,12 +51,12 @@
                     <MudPaper Class="pa-2">
                         <MudTable Items="@ViewModel.Legs" Dense="true" Hover="true" Bordered="true" Class="legs-table">
                             <HeaderContent>
-                                <MudTr>
+                                <MudTHeadRow>
                                     <MudTh colspan="2">Contract</MudTh>
                                     <MudTh colspan="4">Greeks</MudTh>
                                     <MudTh rowspan="2"></MudTh>
-                                </MudTr>
-                                <MudTr>
+                                </MudTHeadRow>
+                                <MudTHeadRow>
                                     <MudTh>Qty</MudTh>
                                     <MudTh>Input</MudTh>
                                     <MudTh>Delta</MudTh>
@@ -64,7 +64,7 @@
                                     <MudTh>Vega</MudTh>
                                     <MudTh>Theta</MudTh>
                                     <MudTh></MudTh>
-                                </MudTr>
+                                </MudTHeadRow>
                             </HeaderContent>
                             <RowTemplate>
                                 @{
@@ -116,10 +116,9 @@
                                 </MudTr>
                             </RowTemplate>
                             <FooterContent>
-                                <MudTr>
+                                <MudTFootRow>
                                     <MudTd DataLabel="Qty" Class="qty-cell">
                                         <MudText Typo="Typo.subtitle2">Totals</MudText>
-                                        <MudText Typo="Typo.caption">@ViewModel.GetTotalQuantity().ToString("0.##")</MudText>
                                     </MudTd>
                                     <MudTd DataLabel="Input">
                                         <MudText Typo="Typo.caption">Premium: @ViewModel.GetTotalPremium().ToString("0.##")</MudText>
@@ -130,7 +129,7 @@
                                     <MudTd DataLabel="Vega">@ViewModel.GetTotalGreek(t => t.Vega).ToString("0.###")</MudTd>
                                     <MudTd DataLabel="Theta">@ViewModel.GetTotalGreek(t => t.Theta).ToString("0.###")</MudTd>
                                     <MudTd></MudTd>
-                                </MudTr>
+                                </MudTFootRow>
                             </FooterContent>
                         </MudTable>
                     </MudPaper>
