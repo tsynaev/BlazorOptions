@@ -92,7 +92,7 @@
                                             <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Error" OnClick="() => ViewModel.RemoveLeg(leg)" />
                                         </td>
                                     </tr>
-                                    <tr>
+                                    <tr class="leg-separator">
                                         <td class="greek-cell" colspan="2">
                                             <MudText Typo="Typo.caption" Class="greek-line">
                                                 Δ @FormatMetric(ViewModel.GetLegGreekValue(leg, t => t.Delta)) · Γ @FormatMetric(ViewModel.GetLegGreekValue(leg, t => t.Gamma)) · ν @FormatMetric(ViewModel.GetLegGreekValue(leg, t => t.Vega)) · Θ @FormatMetric(ViewModel.GetLegGreekValue(leg, t => t.Theta))
@@ -232,8 +232,11 @@
 
     .legs-table th,
     .legs-table td {
-        border-bottom: 1px solid var(--mud-palette-table-lines);
         padding: 8px;
+    }
+
+    .legs-table .leg-separator td {
+        border-bottom: 1px solid var(--mud-palette-table-lines);
     }
 
     .legs-table .qty-cell {
@@ -249,16 +252,13 @@
         width: 60px;
     }
 
-    .legs-table .input-field {
-        min-width: 90px;
-    }
 
     .legs-table .qty-button {
         padding: 4px;
     }
 
     .legs-table .input-cell {
-        min-width: 220px;
+        min-width: 180px;
     }
 
     .legs-table .greek-line {
@@ -277,6 +277,7 @@
     }
 
     .legs-table .input-field {
-        min-width: 72px;
+        min-width: 56px;
+        width: 56px;
     }
 </style>
