@@ -7,10 +7,18 @@ public record EChartOptions(
     Guid PositionId,
     double[] Prices,
     string[] Labels,
-    IReadOnlyList<double> Profits,
-    IReadOnlyList<double> TheoreticalProfits,
     double? TemporaryPrice,
-    double? TemporaryPnl,
-    double? TemporaryExpiryPnl,
+    IReadOnlyList<ChartCollectionSeries> Collections,
+    Guid? ActiveCollectionId,
     double YMin,
     double YMax);
+
+public record ChartCollectionSeries(
+    Guid CollectionId,
+    string Name,
+    string Color,
+    bool IsVisible,
+    IReadOnlyList<double> ExpiryProfits,
+    IReadOnlyList<double> TheoreticalProfits,
+    double? TemporaryPnl,
+    double? TemporaryExpiryPnl);

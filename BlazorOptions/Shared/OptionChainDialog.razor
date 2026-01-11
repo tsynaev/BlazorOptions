@@ -198,13 +198,14 @@
 @code {
     [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
     [Parameter] public PositionModel? Position { get; set; }
+    [Parameter] public LegsCollectionModel? Collection { get; set; }
     [Parameter] public double? UnderlyingPrice { get; set; }
     private int SelectedExpirationIndex { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
         ViewModel.OnChange += HandleChange;
-        await ViewModel.InitializeAsync(Position, UnderlyingPrice);
+        await ViewModel.InitializeAsync(Position, Collection, UnderlyingPrice);
         UpdateSelectedExpirationIndex();
     }
 

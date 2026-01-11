@@ -66,6 +66,26 @@
         <MudCardContent Class="chart-container">
             <MudPaper Class="pa-4 chart-surface" Elevation="0">
                 <MudStack Spacing="2" Style="height:100%;">
+                    @if (ViewModel.Collections.Count > 0)
+                    {
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="portfolio-legend">
+                            <MudText Typo="Typo.subtitle2">Portfolios</MudText>
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="portfolio-legend-buttons">
+                                @foreach (var collection in ViewModel.Collections)
+                                {
+                                    <MudButton Variant="@(collection.IsVisible ? Variant.Filled : Variant.Outlined)"
+                                               Color="Color.Default"
+                                               OnClick="async () => await ToggleCollectionVisibilityAsync(collection, !collection.IsVisible)"
+                                               Style="@($"border-color:{collection.Color}; color:{collection.Color};")">
+                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                            <MudIcon Icon="@Icons.Material.Filled.Circle" Style="@($"color:{collection.Color}; font-size:0.7rem;")" />
+                                            <MudText Typo="Typo.caption">@collection.Name</MudText>
+                                        </MudStack>
+                                    </MudButton>
+                                }
+                            </MudStack>
+                        </MudStack>
+                    }
                     <PayoffChart Config="@ViewModel.ChartConfig"
                                  PriceSelected="HandleChartPriceSelected"
                                  Height="100%"
@@ -265,6 +285,11 @@
     {
         ViewModel.SetValuationDateFromOffset(offset);
         return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ToggleCollectionVisibilityAsync(LegsCollectionModel collection, bool isVisible)
+    {
+        await ViewModel.UpdateCollectionVisibilityAsync(collection.Id, isVisible);
     }
 
     private async Task CreatePosition()

@@ -36,15 +36,14 @@ window.payoffChart = {
         element.__payoffInstance = chart;
 
         const labels = options.labels || [];
-        const profits = options.profits || [];
-        const theoreticalProfits = options.theoreticalProfits || [];
+        const collections = options.collections || [];
+        const activeCollectionId = options.activeCollectionId;
         const prices = (options.prices && options.prices.length ? options.prices : labels) || [];
         const yMin = options.yMin ?? 'dataMin';
         const yMax = options.yMax ?? 'dataMax';
         const positionKey = options.positionId || 'default';
         const tempPrice = options.temporaryPrice;
-        const tempPnl = options.temporaryPnl;
-        const tempExpiryPnl = options.temporaryExpiryPnl;
+        const visibleCollections = collections.filter(collection => collection.isVisible !== false);
 
         const priceRangeKey = `payoffChart:${positionKey}:priceRange`;
         const pnlRangeKey = `payoffChart:${positionKey}:pnlRange`;
@@ -130,18 +129,23 @@ window.payoffChart = {
             return Number(numeric.toFixed(decimals));
         };
 
-        const pricePoints = numericPrices.map((price, index) => {
-            const value = profits[index];
+        const activeCollection = visibleCollections.find(collection => collection.collectionId === activeCollectionId)
+            || visibleCollections[0]
+            || collections.find(collection => collection.collectionId === activeCollectionId)
+            || collections[0];
+
+        const buildPoints = (values) => numericPrices.map((price, index) => {
+            const value = values && values.length > index ? values[index] : null;
             return [price, Number.isFinite(value) ? value : null];
         });
-        const positivePoints = pricePoints.map(([price, value]) => [price, value > 0 ? value : null]);
-        const negativePoints = pricePoints.map(([price, value]) => [price, value < 0 ? value : null]);
-        const theoreticalPoints = numericPrices.map((price, index) => [price, theoreticalProfits[index]]);
-        const tempPoint = Number.isFinite(tempPrice) && Number.isFinite(tempPnl)
-            ? [{ value: [Number(tempPrice), Number(tempPnl)], symbolSize: 9 }]
+
+        const activeExpiryPoints = activeCollection ? buildPoints(activeCollection.expiryProfits) : [];
+        const activeTheoreticalPoints = activeCollection ? buildPoints(activeCollection.theoreticalProfits) : [];
+        const activeTempPoint = activeCollection && Number.isFinite(tempPrice) && Number.isFinite(activeCollection.temporaryPnl)
+            ? [{ value: [Number(tempPrice), Number(activeCollection.temporaryPnl)], symbolSize: 9 }]
             : [];
-        const tempExpiryPoint = Number.isFinite(tempPrice) && Number.isFinite(tempExpiryPnl)
-            ? [{ value: [Number(tempPrice), Number(tempExpiryPnl)], symbolSize: 9 }]
+        const activeTempExpiryPoint = activeCollection && Number.isFinite(tempPrice) && Number.isFinite(activeCollection.temporaryExpiryPnl)
+            ? [{ value: [Number(tempPrice), Number(activeCollection.temporaryExpiryPnl)], symbolSize: 9 }]
             : [];
 
         const indexMarkLine = Number.isFinite(tempPrice)
@@ -189,8 +193,145 @@ window.payoffChart = {
             return values;
         };
 
-        const breakEvens = findBreakEvens(pricePoints);
-        const tempBreakEvens = findBreakEvens(theoreticalPoints);
+        const breakEvens = findBreakEvens(activeExpiryPoints);
+        const tempBreakEvens = findBreakEvens(activeTheoreticalPoints);
+
+        const series = [];
+        visibleCollections.forEach((collection) => {
+            const expiryPoints = buildPoints(collection.expiryProfits);
+            const theoreticalPoints = buildPoints(collection.theoreticalProfits);
+            const isActive = activeCollection && collection.collectionId === activeCollection.collectionId;
+
+            series.push({
+                name: `${collection.name} Expiry`,
+                type: 'line',
+                smooth: true,
+                data: expiryPoints,
+                symbol: 'none',
+                lineStyle: {
+                    width: 3,
+                    color: collection.color,
+                    type: 'solid'
+                },
+                z: 2,
+                markLine: isActive ? indexMarkLine || undefined : undefined
+            });
+
+            series.push({
+                name: `${collection.name} Temp`,
+                type: 'line',
+                smooth: true,
+                data: theoreticalPoints,
+                symbol: 'none',
+                lineStyle: {
+                    color: collection.color,
+                    width: 2,
+                    type: 'dashed'
+                },
+                z: 1,
+                zlevel: 0
+            });
+
+            if (isActive && activeTempPoint.length > 0) {
+                series.push({
+                    name: 'Temp P/L',
+                    type: 'scatter',
+                    data: activeTempPoint,
+                    symbolSize: 9,
+                    itemStyle: { color: collection.color },
+                    label: {
+                        show: true,
+                        formatter: function (params) {
+                            if (!params || !params.value || params.value.length < 2) return '';
+                            return `${Number(params.value[1]).toFixed(2)}`;
+                        },
+                        position: 'right',
+                        offset: [8, -6],
+                        fontSize: 10,
+                        color: collection.color,
+                        textBorderColor: '#FFFFFF',
+                        textBorderWidth: 3
+                    }
+                });
+            }
+
+            if (isActive && activeTempExpiryPoint.length > 0) {
+                series.push({
+                    name: 'Expiry P/L',
+                    type: 'scatter',
+                    data: activeTempExpiryPoint,
+                    symbolSize: 9,
+                    itemStyle: { color: collection.color },
+                    label: {
+                        show: true,
+                        formatter: function (params) {
+                            if (!params || !params.value || params.value.length < 2) return '';
+                            return `${Number(params.value[1]).toFixed(2)}`;
+                        },
+                        position: 'right',
+                        offset: [8, -6],
+                        fontSize: 10,
+                        color: collection.color,
+                        textBorderColor: '#FFFFFF',
+                        textBorderWidth: 3
+                    }
+                });
+            }
+
+            if (isActive && breakEvens.length > 0) {
+                series.push({
+                    name: 'Break-even',
+                    type: 'scatter',
+                    z: 10,
+                    zlevel: 2,
+                    data: breakEvens.map(price => ({
+                        value: [price, 0],
+                        symbolSize: 12,
+                        itemStyle: { color: '#FFC107', borderColor: '#FFF8E1', borderWidth: 2 },
+                        label: {
+                            show: true,
+                            formatter: function (params) { return formatPrice(params.value[0]); },
+                            position: 'top',
+                            offset: [0, -14],
+                            fontSize: 10,
+                            color: '#FFFDE7',
+                            textBorderColor: '#000000',
+                            textBorderWidth: 3,
+                            backgroundColor: 'rgba(0, 0, 0, 0.65)',
+                            padding: [4, 6, 2, 6]
+                        }
+                    })),
+                    tooltip: { show: false }
+                });
+            }
+
+            if (isActive && tempBreakEvens.length > 0) {
+                series.push({
+                    name: 'Temp Break-even',
+                    type: 'scatter',
+                    z: 10,
+                    zlevel: 2,
+                    data: tempBreakEvens.map(price => ({
+                        value: [price, 0],
+                        symbolSize: 11,
+                        itemStyle: { color: '#29B6F6', borderColor: '#E1F5FE', borderWidth: 2 },
+                        label: {
+                            show: true,
+                            formatter: function (params) { return formatPrice(params.value[0]); },
+                            position: 'top',
+                            offset: [0, -14],
+                            fontSize: 10,
+                            color: '#E1F5FE',
+                            textBorderColor: '#0D47A1',
+                            textBorderWidth: 3,
+                            backgroundColor: 'rgba(13, 71, 161, 0.65)',
+                            padding: [4, 6, 2, 6]
+                        }
+                    })),
+                    tooltip: { show: false }
+                });
+            }
+        });
 
         chart.setOption({
             grid: { left: 60, right: 20, top: 30, bottom: 50 },
@@ -299,151 +440,7 @@ window.payoffChart = {
                 priceZoomInside,
                 pnlZoomInside
             ],
-            series: [
-                {
-                    name: 'P/L (Line)',
-                    type: 'line',
-                    smooth: true,
-                    data: pricePoints,
-                    symbol: 'none',
-                    lineStyle: {
-                        width: 3,
-                        color: '#B0BEC5'
-                    },
-                    z: 2,
-                    markLine: indexMarkLine || undefined
-                },
-                {
-                    name: 'P/L (Profit)',
-                    type: 'line',
-                    smooth: true,
-                    data: positivePoints,
-                    symbol: 'none',
-                    lineStyle: {
-                        color: '#4CAF50',
-                        width: 0
-                    },
-                    areaStyle: {
-                        color: 'rgba(76, 175, 80, 0.12)'
-                    }
-                },
-                {
-                    name: 'P/L (Loss)',
-                    type: 'line',
-                    smooth: true,
-                    data: negativePoints,
-                    symbol: 'none',
-                    lineStyle: {
-                        color: '#F44336',
-                        width: 0
-                    },
-                    areaStyle: {
-                        color: 'rgba(244, 67, 54, 0.15)'
-                    }
-                },
-                {
-                    name: 'Temp P/L (Black-Scholes)',
-                    type: 'line',
-                    smooth: true,
-                    data: theoreticalPoints,
-                    symbol: 'none',
-                    lineStyle: {
-                        color: '#2196F3',
-                        width: 2,
-                        type: 'dashed'
-                    },
-                    z: 1,
-                    zlevel: 0
-                },
-                {
-                    name: 'Temp P/L',
-                    type: 'scatter',
-                    data: tempPoint,
-                    symbolSize: 9,
-                    itemStyle: { color: '#1976D2' },
-                    label: {
-                        show: tempPoint.length > 0,
-                        formatter: function (params) {
-                            if (!params || !params.value || params.value.length < 2) return '';
-                            return `${Number(params.value[1]).toFixed(2)}`;
-                        },
-                        position: 'right',
-                        offset: [8, -6],
-                        fontSize: 10,
-                        color: '#0D47A1',
-                        textBorderColor: '#E3F2FD',
-                        textBorderWidth: 3
-                    }
-                },
-                {
-                    name: 'Expiry P/L',
-                    type: 'scatter',
-                    data: tempExpiryPoint,
-                    symbolSize: 9,
-                    itemStyle: { color: '#8E24AA' },
-                    label: {
-                        show: tempExpiryPoint.length > 0,
-                        formatter: function (params) {
-                            if (!params || !params.value || params.value.length < 2) return '';
-                            return `${Number(params.value[1]).toFixed(2)}`;
-                        },
-                        position: 'right',
-                        offset: [8, -6],
-                        fontSize: 10,
-                        color: '#4A148C',
-                        textBorderColor: '#F3E5F5',
-                        textBorderWidth: 3
-                    }
-                },
-                {
-                    name: 'Break-even',
-                    type: 'scatter',
-                    z: 10,
-                    zlevel: 2,
-                    data: breakEvens.map(price => ({
-                        value: [price, 0],
-                        symbolSize: 12,
-                        itemStyle: { color: '#FFC107', borderColor: '#FFF8E1', borderWidth: 2 },
-                        label: {
-                            show: true,
-                            formatter: function (params) { return formatPrice(params.value[0]); },
-                            position: 'top',
-                            offset: [0, -14],
-                            fontSize: 10,
-                            color: '#FFFDE7',
-                            textBorderColor: '#000000',
-                            textBorderWidth: 3,
-                            backgroundColor: 'rgba(0, 0, 0, 0.65)',
-                            padding: [4, 6, 2, 6]
-                        }
-                    })),
-                    tooltip: { show: false }
-                },
-                {
-                    name: 'Temp Break-even',
-                    type: 'scatter',
-                    z: 10,
-                    zlevel: 2,
-                    data: tempBreakEvens.map(price => ({
-                        value: [price, 0],
-                        symbolSize: 11,
-                        itemStyle: { color: '#29B6F6', borderColor: '#E1F5FE', borderWidth: 2 },
-                        label: {
-                            show: true,
-                            formatter: function (params) { return formatPrice(params.value[0]); },
-                            position: 'top',
-                            offset: [0, -14],
-                            fontSize: 10,
-                            color: '#E1F5FE',
-                            textBorderColor: '#0D47A1',
-                            textBorderWidth: 3,
-                            backgroundColor: 'rgba(13, 71, 161, 0.65)',
-                            padding: [4, 6, 2, 6]
-                        }
-                    })),
-                    tooltip: { show: false }
-                }
-            ]
+            series: series
         }, true);
 
         const persistRange = (key, range) => {

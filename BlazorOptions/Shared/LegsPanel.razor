@@ -5,6 +5,37 @@
     <MudCardHeader>
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="flex-grow-1">
             <MudText Typo="Typo.h6">Legs</MudText>
+            <MudSelect T="Guid?"
+                       Value="@ViewModel.SelectedCollectionId"
+                       ValueChanged="ViewModel.SelectCollectionAsync"
+                       Label="Portfolio"
+                       Variant="Variant.Outlined"
+                       Margin="Margin.Dense"
+                       Dense="true"
+                       Disabled="@(!ViewModel.HasActivePosition)"
+                       Class="portfolio-select">
+                @foreach (var collection in ViewModel.Collections)
+                {
+                    <MudSelectItem Value="@collection.Id">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                            <MudIcon Icon="@Icons.Material.Filled.Circle" Style="@($"color:{collection.Color}; font-size:0.7rem;")" />
+                            <MudText Typo="Typo.body2">@collection.Name</MudText>
+                        </MudStack>
+                    </MudSelectItem>
+                }
+            </MudSelect>
+            <MudTooltip Text="Add portfolio">
+                <MudIconButton Icon="@Icons.Material.Filled.AddCircle"
+                               Color="Color.Primary"
+                               Disabled="@(!ViewModel.HasActivePosition)"
+                               OnClick="async () => await ViewModel.AddCollectionAsync()" />
+            </MudTooltip>
+            <MudTooltip Text="Duplicate portfolio">
+                <MudIconButton Icon="@Icons.Material.Filled.FileCopy"
+                               Color="Color.Default"
+                               Disabled="@(!ViewModel.HasActiveCollection)"
+                               OnClick="async () => await ViewModel.DuplicateCollectionAsync()" />
+            </MudTooltip>
             <MudTextField T="string"
                           @bind-Value="ViewModel.QuickLegInput"
                           Label="Quick add"
@@ -13,14 +44,21 @@
                           Margin="Margin.Dense"
                           Immediate="true"
                           OnKeyDown="ViewModel.OnQuickLegKeyDown"
-                          Class="quick-leg-input" />
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="async () => await ViewModel.AddQuickLegAsync()">
+                          Class="quick-leg-input"
+                          Disabled="@(!ViewModel.HasActiveCollection)" />
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       Disabled="@(!ViewModel.HasActiveCollection)"
+                       OnClick="async () => await ViewModel.AddQuickLegAsync()">
                 Add
             </MudButton>
         </MudStack>
         <MudSpacer />
         <MudTooltip Text="Add leg">
-            <MudIconButton Icon="@Icons.Material.Filled.AddCircle" Color="Color.Primary" OnClick="async () => await ViewModel.AddLegAsync()" />
+            <MudIconButton Icon="@Icons.Material.Filled.AddCircle"
+                           Color="Color.Primary"
+                           Disabled="@(!ViewModel.HasActiveCollection)"
+                           OnClick="async () => await ViewModel.AddLegAsync()" />
         </MudTooltip>
     </MudCardHeader>
     <MudCardContent>
