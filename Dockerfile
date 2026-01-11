@@ -1,8 +1,14 @@
 # build
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
-COPY . .
+
+
+COPY *.sln ./
+COPY BlazorOptions.Server/BlazorOptions.Server.csproj BlazorOptions.Server/
+COPY BlazorOptions/BlazorOptions.csproj BlazorOptions/
 RUN dotnet restore
+
+COPY . .
 RUN dotnet publish ./BlazorOptions.Server -c Release -o /app/publish
 
 # runtime
