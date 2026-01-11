@@ -35,9 +35,10 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-  deploy:
+  deploy-test:
      runs-on: ubuntu-latest
      needs: build
+     environment: test
      steps:
       - name: Deploy via SSH (docker compose)
         uses: appleboy/ssh-action@v1.0.3
