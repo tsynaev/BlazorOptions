@@ -17,5 +17,5 @@ public class PositionModel
 
     public ObservableCollection<LegsCollectionModel> Collections { get; set; } = new();
 
-    public ObservableCollection<OptionLegModel> Legs { get; set; } = new();
+    public ObservableCollection<LegModel> Legs { get; set; } = new();
 }

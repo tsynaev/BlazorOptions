@@ -9,7 +9,7 @@ public class OptionChainTicker
         string baseAsset,
         DateTime expirationDate,
         double strike,
-        OptionLegType type,
+        LegType type,
         double markPrice,
         double markIv,
         double bidPrice,
@@ -46,7 +46,7 @@ public class OptionChainTicker
 
     public double Strike { get; }
 
-    public OptionLegType Type { get; }
+    public LegType Type { get; }
 
     public double MarkPrice { get; }
 

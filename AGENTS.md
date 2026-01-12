@@ -12,3 +12,7 @@
 ## Testing
 - don't run tests
 - don't create screenshots
+
+## Formating
+
+- use windows line ending (CR LF) in cs files

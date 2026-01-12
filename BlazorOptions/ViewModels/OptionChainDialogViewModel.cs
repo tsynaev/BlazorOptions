@@ -14,7 +14,7 @@ public class OptionChainDialogViewModel : IDisposable
     private DateTime? _selectedExpiration;
     private double? _atmStrike;
     private double? _underlyingPrice;
-    private readonly HashSet<Guid> _ivModeLegIds = new();
+    private readonly HashSet<string> _ivModeLegIds = new();
     private int _strikeWindowSize = 10;
 
     public OptionChainDialogViewModel(OptionsChainService optionsChainService, LocalStorageService localStorageService)
@@ -23,13 +23,13 @@ public class OptionChainDialogViewModel : IDisposable
         _localStorageService = localStorageService;
     }
 
-    public ObservableCollection<OptionLegModel> Legs { get; } = new();
+    public ObservableCollection<LegModel> Legs { get; } = new();
 
-    public IReadOnlyList<DateTime> AvailableExpirations { get; private set; } = Array.Empty<DateTime>();
+    public IReadOnlyList<DateTime> AvailableExpirations { get; private set; } = [];
 
-    public IReadOnlyList<double> AvailableStrikes { get; private set; } = Array.Empty<double>();
+    public IReadOnlyList<double> AvailableStrikes { get; private set; } = [];
 
-    public IReadOnlyList<double> DisplayStrikes { get; private set; } = Array.Empty<double>();
+    public IReadOnlyList<double> DisplayStrikes { get; private set; } = [];
 
     public int StrikeWindowSize => _strikeWindowSize;
 
@@ -57,7 +57,7 @@ public class OptionChainDialogViewModel : IDisposable
         var sourceLegs = collection?.Legs
             ?? position?.Collections.FirstOrDefault()?.Legs
             ?? position?.Legs
-            ?? Enumerable.Empty<OptionLegModel>();
+            ?? Enumerable.Empty<LegModel>();
 
         foreach (var leg in sourceLegs)
         {
@@ -69,7 +69,24 @@ public class OptionChainDialogViewModel : IDisposable
 
         if (Legs.Count > 0)
         {
-            SelectedExpiration = Legs.Max(leg => leg.ExpirationDate.Date);
+            var legExpirations = Legs
+                .Select(leg => leg.ExpirationDate?.Date)
+                .Where(date => date.HasValue)
+                .Select(date => date!.Value)
+                .ToList();
+
+            if (legExpirations.Count > 0)
+            {
+                SelectedExpiration = legExpirations.Max();
+            }
+            else if (AvailableExpirations.Count > 0)
+            {
+                SelectedExpiration ??= AvailableExpirations.First();
+            }
+            else
+            {
+                SelectedExpiration = null;
+            }
         }
         else if (AvailableExpirations.Count > 0)
         {
@@ -108,14 +125,14 @@ public class OptionChainDialogViewModel : IDisposable
         OnChange?.Invoke();
     }
 
-    public OptionChainTicker? GetTickerForLeg(OptionLegModel leg)
+    public OptionChainTicker? GetTickerForLeg(LegModel leg)
     {
         return _optionsChainService.FindTickerForLeg(leg, _baseAsset);
     }
 
-    public bool IsLegIvMode(OptionLegModel leg) => _ivModeLegIds.Contains(leg.Id);
+    public bool IsLegIvMode(LegModel leg) => _ivModeLegIds.Contains(leg.Id);
 
-    public void ToggleLegInputMode(OptionLegModel leg)
+    public void ToggleLegInputMode(LegModel leg)
     {
         if (!_ivModeLegIds.Add(leg.Id))
         {
@@ -125,12 +142,12 @@ public class OptionChainDialogViewModel : IDisposable
         OnChange?.Invoke();
     }
 
-    public double GetLegInputValue(OptionLegModel leg)
+    public double GetLegInputValue(LegModel leg)
     {
-        return IsLegIvMode(leg) ? leg.ImpliedVolatility : leg.Price;
+        return IsLegIvMode(leg) ? (leg.ImpliedVolatility ?? 0) : leg.Price;
     }
 
-    public void SetLegInputValue(OptionLegModel leg, double value)
+    public void SetLegInputValue(LegModel leg, double value)
     {
         if (IsLegIvMode(leg))
         {
@@ -144,37 +161,43 @@ public class OptionChainDialogViewModel : IDisposable
         OnChange?.Invoke();
     }
 
-    public void SetLegSize(OptionLegModel leg, double size)
+    public void SetLegSize(LegModel leg, double size)
     {
         leg.Size = size;
         OnChange?.Invoke();
     }
 
-    public void AdjustLegSize(OptionLegModel leg, double delta)
+    public void AdjustLegSize(LegModel leg, double delta)
     {
         leg.Size += delta;
         OnChange?.Invoke();
     }
 
-    public string GetContractSymbol(OptionLegModel leg)
+    public string GetContractSymbol(LegModel leg)
     {
         return leg.ChainSymbol ?? GetTickerForLeg(leg)?.Symbol ?? string.Empty;
     }
 
-    public string GetContractDescription(OptionLegModel leg)
+    public string GetContractDescription(LegModel leg)
     {
         var typeLabel = leg.Type switch
         {
-            OptionLegType.Call => "CALL",
-            OptionLegType.Put => "PUT",
+            LegType.Call => "CALL",
+            LegType.Put => "PUT",
             _ => "FUT"
         };
 
-        var dte = (leg.ExpirationDate.Date - DateTime.UtcNow.Date).TotalDays;
-        return $"({typeLabel} {leg.Strike:0}, Exp: {leg.ExpirationDate:dd.MM}, DTE: {dte:0.0})";
+        var strikeLabel = leg.Strike.HasValue ? leg.Strike.Value.ToString("0") : "-";
+        var expirationText = leg.ExpirationDate.HasValue ? leg.ExpirationDate.Value.ToString("dd.MM") : "-";
+        var dte = leg.ExpirationDate.HasValue
+            ? (leg.ExpirationDate.Value.Date - DateTime.UtcNow.Date).TotalDays
+            : (double?)null;
+
+        var dteLabel = dte.HasValue ? dte.Value.ToString("0.0") : "-";
+        return $"({typeLabel} {strikeLabel}, Exp: {expirationText}, DTE: {dteLabel})";
     }
 
-    public void AddLeg(double strike, OptionLegType type)
+    public void AddLeg(double strike, LegType type)
     {
         if (!_selectedExpiration.HasValue)
         {
@@ -187,7 +210,7 @@ public class OptionChainDialogViewModel : IDisposable
             && item.Type == type
             && Math.Abs(item.Strike - strike) < 0.01);
 
-        var leg = new OptionLegModel
+        var leg = new LegModel
         {
             Type = type,
             Strike = strike,
@@ -202,7 +225,7 @@ public class OptionChainDialogViewModel : IDisposable
         OnChange?.Invoke();
     }
 
-    public void AddLegFromQuote(double strike, OptionLegType type, double price, double iv)
+    public void AddLegFromQuote(double strike, LegType type, double price, double iv)
     {
         if (!_selectedExpiration.HasValue)
         {
@@ -215,7 +238,7 @@ public class OptionChainDialogViewModel : IDisposable
             && item.Type == type
             && Math.Abs(item.Strike - strike) < 0.01);
 
-        var leg = new OptionLegModel
+        var leg = new LegModel
         {
             Type = type,
             Strike = strike,
@@ -230,7 +253,7 @@ public class OptionChainDialogViewModel : IDisposable
         OnChange?.Invoke();
     }
 
-    public void RemoveLeg(OptionLegModel leg)
+    public void RemoveLeg(LegModel leg)
     {
         if (Legs.Contains(leg))
         {
@@ -346,17 +369,17 @@ public class OptionChainDialogViewModel : IDisposable
             return null;
         }
 
-        var callIv = candidates.FirstOrDefault(ticker => ticker.Type == OptionLegType.Call)?.MarkIv;
+        var callIv = candidates.FirstOrDefault(ticker => ticker.Type == LegType.Call)?.MarkIv;
         if (callIv > 0)
         {
             return callIv;
         }
 
-        var putIv = candidates.FirstOrDefault(ticker => ticker.Type == OptionLegType.Put)?.MarkIv;
+        var putIv = candidates.FirstOrDefault(ticker => ticker.Type == LegType.Put)?.MarkIv;
         return putIv > 0 ? putIv : null;
     }
 
-    public OptionChainTicker? GetStrikeTicker(double strike, OptionLegType type)
+    public OptionChainTicker? GetStrikeTicker(double strike, LegType type)
     {
         if (!_selectedExpiration.HasValue)
         {
@@ -369,27 +392,11 @@ public class OptionChainDialogViewModel : IDisposable
                 && Math.Abs(ticker.Strike - strike) < 0.01);
     }
 
-    public double GetTotalQuantity()
-    {
-        return Legs.Sum(leg => leg.Size);
-    }
-
     public double GetTotalPremium()
     {
         return Legs.Sum(leg => leg.Price * leg.Size);
     }
 
-    public double GetAverageImpliedVolatility()
-    {
-        var weighted = Legs.Sum(leg => leg.ImpliedVolatility * leg.Size);
-        var totalSize = Legs.Sum(leg => leg.Size);
-        if (totalSize <= 0)
-        {
-            return 0;
-        }
-
-        return weighted / totalSize;
-    }
 
     public double GetTotalGreek(Func<OptionChainTicker, double?> selector)
     {
@@ -401,7 +408,7 @@ public class OptionChainDialogViewModel : IDisposable
         });
     }
 
-    public double GetLegGreekValue(OptionLegModel leg, Func<OptionChainTicker, double?> selector)
+    public double GetLegGreekValue(LegModel leg, Func<OptionChainTicker, double?> selector)
     {
         var ticker = GetTickerForLeg(leg);
         return ticker is null ? 0 : selector(ticker) ?? 0;
@@ -422,7 +429,7 @@ public class OptionChainDialogViewModel : IDisposable
         }
 
         var callByDelta = tickers
-            .Where(ticker => ticker.Type == OptionLegType.Call && ticker.Delta.HasValue)
+            .Where(ticker => ticker.Type == LegType.Call && ticker.Delta.HasValue)
             .OrderBy(ticker => Math.Abs(ticker.Delta!.Value - 0.5))
             .FirstOrDefault();
 
@@ -447,9 +454,9 @@ public class OptionChainDialogViewModel : IDisposable
         OnChange?.Invoke();
     }
 
-    private static OptionLegModel CloneLeg(OptionLegModel leg)
+    private static LegModel CloneLeg(LegModel leg)
     {
-        return new OptionLegModel
+        return new LegModel
         {
             Id = leg.Id,
             IsIncluded = leg.IsIncluded,

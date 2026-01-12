@@ -16,7 +16,7 @@ public class LegsViewModel
         _dialogService = dialogService;
     }
 
-    public ObservableCollection<OptionLegModel> Legs => _positionBuilder.Legs;
+    public ObservableCollection<LegModel> Legs => _positionBuilder.Legs;
 
     public ObservableCollection<LegsCollectionModel> Collections => _positionBuilder.Collections;
 
@@ -24,7 +24,7 @@ public class LegsViewModel
 
     public Guid? SelectedCollectionId => SelectedCollection?.Id;
 
-    public IEnumerable<OptionLegType> LegTypes => Enum.GetValues<OptionLegType>();
+    public IEnumerable<LegType> LegTypes => Enum.GetValues<LegType>();
 
     public string QuickLegInput
     {
@@ -73,7 +73,7 @@ public class LegsViewModel
         var dialog = await _dialogService.ShowAsync<OptionChainDialog>("Add leg", parameters, options);
         var result = await dialog.Result;
 
-        if (result is null || result.Canceled || result.Data is not IEnumerable<OptionLegModel> legs)
+        if (result is null || result.Canceled || result.Data is not IEnumerable<LegModel> legs)
         {
             return;
         }
@@ -102,7 +102,7 @@ public class LegsViewModel
         await _positionBuilder.DuplicateCollectionAsync();
     }
 
-    public async Task RemoveLegAsync(OptionLegModel leg)
+    public async Task RemoveLegAsync(LegModel leg)
     {
         if (await _positionBuilder.RemoveLegAsync(leg))
         {
@@ -111,25 +111,25 @@ public class LegsViewModel
         }
     }
 
-    public async Task UpdateLegIncludedAsync(OptionLegModel leg, bool include)
+    public async Task UpdateLegIncludedAsync(LegModel leg, bool include)
     {
         leg.IsIncluded = include;
         await PersistAndRefreshAsync();
     }
 
-    public async Task UpdateLegTypeAsync(OptionLegModel leg, OptionLegType type)
+    public async Task UpdateLegTypeAsync(LegModel leg, LegType type)
     {
         leg.Type = type;
         await PersistAndRefreshAsync();
     }
 
-    public async Task UpdateLegStrikeAsync(OptionLegModel leg, double strike)
+    public async Task UpdateLegStrikeAsync(LegModel leg, double? strike)
     {
         leg.Strike = strike;
         await PersistAndRefreshAsync();
     }
 
-    public async Task UpdateLegExpirationAsync(OptionLegModel leg, DateTime? date)
+    public async Task UpdateLegExpirationAsync(LegModel leg, DateTime? date)
     {
         if (date.HasValue)
         {
@@ -139,19 +139,19 @@ public class LegsViewModel
         await PersistAndRefreshAsync();
     }
 
-    public async Task UpdateLegSizeAsync(OptionLegModel leg, double size)
+    public async Task UpdateLegSizeAsync(LegModel leg, double size)
     {
         leg.Size = size;
         await PersistAndRefreshAsync();
     }
 
-    public async Task UpdateLegPriceAsync(OptionLegModel leg, double price)
+    public async Task UpdateLegPriceAsync(LegModel leg, double price)
     {
         leg.Price = price;
         await PersistAndRefreshAsync();
     }
 
-    public async Task UpdateLegIvAsync(OptionLegModel leg, double iv)
+    public async Task UpdateLegIvAsync(LegModel leg, double? iv)
     {
         leg.ImpliedVolatility = iv;
         await PersistAndRefreshAsync();

@@ -56,14 +56,14 @@
                             <tbody>
                                 @foreach (var strike in ViewModel.DisplayStrikes)
                                 {
-                                    var call = ViewModel.GetStrikeTicker(strike, OptionLegType.Call);
-                                    var put = ViewModel.GetStrikeTicker(strike, OptionLegType.Put);
+                                    var call = ViewModel.GetStrikeTicker(strike, LegType.Call);
+                                    var put = ViewModel.GetStrikeTicker(strike, LegType.Put);
                                     var rowClass = StrikeRowClass(strike, 0);
                                     <tr class="@rowClass">
                                         <td>
                                             @if (call is not null && call.BidPrice > 0)
                                             {
-                                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Class="quote-button sell" OnClick="() => ViewModel.AddLegFromQuote(strike, OptionLegType.Call, call.BidPrice, call.BidIv)">
+                                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Class="quote-button sell" OnClick="() => ViewModel.AddLegFromQuote(strike, LegType.Call, call.BidPrice, call.BidIv)">
                                                     <MudStack Spacing="0">
                                                         <MudText Typo="Typo.caption">SELL</MudText>
                                                         <MudText Typo="Typo.caption">@FormatQuotePrice(call.BidPrice)</MudText>
@@ -76,7 +76,7 @@
                                         <td>
                                             @if (call is not null && call.AskPrice > 0)
                                             {
-                                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Class="quote-button buy" OnClick="() => ViewModel.AddLegFromQuote(strike, OptionLegType.Call, call.AskPrice, call.AskIv)">
+                                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Class="quote-button buy" OnClick="() => ViewModel.AddLegFromQuote(strike, LegType.Call, call.AskPrice, call.AskIv)">
                                                     <MudStack Spacing="0">
                                                         <MudText Typo="Typo.caption">BUY</MudText>
                                                         <MudText Typo="Typo.caption">@FormatQuotePrice(call.AskPrice)</MudText>
@@ -89,7 +89,7 @@
                                         <td>
                                             @if (put is not null && put.BidPrice > 0)
                                             {
-                                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Class="quote-button sell" OnClick="() => ViewModel.AddLegFromQuote(strike, OptionLegType.Put, put.BidPrice, put.BidIv)">
+                                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Class="quote-button sell" OnClick="() => ViewModel.AddLegFromQuote(strike, LegType.Put, put.BidPrice, put.BidIv)">
                                                     <MudStack Spacing="0">
                                                         <MudText Typo="Typo.caption">SELL</MudText>
                                                         <MudText Typo="Typo.caption">@FormatQuotePrice(put.BidPrice)</MudText>
@@ -102,7 +102,7 @@
                                         <td>
                                             @if (put is not null && put.AskPrice > 0)
                                             {
-                                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Class="quote-button buy" OnClick="() => ViewModel.AddLegFromQuote(strike, OptionLegType.Put, put.AskPrice, put.AskIv)">
+                                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Class="quote-button buy" OnClick="() => ViewModel.AddLegFromQuote(strike, LegType.Put, put.AskPrice, put.AskIv)">
                                                     <MudStack Spacing="0">
                                                         <MudText Typo="Typo.caption">BUY</MudText>
                                                         <MudText Typo="Typo.caption">@FormatQuotePrice(put.AskPrice)</MudText>
@@ -177,7 +177,6 @@
                                     <td colspan="2">
                                         <MudText Typo="Typo.subtitle2">Totals</MudText>
                                         <MudText Typo="Typo.caption">Premium: @ViewModel.GetTotalPremium().ToString("0.##")</MudText>
-                                        <MudText Typo="Typo.caption">IV Avg: @ViewModel.GetAverageImpliedVolatility().ToString("0.##")%</MudText>
                                         <MudText Typo="Typo.caption">Δ @ViewModel.GetTotalGreek(t => t.Delta).ToString("0.###") · Γ @ViewModel.GetTotalGreek(t => t.Gamma).ToString("0.###") · ν @ViewModel.GetTotalGreek(t => t.Vega).ToString("0.###") · Θ @ViewModel.GetTotalGreek(t => t.Theta).ToString("0.###")</MudText>
                                     </td>
                                     <td></td>

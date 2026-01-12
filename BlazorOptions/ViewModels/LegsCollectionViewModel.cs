@@ -19,9 +19,9 @@ public sealed class LegsCollectionViewModel
 
     public LegsCollectionModel Collection { get; }
 
-    public ObservableCollection<OptionLegModel> Legs => Collection.Legs;
+    public ObservableCollection<LegModel> Legs => Collection.Legs;
 
-    public IEnumerable<OptionLegType> LegTypes => Enum.GetValues<OptionLegType>();
+    public IEnumerable<LegType> LegTypes => Enum.GetValues<LegType>();
 
     public string QuickLegInput { get; set; } = string.Empty;
 
@@ -95,7 +95,7 @@ public sealed class LegsCollectionViewModel
         var dialog = await _dialogService.ShowAsync<OptionChainDialog>("Add leg", parameters, options);
         var result = await dialog.Result;
 
-        if (result is null || result.Canceled || result.Data is not IEnumerable<OptionLegModel> legs)
+        if (result is null || result.Canceled || result.Data is not IEnumerable<LegModel> legs)
         {
             return;
         }
@@ -112,6 +112,16 @@ public sealed class LegsCollectionViewModel
         }
 
         await _positionBuilder.DuplicateCollectionAsync();
+    }
+
+    public async Task LoadBybitPositionsAsync()
+    {
+        if (!EnsureActiveCollection())
+        {
+            return;
+        }
+
+        await _positionBuilder.LoadPositionsFromBybitAsync(Collection);
     }
 
     public async Task SetVisibilityAsync(bool isVisible)
@@ -198,7 +208,7 @@ public sealed class LegsCollectionViewModel
         await _dialogService.ShowAsync<PortfolioSettingsDialog>("Portfolio settings", parameters, options);
     }
 
-    public async Task RemoveLegAsync(OptionLegModel leg)
+    public async Task RemoveLegAsync(LegModel leg)
     {
         if (!EnsureActiveCollection())
         {
@@ -212,7 +222,7 @@ public sealed class LegsCollectionViewModel
         }
     }
 
-    public async Task UpdateLegIncludedAsync(OptionLegModel leg, bool include)
+    public async Task UpdateLegIncludedAsync(LegModel leg, bool include)
     {
         if (!EnsureActiveCollection())
         {
@@ -223,9 +233,9 @@ public sealed class LegsCollectionViewModel
         await PersistAndRefreshAsync();
     }
 
-    public async Task UpdateLegTypeAsync(OptionLegModel leg, OptionLegType type)
+    public async Task UpdateLegTypeAsync(LegModel leg, LegType type)
     {
-        if (!EnsureActiveCollection())
+        if (!EnsureActiveCollection() || leg.IsReadOnly)
         {
             return;
         }
@@ -234,9 +244,9 @@ public sealed class LegsCollectionViewModel
         await PersistAndRefreshAsync();
     }
 
-    public async Task UpdateLegStrikeAsync(OptionLegModel leg, double strike)
+    public async Task UpdateLegStrikeAsync(LegModel leg, double? strike)
     {
-        if (!EnsureActiveCollection())
+        if (!EnsureActiveCollection() || leg.IsReadOnly)
         {
             return;
         }
@@ -245,9 +255,9 @@ public sealed class LegsCollectionViewModel
         await PersistAndRefreshAsync();
     }
 
-    public async Task UpdateLegExpirationAsync(OptionLegModel leg, DateTime? date)
+    public async Task UpdateLegExpirationAsync(LegModel leg, DateTime? date)
     {
-        if (!EnsureActiveCollection())
+        if (!EnsureActiveCollection() || leg.IsReadOnly)
         {
             return;
         }
@@ -260,9 +270,9 @@ public sealed class LegsCollectionViewModel
         await PersistAndRefreshAsync();
     }
 
-    public async Task UpdateLegSizeAsync(OptionLegModel leg, double size)
+    public async Task UpdateLegSizeAsync(LegModel leg, double size)
     {
-        if (!EnsureActiveCollection())
+        if (!EnsureActiveCollection() || leg.IsReadOnly)
         {
             return;
         }
@@ -271,9 +281,9 @@ public sealed class LegsCollectionViewModel
         await PersistAndRefreshAsync();
     }
 
-    public async Task UpdateLegPriceAsync(OptionLegModel leg, double price)
+    public async Task UpdateLegPriceAsync(LegModel leg, double price)
     {
-        if (!EnsureActiveCollection())
+        if (!EnsureActiveCollection() || leg.IsReadOnly)
         {
             return;
         }
@@ -282,9 +292,9 @@ public sealed class LegsCollectionViewModel
         await PersistAndRefreshAsync();
     }
 
-    public async Task UpdateLegIvAsync(OptionLegModel leg, double iv)
+    public async Task UpdateLegIvAsync(LegModel leg, double? iv)
     {
-        if (!EnsureActiveCollection())
+        if (!EnsureActiveCollection() || leg.IsReadOnly)
         {
             return;
         }

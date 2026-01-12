@@ -14,6 +14,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
     private readonly ExchangeSettingsService _exchangeSettingsService;
     private readonly ExchangeTickerService _exchangeTickerService;
     private readonly OptionsChainService _optionsChainService;
+    private readonly BybitPositionService _bybitPositionService;
     private CancellationTokenSource? _tickerCts;
     private string? _currentSymbol;
     private TimeSpan _livePriceUpdateInterval = TimeSpan.FromMilliseconds(1000);
@@ -23,7 +24,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
     private static readonly Regex QuickAddDateWithoutYearRegex = new(@"(?i)\b\d{1,2}[A-Z]{3}\b", RegexOptions.Compiled);
     private static readonly Regex QuickAddNumericDateRegex = new(@"\b\d{4}\b", RegexOptions.Compiled);
 
-    private static readonly ObservableCollection<OptionLegModel> EmptyLegs = new();
+    private static readonly ObservableCollection<LegModel> EmptyLegs = new();
     private static readonly ObservableCollection<LegsCollectionModel> EmptyCollections = new();
     private static readonly string[] CollectionPalette =
     {
@@ -37,6 +38,8 @@ public class PositionBuilderViewModel : IAsyncDisposable
         "#00F5D4",
         "#B5179E"
     };
+    private static readonly string[] BybitPositionCategories = { "option", "linear", "inverse" };
+    private static readonly string[] PositionExpirationFormats = { "ddMMMyy", "ddMMMyyyy" };
 
     public double? SelectedPrice { get; private set; }
 
@@ -63,13 +66,15 @@ public class PositionBuilderViewModel : IAsyncDisposable
         PositionStorageService storageService,
         ExchangeSettingsService exchangeSettingsService,
         ExchangeTickerService exchangeTickerService,
-        OptionsChainService optionsChainService)
+        OptionsChainService optionsChainService,
+        BybitPositionService bybitPositionService)
     {
         _optionsService = optionsService;
         _storageService = storageService;
         _exchangeSettingsService = exchangeSettingsService;
         _exchangeTickerService = exchangeTickerService;
         _optionsChainService = optionsChainService;
+        _bybitPositionService = bybitPositionService;
         _exchangeTickerService.PriceUpdated += HandlePriceUpdated;
         _optionsChainService.ChainUpdated += HandleChainUpdated;
     }
@@ -82,7 +87,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     public LegsCollectionModel? SelectedCollection { get; private set; }
 
-    public ObservableCollection<OptionLegModel> Legs => SelectedCollection?.Legs ?? EmptyLegs;
+    public ObservableCollection<LegModel> Legs => SelectedCollection?.Legs ?? EmptyLegs;
 
     public EChartOptions ChartConfig { get; private set; } = new(Guid.Empty, Array.Empty<double>(), Array.Empty<string>(), null, Array.Empty<ChartCollectionSeries>(), null, 0, 0);
 
@@ -130,9 +135,9 @@ public class PositionBuilderViewModel : IAsyncDisposable
             return;
         }
 
-        SelectedCollection.Legs.Add(new OptionLegModel
+        SelectedCollection.Legs.Add(new LegModel
         {
-            Type = OptionLegType.Call,
+            Type = LegType.Call,
             Strike = 3300,
             Price = 150,
             Size = 1,
@@ -226,7 +231,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
         var tickerMatch = matchingTickers[0];
 
-        var leg = new OptionLegModel
+        var leg = new LegModel
         {
             Type = type,
             Strike = tickerMatch.Strike,
@@ -247,7 +252,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         return true;
     }
 
-    public async Task UpdateLegsAsync(IEnumerable<OptionLegModel> legs)
+    public async Task UpdateLegsAsync(IEnumerable<LegModel> legs)
     {
         if (SelectedCollection is null)
         {
@@ -266,7 +271,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         UpdateLegTickerSubscription();
     }
 
-    public async Task<bool> RemoveLegAsync(OptionLegModel leg)
+    public async Task<bool> RemoveLegAsync(LegModel leg)
     {
         if (SelectedCollection is null)
         {
@@ -363,6 +368,102 @@ public class PositionBuilderViewModel : IAsyncDisposable
         UpdateTemporaryPnls();
         UpdateChart();
         UpdateLegTickerSubscription();
+        OnChange?.Invoke();
+    }
+
+    public async Task LoadPositionsFromBybitAsync(LegsCollectionModel collection)
+    {
+        if (SelectedPosition is null || collection is null)
+        {
+            return;
+        }
+
+        if (SelectedPosition.Collections.All(item => item.Id != collection.Id))
+        {
+            return;
+        }
+
+        var baseAsset = SelectedPosition.BaseAsset?.Trim();
+        if (string.IsNullOrWhiteSpace(baseAsset))
+        {
+            Notify("Specify a base asset before loading Bybit positions.");
+            return;
+        }
+
+        var existingSymbols = new HashSet<string>(collection.Legs
+            .Select(leg => leg.ChainSymbol)
+            .Where(symbol => !string.IsNullOrWhiteSpace(symbol))
+            .Select(symbol => symbol!),
+            StringComparer.OrdinalIgnoreCase);
+
+        var totalFetched = 0;
+        var added = 0;
+        var quoteAsset = SelectedPosition.QuoteAsset?.Trim();
+
+        foreach (var category in BybitPositionCategories)
+        {
+            IReadOnlyList<BybitPosition> positions;
+
+            try
+            {
+                var settleCoin = string.Equals(category, "option", StringComparison.OrdinalIgnoreCase) ? null : quoteAsset;
+                positions = await _bybitPositionService.GetPositionsAsync(baseAsset, category, settleCoin);
+            }
+            catch (Exception ex)
+            {
+                Notify($"Failed to load Bybit {category} positions: {ex.Message}");
+                return;
+            }
+
+            totalFetched += positions.Count;
+
+            foreach (var position in positions)
+            {
+                if (Math.Abs(position.Size) < 0.0001)
+                {
+                    continue;
+                }
+
+                var leg = CreateLegFromBybitPosition(position, baseAsset, category);
+                if (leg is null || string.IsNullOrWhiteSpace(leg.ChainSymbol))
+                {
+                    continue;
+                }
+
+                var existedLeg = collection.Legs.FirstOrDefault(l => string.Equals(l.ChainSymbol, leg.ChainSymbol, StringComparison.OrdinalIgnoreCase));
+
+                if (existedLeg == null)
+                {
+                    collection.Legs.Add(leg);
+                    added++;
+                }
+                else
+                {
+                    existedLeg.Price = leg.Price;
+                    existedLeg.Size = leg.Size;
+                }
+
+
+            }
+        }
+
+        if (totalFetched == 0)
+        {
+            Notify("No Bybit positions found for the selected asset.");
+            return;
+        }
+
+        if (added == 0)
+        {
+            Notify("Bybit position legs are already present in this portfolio.");
+            return;
+        }
+
+        UpdateTemporaryPnls();
+        UpdateChart();
+        await PersistPositionsAsync();
+        UpdateLegTickerSubscription();
+        Notify($"Loaded {added} Bybit position leg{(added == 1 ? string.Empty : "s")}.");
         OnChange?.Invoke();
     }
 
@@ -657,7 +758,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
                 continue;
             }
 
-            if (IsLive && leg.Type != OptionLegType.Future)
+            if (IsLive && leg.Type != LegType.Future)
             {
                 var ticker = _optionsChainService.FindTickerForLeg(leg, baseAsset);
                 if (ticker is not null)
@@ -716,9 +817,9 @@ public class PositionBuilderViewModel : IAsyncDisposable
         UpdateAssetsFromPair(position);
 
         var collection = CreateCollection(position, GetNextCollectionName(position));
-        collection.Legs.Add(new OptionLegModel
+        collection.Legs.Add(new LegModel
         {
-            Type = OptionLegType.Call,
+            Type = LegType.Call,
             Strike = 3400,
             Price = 180,
             Size = 1,
@@ -726,9 +827,9 @@ public class PositionBuilderViewModel : IAsyncDisposable
             ExpirationDate = DateTime.UtcNow.Date.AddMonths(2)
         });
 
-        collection.Legs.Add(new OptionLegModel
+        collection.Legs.Add(new LegModel
         {
-            Type = OptionLegType.Put,
+            Type = LegType.Put,
             Strike = 3200,
             Price = 120,
             Size = 1,
@@ -793,7 +894,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         position.ActiveCollectionId = SelectedCollection?.Id;
     }
 
-    private LegsCollectionModel CreateCollection(PositionModel position, string name, IEnumerable<OptionLegModel>? legs = null)
+    private LegsCollectionModel CreateCollection(PositionModel position, string name, IEnumerable<LegModel>? legs = null)
     {
         var collection = new LegsCollectionModel
         {
@@ -832,12 +933,13 @@ public class PositionBuilderViewModel : IAsyncDisposable
         return CollectionPalette[position.Collections.Count % CollectionPalette.Length];
     }
 
-    private static OptionLegModel CloneLeg(OptionLegModel leg)
+    private static LegModel CloneLeg(LegModel leg)
     {
-        return new OptionLegModel
+        return new LegModel
         {
-            Id = Guid.NewGuid(),
+            Id = leg.IsReadOnly ? leg.Id : Guid.NewGuid().ToString(),
             IsIncluded = leg.IsIncluded,
+            IsReadOnly = leg.IsReadOnly,
             Type = leg.Type,
             Strike = leg.Strike,
             ExpirationDate = leg.ExpirationDate,
@@ -848,7 +950,147 @@ public class PositionBuilderViewModel : IAsyncDisposable
         };
     }
 
-    private static double CalculateAnchorPrice(IEnumerable<OptionLegModel> legs)
+    private LegModel? CreateLegFromBybitPosition(BybitPosition position, string baseAsset, string category)
+    {
+        if (string.IsNullOrWhiteSpace(position.Symbol))
+        {
+            return null;
+        }
+
+        DateTime? expiration = null;
+        double? strike = null;
+        var type = LegType.Future;
+        if (string.Equals(category, "option", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!TryParsePositionSymbol(position.Symbol, out var parsedBase, out var parsedExpiration, out var parsedStrike, out var parsedType))
+            {
+                return null;
+            }
+
+            if (!string.Equals(parsedBase, baseAsset, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            expiration = parsedExpiration;
+            strike = parsedStrike;
+            type = parsedType;
+        }
+        else
+        {
+            if (!position.Symbol.StartsWith(baseAsset, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            if (TryParseFutureExpiration(position.Symbol, out var parsedFutureExpiration))
+            {
+                expiration = parsedFutureExpiration;
+            }
+        }
+       
+
+        var size = DetermineSignedSize(position);
+        if (Math.Abs(size) < 0.0001)
+        {
+            return null;
+        }
+
+        var price = position.AvgPrice;
+        var chainSymbol = position.Symbol;
+
+        return new LegModel
+        {
+            IsReadOnly = true,
+            ChainSymbol = chainSymbol,
+            Type = type,
+            Strike = strike,
+            ExpirationDate = expiration,
+            Size = size,
+            Price = price,
+            ImpliedVolatility = null
+        };
+    }
+
+    private static bool TryParsePositionSymbol(string symbol, out string baseAsset, out DateTime expiration, out double strike, out LegType type)
+    {
+        baseAsset = string.Empty;
+        expiration = default;
+        strike = 0;
+        type = LegType.Call;
+
+        var parts = symbol.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length < 4)
+        {
+            return false;
+        }
+
+        baseAsset = parts[0];
+        if (!DateTime.TryParseExact(parts[1], PositionExpirationFormats, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsedExpiration))
+        {
+            return false;
+        }
+
+        expiration = parsedExpiration.Date;
+
+        if (!double.TryParse(parts[2], NumberStyles.Any, CultureInfo.InvariantCulture, out strike))
+        {
+            return false;
+        }
+
+        var typeToken = parts[3].Trim();
+        type = typeToken.Equals("P", StringComparison.OrdinalIgnoreCase) ? LegType.Put : LegType.Call;
+        return true;
+    }
+
+    private static bool TryParseFutureExpiration(string symbol, out DateTime expiration)
+    {
+        expiration = default;
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return false;
+        }
+
+        var tokens = symbol.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (tokens.Length >= 2 &&
+            DateTime.TryParseExact(tokens[1], PositionExpirationFormats, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
+        {
+            expiration = parsed.Date;
+            return true;
+        }
+
+        var match = Regex.Match(symbol, @"(\d{8}|\d{6})$");
+        if (!match.Success)
+        {
+            return false;
+        }
+
+        var format = match.Groups[1].Value.Length == 8 ? "yyyyMMdd" : "yyMMdd";
+        return DateTime.TryParseExact(match.Groups[1].Value, format, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out expiration);
+    }
+
+    private static double DetermineSignedSize(BybitPosition position)
+    {
+        var magnitude = Math.Abs(position.Size);
+        if (magnitude < 0.0001)
+        {
+            return 0;
+        }
+
+        if (!string.IsNullOrWhiteSpace(position.Side))
+        {
+            var normalized = position.Side.Trim();
+            if (string.Equals(normalized, "Sell", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, "Short", StringComparison.OrdinalIgnoreCase))
+            {
+                return -magnitude;
+            }
+        }
+
+        return magnitude;
+    }
+
+    private static double CalculateAnchorPrice(IEnumerable<LegModel> legs)
     {
         var activeLegs = legs.Where(l => l.IsIncluded).ToList();
 
@@ -857,14 +1099,20 @@ public class PositionBuilderViewModel : IAsyncDisposable
             return 1000;
         }
 
-        return activeLegs.Average(l => l.Strike > 0 ? l.Strike : l.Price);
+        return activeLegs.Average(l => l.Strike.HasValue && l.Strike.Value > 0 ? l.Strike.Value : l.Price);
     }
 
-    private void RefreshValuationDateBounds(IEnumerable<OptionLegModel> legs)
+    private void RefreshValuationDateBounds(IEnumerable<LegModel> legs)
     {
         var today = DateTime.UtcNow.Date;
-        MaxExpiryDate = legs.Any()
-            ? legs.Max(l => l.ExpirationDate.Date)
+        var expirations = legs
+            .Select(l => l.ExpirationDate)
+            .Where(exp => exp.HasValue)
+            .Select(exp => exp!.Value)
+            .ToList();
+
+        MaxExpiryDate = expirations.Any()
+            ? expirations.Max()
             : today;
 
         if (MaxExpiryDate < today)
@@ -1037,9 +1285,9 @@ public class PositionBuilderViewModel : IAsyncDisposable
         OnChange?.Invoke();
     }
 
-    private OptionLegModel ResolveLegForCalculation(OptionLegModel leg, string? baseAsset)
+    private LegModel ResolveLegForCalculation(LegModel leg, string? baseAsset)
     {
-        var impliedVolatility = leg.ImpliedVolatility;
+        var impliedVolatility = leg.ImpliedVolatility ?? 0;
         if (impliedVolatility <= 0)
         {
             var ticker = _optionsChainService.FindTickerForLeg(leg, baseAsset);
@@ -1048,13 +1296,13 @@ public class PositionBuilderViewModel : IAsyncDisposable
                 impliedVolatility = ticker.MarkIv;
             }
         }
-
-        if (Math.Abs(impliedVolatility - leg.ImpliedVolatility) < 0.0001)
+        var originalIv = leg.ImpliedVolatility ?? 0;
+        if (Math.Abs(impliedVolatility - originalIv) < 0.0001)
         {
             return leg;
         }
 
-        return new OptionLegModel
+        return new LegModel
         {
             Id = leg.Id,
             IsIncluded = leg.IsIncluded,
@@ -1068,7 +1316,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         };
     }
 
-    private IEnumerable<OptionLegModel> ResolveLegsForCalculation(IEnumerable<OptionLegModel> legs)
+    private IEnumerable<LegModel> ResolveLegsForCalculation(IEnumerable<LegModel> legs)
     {
         var baseAsset = SelectedPosition?.BaseAsset;
 
@@ -1078,11 +1326,11 @@ public class PositionBuilderViewModel : IAsyncDisposable
         }
     }
 
-    private IEnumerable<OptionLegModel> EnumerateAllLegs()
+    private IEnumerable<LegModel> EnumerateAllLegs()
     {
         if (SelectedPosition is null)
         {
-            return Array.Empty<OptionLegModel>();
+            return Array.Empty<LegModel>();
         }
 
         return SelectedPosition.Collections.SelectMany(collection => collection.Legs);
@@ -1143,7 +1391,11 @@ public class PositionBuilderViewModel : IAsyncDisposable
     {
         if (SelectedCollection?.Legs.Count > 0)
         {
-            return SelectedCollection.Legs.Last().ExpirationDate.Date;
+            var lastWithExpiration = SelectedCollection.Legs.LastOrDefault(leg => leg.ExpirationDate.HasValue);
+            if (lastWithExpiration?.ExpirationDate.HasValue ?? false)
+            {
+                return lastWithExpiration.ExpirationDate.Value.Date;
+            }
         }
 
         return GetNextMonthEndDate(DateTime.UtcNow.Date, 7);
@@ -1170,7 +1422,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         return double.TryParse(cleaned, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
     }
 
-    private static bool TryFindLegType(string[] tokens, int startIndex, out OptionLegType type, out int typeIndex)
+    private static bool TryFindLegType(string[] tokens, int startIndex, out LegType type, out int typeIndex)
     {
         for (var i = startIndex; i < tokens.Length; i++)
         {
@@ -1180,19 +1432,19 @@ public class PositionBuilderViewModel : IAsyncDisposable
                 case "C":
                 case "CALL":
                 case "CALLS":
-                    type = OptionLegType.Call;
+                    type = LegType.Call;
                     typeIndex = i;
                     return true;
                 case "P":
                 case "PUT":
                 case "PUTS":
-                    type = OptionLegType.Put;
+                    type = LegType.Put;
                     typeIndex = i;
                     return true;
             }
         }
 
-        type = OptionLegType.Call;
+        type = LegType.Call;
         typeIndex = -1;
         return false;
     }

@@ -74,7 +74,7 @@ public class OptionsChainService
         }
     }
 
-    public OptionChainTicker? FindTickerForLeg(OptionLegModel leg, string? baseAsset)
+    public OptionChainTicker? FindTickerForLeg(LegModel leg, string? baseAsset)
     {
         var snapshot = GetSnapshot();
 
@@ -87,19 +87,22 @@ public class OptionsChainService
             }
         }
 
-        if (string.IsNullOrWhiteSpace(baseAsset))
+        if (string.IsNullOrWhiteSpace(baseAsset) || !leg.ExpirationDate.HasValue || !leg.Strike.HasValue)
         {
             return null;
         }
 
+        var expiration = leg.ExpirationDate.Value.Date;
+        var strike = leg.Strike.Value;
+
         return snapshot.FirstOrDefault(ticker =>
             string.Equals(ticker.BaseAsset, baseAsset, StringComparison.OrdinalIgnoreCase)
             && ticker.Type == leg.Type
-            && ticker.ExpirationDate.Date == leg.ExpirationDate.Date
-            && Math.Abs(ticker.Strike - leg.Strike) < 0.01);
+            && ticker.ExpirationDate.Date == expiration
+            && Math.Abs(ticker.Strike - strike) < 0.01);
     }
 
-    public void TrackLegs(IEnumerable<OptionLegModel> legs, string? baseAsset)
+    public void TrackLegs(IEnumerable<LegModel> legs, string? baseAsset)
     {
         var symbols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -317,12 +320,12 @@ public class OptionsChainService
         }
     }
 
-    private static bool TryParseSymbol(string symbol, out string baseAsset, out DateTime expiration, out double strike, out OptionLegType type)
+    private static bool TryParseSymbol(string symbol, out string baseAsset, out DateTime expiration, out double strike, out LegType type)
     {
         baseAsset = string.Empty;
         expiration = default;
         strike = 0;
-        type = OptionLegType.Call;
+        type = LegType.Call;
 
         var parts = symbol.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (parts.Length < 4)
@@ -344,7 +347,7 @@ public class OptionsChainService
         }
 
         var typeToken = parts[3].Trim();
-        type = typeToken.Equals("P", StringComparison.OrdinalIgnoreCase) ? OptionLegType.Put : OptionLegType.Call;
+        type = typeToken.Equals("P", StringComparison.OrdinalIgnoreCase) ? LegType.Put : LegType.Call;
         return true;
     }
 

@@ -35,6 +35,13 @@
                                    Disabled="@(!ViewModel.HasActivePosition)"
                                    OnClick="async () => await ViewModel.DuplicateCollectionAsync()" />
                 </MudTooltip>
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Default"
+                           StartIcon="@Icons.Material.Filled.CloudDownload"
+                           Disabled="@(!ViewModel.HasActivePosition)"
+                           OnClick="async () => await ViewModel.LoadBybitPositionsAsync()">
+                    Load Positions
+                </MudButton>
                 <MudTooltip Text="Add leg">
                     <MudIconButton Icon="@Icons.Material.Filled.AddCircle"
                                    Color="Color.Primary"
@@ -71,7 +78,7 @@
                                  ValueChanged="async checkedValue => await ViewModel.UpdateLegIncludedAsync(context, checkedValue)" />
                 </MudTd>
                 <MudTd DataLabel="Type">
-                    <MudSelect T="OptionLegType" Value="@context.Type" ValueChanged="async type => await ViewModel.UpdateLegTypeAsync(context, type)" Dense="true">
+                <MudSelect T="LegType" Value="@context.Type" ValueChanged="async type => await ViewModel.UpdateLegTypeAsync(context, type)" Dense="true" Disabled="@context.IsReadOnly">
                         @foreach (var type in ViewModel.LegTypes)
                         {
                             <MudSelectItem Value="@type">@type</MudSelectItem>
@@ -79,19 +86,20 @@
                     </MudSelect>
                 </MudTd>
                 <MudTd DataLabel="Strike">
-                    <MudNumericField T="double" Value="@context.Strike" ValueChanged="async value => await ViewModel.UpdateLegStrikeAsync(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="USDT" />
+                <MudNumericField T="double?" Value="@context.Strike" ValueChanged="async value => await ViewModel.UpdateLegStrikeAsync(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="USDT" Disabled="@context.IsReadOnly" />
                 </MudTd>
                 <MudTd DataLabel="Expiration">
-                    <MudDatePicker Date="context.ExpirationDate"
-                                   DateChanged="date => ViewModel.UpdateLegExpirationAsync(context, date)"
-                                   DateFormat="yyyy-MM-dd"
-                                   Class="full-width" />
+                <MudDatePicker Date="context.ExpirationDate"
+                               DateChanged="date => ViewModel.UpdateLegExpirationAsync(context, date)"
+                               DateFormat="yyyy-MM-dd"
+                               Class="full-width"
+                               Disabled="@context.IsReadOnly" />
                 </MudTd>
                 <MudTd DataLabel="Size">
-                    <MudNumericField T="double" Value="@context.Size" ValueChanged="async value => await ViewModel.UpdateLegSizeAsync(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                <MudNumericField T="double" Value="@context.Size" ValueChanged="async value => await ViewModel.UpdateLegSizeAsync(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@context.IsReadOnly" />
                 </MudTd>
                 <MudTd DataLabel="Price">
-                    <MudNumericField T="double" Value="@context.Price" ValueChanged="async value => await ViewModel.UpdateLegPriceAsync(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="USDT" />
+                <MudNumericField T="double" Value="@context.Price" ValueChanged="async value => await ViewModel.UpdateLegPriceAsync(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="USDT" Disabled="@context.IsReadOnly" />
                 </MudTd>
                 <MudTd DataLabel="Temp P/L">
                     <MudText Typo="Typo.body2" Color="@(context.TemporaryPnl >= 0 ? Color.Success : Color.Error)">
@@ -99,7 +107,7 @@
                     </MudText>
                 </MudTd>
                 <MudTd DataLabel="IV">
-                    <MudNumericField T="double" Value="@context.ImpliedVolatility" ValueChanged="async value => await ViewModel.UpdateLegIvAsync(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="%" />
+                <MudNumericField T="double?" Value="@context.ImpliedVolatility" ValueChanged="async value => await ViewModel.UpdateLegIvAsync(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="%" Disabled="@context.IsReadOnly" />
                 </MudTd>
                 <MudTd DataLabel="Actions" Style="text-align:right;">
                     <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="async () => await ViewModel.RemoveLegAsync(context)" />

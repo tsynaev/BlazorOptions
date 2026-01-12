@@ -12,5 +12,5 @@ public class LegsCollectionModel
 
     public bool IsVisible { get; set; } = true;
 
-    public ObservableCollection<OptionLegModel> Legs { get; set; } = new();
+    public ObservableCollection<LegModel> Legs { get; set; } = new();
 }

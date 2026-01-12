@@ -1,31 +1,34 @@
+using System;
 using System.Text.Json.Serialization;
 
 namespace BlazorOptions.ViewModels;
 
-public enum OptionLegType
+public enum LegType
 {
     Call,
     Put,
     Future
 }
 
-public class OptionLegModel
+public class LegModel
 {
-    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Id { get; set; } = Guid.NewGuid().ToString();
 
     public bool IsIncluded { get; set; } = true;
 
-    public OptionLegType Type { get; set; } = OptionLegType.Call;
+    public bool IsReadOnly { get; set; }
 
-    public double Strike { get; set; } = 1000;
+    public LegType Type { get; set; } = LegType.Call;
 
-    public DateTime ExpirationDate { get; set; } = DateTime.UtcNow.Date.AddMonths(1);
+    public double? Strike { get; set; } 
+
+    public DateTime? ExpirationDate { get; set; }
 
     public double Size { get; set; } = 1;
 
     public double Price { get; set; } = 50;
 
-    public double ImpliedVolatility { get; set; } = 65;
+    public double? ImpliedVolatility { get; set; }
 
     public string? ChainSymbol { get; set; }
 

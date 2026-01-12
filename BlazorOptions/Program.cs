@@ -17,6 +17,7 @@ builder.Services.AddSingleton<OptionsService>();
 builder.Services.AddScoped<LocalStorageService>();
 builder.Services.AddScoped<PositionStorageService>();
 builder.Services.AddScoped<ExchangeSettingsService>();
+builder.Services.AddScoped<BybitPositionService>();
 builder.Services.AddScoped<ExchangeTickerService>();
 builder.Services.AddScoped<IExchangeTickerClient, BybitTickerClient>();
 builder.Services.AddScoped<OptionsChainService>();
