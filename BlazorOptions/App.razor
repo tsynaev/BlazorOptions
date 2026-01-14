@@ -2,7 +2,8 @@
 @inject IJSRuntime JsRuntime
 @implements IAsyncDisposable
 
-<MudThemeProvider IsDarkMode="@ThemeService.IsDarkMode"
+<MudThemeProvider Theme="@BybitTheme"
+                  IsDarkMode="@ThemeService.IsDarkMode"
                   IsDarkModeChanged="ThemeService.SetIsDarkMode" />
 <MudPopoverProvider />
 <MudDialogProvider />
@@ -22,6 +23,46 @@
 </Router>
 
 @code {
+    private static readonly MudTheme BybitTheme = new()
+    {
+        PaletteDark = new PaletteDark
+        {
+            Primary = "#F5A623",
+            Secondary = "#2EBD85",
+            Tertiary = "#3B82F6",
+            Info = "#3B82F6",
+            Success = "#2EBD85",
+            Warning = "#F5A623",
+            Error = "#EF4444",
+            Background = "#0B0D10",
+            Surface = "#11161C",
+            AppbarBackground = "#0F1318",
+            AppbarText = "#E5E7EB",
+            DrawerBackground = "#0F1318",
+            DrawerText = "#E5E7EB",
+            TextPrimary = "#F3F4F6",
+            TextSecondary = "#B9C0CC",
+            TextDisabled = "#6B7280",
+            ActionDefault = "#F3F4F6",
+            ActionDisabled = "#4B5563",
+            ActionDisabledBackground = "#1B222A",
+            LinesDefault = "#26303A",
+            LinesInputs = "#2C3944",
+            TableLines = "#26303A",
+            Divider = "#1E2730",
+            GrayDefault = "#9AA4B2",
+            GrayLight = "#C2C8D1",
+            GrayLighter = "#E3E6EA",
+            GrayDark = "#6B7280",
+            Black = "#000000",
+            White = "#FFFFFF"
+        },
+        LayoutProperties = new LayoutProperties
+        {
+            DefaultBorderRadius = "8px"
+        }
+    };
+
     private IJSObjectReference? _themeModule;
     private DotNetObjectReference<BlazorOptions.Services.ThemeService>? _themeServiceReference;
 

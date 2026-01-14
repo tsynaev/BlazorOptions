@@ -1,5 +1,10 @@
 @inherits LayoutComponentBase
 
-<MudContainer MaxWidth="MaxWidth.False" Class="pa-6">
-    @Body
-</MudContainer>
+<MudLayout>
+    <MudAppBar>
+        Blazor Options
+    </MudAppBar>
+    <MudMainContent>
+        @Body
+    </MudMainContent>
+</MudLayout>

@@ -110,3 +110,60 @@
 code {
     color: #c02d76;
 }
+
+@media (max-width: 600px) {
+    .mud-container--gutters {
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+    }
+
+    .pa-6 {
+        padding: 0 !important;
+    }
+
+    .mud-card,
+    .mud-paper {
+        border: none;
+        box-shadow: none;
+        border-radius: 0;
+        background-color: transparent;
+        margin: 0;
+    }
+
+    .mud-input-outlined-border,
+    .mud-input-underline,
+    .mud-input-outlined-border-focused {
+        border: 0 !important;
+    }
+
+    .mud-table-root td,
+    .mud-table-root th {
+        border-bottom: 0;
+    }
+
+    .mud-input-root {
+        min-height: 44px;
+        padding: 6px 10px;
+        border-radius: 10px;
+        background-color: var(--mud-palette-surface);
+    }
+
+    .mud-button-root {
+        min-height: 44px;
+    }
+
+    .mud-icon-button {
+        width: 40px;
+        height: 40px;
+    }
+
+    .mud-card-content {
+        padding: 8px 6px;
+    }
+
+    .chart-container,
+    .chart-container .mud-card-content,
+    .chart-container .mud-paper {
+        padding: 0 !important;
+    }
+}

@@ -183,11 +183,10 @@ window.payoffChart = {
                     position: 'insideEndTop',
                     align: 'center',
                     verticalAlign: 'top',
-                    distance: 16,
-                    fontSize: 11,
-                    color: '#455A64',
-                    textBorderColor: '#FFFFFF',
-                    textBorderWidth: 3
+                    distance: 10,
+                    fontSize: 9,
+                    color: '#CCCCCC',
+
                 },
                 data: [
                     { xAxis: Number(tempPrice) }
@@ -272,10 +271,10 @@ window.payoffChart = {
                         },
                         position: 'right',
                         offset: [8, -6],
-                        fontSize: 10,
+                        fontSize: 9,
                         color: collection.color,
-                        textBorderColor: '#FFFFFF',
-                        textBorderWidth: 3
+                       // textBorderColor: '#FFFFFF',
+                      //  textBorderWidth: 1
                     }
                 });
             }
@@ -295,10 +294,8 @@ window.payoffChart = {
                         },
                         position: 'right',
                         offset: [8, -6],
-                        fontSize: 10,
+                        fontSize: 9,
                         color: collection.color,
-                        textBorderColor: '#FFFFFF',
-                        textBorderWidth: 3
                     }
                 });
             }
@@ -358,8 +355,13 @@ window.payoffChart = {
             }
         });
 
+        const isNarrow = element.offsetWidth <= 480;
+        const axisFontSize = isNarrow ? 8 : 10;
+        const gridLeft = isNarrow ? 35 : 35;
+        const gridRight = isNarrow ?10 : 10;
+
         chart.setOption({
-            grid: { left: 60, right: 20, top: 60, bottom: 50 },
+            grid: { left: gridLeft, right: gridRight, top: 60, bottom: 50 },
             legend: {
                 top: 0,
                 left: 10,
@@ -436,13 +438,15 @@ window.payoffChart = {
                 type: 'value',
                 min: 'dataMin',
                 max: 'dataMax',
-                boundaryGap: ['2%', '2%'],
+              //  boundaryGap: ['2%', '2%'],
                 axisLabel: {
                     formatter: function (value) {
                         return formatPrice(value);
                     },
-                    color: '#B0BEC5'
+                    color: '#B0BEC5',
+                    fontSize: axisFontSize
                 },
+                splitLine: { lineStyle: { color: 'rgba(224, 224, 224, 0.1)' } },
                 axisPointer: {
                     show: true,
                     snap: true,
@@ -460,15 +464,16 @@ window.payoffChart = {
                 type: 'value',
                 min: paddedYMin,
                 max: paddedYMax,
-                boundaryGap: ['20%', '20%'],
+                boundaryGap: ['10%', '10%'],
                 scale: true,
                 axisLabel: {
                     formatter: function (value) {
                         return value.toFixed(0);
                     },
-                    color: '#B0BEC5'
+                    color: '#B0BEC5',
+                    fontSize: axisFontSize
                 },
-                splitLine: { lineStyle: { color: 'rgba(224, 224, 224, 0.25)' } },
+                splitLine: { lineStyle: { color: 'rgba(224, 224, 224, 0.1)' } },
                 axisPointer: {
                     show: true,
                     snap: true,

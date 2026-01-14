@@ -7,25 +7,23 @@
 @using Microsoft.AspNetCore.Components.Web
 @using BlazorOptions.Shared
 
-<PageTitle>Multi-leg ETH/USDT Position</PageTitle>
+<PageTitle>Positions</PageTitle>
 
-<MudStack Spacing="3">
+<MudStack>
     <MudCard>
         <MudCardContent>
             <MudStack Spacing="2">
                 <MudStack Spacing="1">
                     <MudText Typo="Typo.h4">Positions</MudText>
-                    <MudText Typo="Typo.subtitle2">Construct calls, puts, and futures legs for the pair.</MudText>
                     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
                         <MudSwipeArea Class="position-swipe-area" OnSwipeEnd="OnSwipeEnd">
-                            <MudDynamicTabs Class="position-tabs"
+                            <MudTabs Class="position-tabs"
                                              ActivePanelIndex="@_activeTabIndex"
                                              ActivePanelIndexChanged="OnTabChanged"
                                              AlwaysShowScrollButtons="false"
-                                             Rounded="true"
+                                           
                                              Elevation="0"
-                                             AddIconClass="d-none"
-                                             CloseTab="OnCloseTab">
+                                             AddIconClass="d-none">
                                 @for (var i = 0; i < ViewModel.Positions.Count; i++)
                                 {
                                     var position = ViewModel.Positions[i];
@@ -38,7 +36,7 @@
                                         </TabContent>
                                     </MudTabPanel>
                                 }
-                            </MudDynamicTabs>
+                            </MudTabs>
                         </MudSwipeArea>
                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                             <MudTooltip Text="Add position">
@@ -63,13 +61,13 @@
             </MudStack>
         </MudCardContent>
         <MudCardContent Class="chart-container">
-            <MudPaper Class="pa-4 chart-surface" Elevation="0">
+            <MudPaper Class="chart-surface" Elevation="0">
                 <MudStack Spacing="2" Style="height:100%;">
                     <PayoffChart Config="@ViewModel.ChartConfig"
                                  PriceSelected="HandleChartPriceSelected"
                                  LegendSelectionChanged="HandleLegendSelectionChanged"
                                  Height="100%"
-                                 Style="flex:1; min-height:320px;"
+                                 Style="flex:1; min-height:400px;"
                                  @ref="_chart" />
                     <MudStack Spacing="1">
                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
