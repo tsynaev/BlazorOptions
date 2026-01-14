@@ -1,0 +1,101 @@
+@using BlazorOptions.ViewModels
+@implements IDisposable
+
+<MudTd DataLabel="Include">
+    <MudCheckBox T="bool"
+                 Value="@Leg.IsIncluded"
+                 ValueChanged="async checkedValue => await ViewModel.UpdateLegIncludedAsync(Leg, checkedValue)" />
+</MudTd>
+<MudTd DataLabel="Type">
+    <MudSelect T="LegType" Value="@Leg.Type" ValueChanged="async type => await ViewModel.UpdateLegTypeAsync(Leg, type)" Dense="true" Disabled="@Leg.IsReadOnly">
+        @foreach (var type in ViewModel.LegTypes)
+        {
+            <MudSelectItem Value="@type">@type</MudSelectItem>
+        }
+    </MudSelect>
+</MudTd>
+<MudTd DataLabel="Strike">
+    <MudNumericField T="double?" Value="@Leg.Strike" ValueChanged="async value => await ViewModel.UpdateLegStrikeAsync(Leg, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="USDT" Disabled="@Leg.IsReadOnly" />
+</MudTd>
+<MudTd DataLabel="Expiration">
+    <MudDatePicker Date="Leg.ExpirationDate"
+                   DateChanged="date => ViewModel.UpdateLegExpirationAsync(Leg, date)"
+                   DateFormat="yyyy-MM-dd"
+                   Class="full-width"
+                   Disabled="@Leg.IsReadOnly" />
+</MudTd>
+<MudTd DataLabel="Size">
+    <MudNumericField T="double" Value="@Leg.Size" ValueChanged="async value => await ViewModel.UpdateLegSizeAsync(Leg, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@Leg.IsReadOnly" />
+</MudTd>
+<MudTd DataLabel="Price">
+    <MudStack Spacing="0">
+        <MudNumericField T="double" Value="@Leg.Price" ValueChanged="async value => await ViewModel.UpdateLegPriceAsync(Leg, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="USDT" Disabled="@Leg.IsReadOnly" Class="price-input" />
+        @if (Leg.BidPrice.HasValue || Leg.AskPrice.HasValue)
+        {
+            <MudText Typo="Typo.caption" Class="price-chain">
+                Bid: @(Leg.BidPrice?.ToString("0.##") ?? "-") | Ask: @(Leg.AskPrice?.ToString("0.##") ?? "-")
+            </MudText>
+        }
+    </MudStack>
+</MudTd>
+<MudTd DataLabel="Temp P/L">
+    <MudText Typo="Typo.body2" Color="@(Leg.TemporaryPnl >= 0 ? Color.Success : Color.Error)">
+        @Leg.TemporaryPnl.ToString("0.##")
+    </MudText>
+</MudTd>
+<MudTd DataLabel="IV" Class="iv-column">
+    @{
+        var chainIv = ViewModel.GetLegMarkIv(Leg);
+    }
+    <MudStack Spacing="0">
+        <MudNumericField T="double?" Value="@Leg.ImpliedVolatility" ValueChanged="async value => await ViewModel.UpdateLegIvAsync(Leg, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="%" Disabled="@Leg.IsReadOnly" Class="iv-input" />
+        @if (chainIv.HasValue)
+        {
+            <MudText Typo="Typo.caption" Class="iv-chain">Chain: @chainIv.Value.ToString("0.##")%</MudText>
+        }
+    </MudStack>
+</MudTd>
+<MudTd DataLabel="Actions" Style="text-align:right;">
+    <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="async () => await ViewModel.RemoveLegAsync(Leg)" />
+</MudTd>
+
+@code {
+    [Parameter, EditorRequired] public LegModel Leg { get; set; } = default!;
+    [Parameter, EditorRequired] public LegsCollectionViewModel ViewModel { get; set; } = default!;
+
+    private string? _symbol;
+
+    protected override void OnInitialized()
+    {
+        ViewModel.LegTickerUpdated += HandleLegTickerUpdated;
+    }
+
+    protected override void OnParametersSet()
+    {
+        _symbol = ViewModel.GetLegSymbol(Leg);
+    }
+
+    private void HandleLegTickerUpdated(OptionChainTicker ticker)
+    {
+        if (ticker is null || string.IsNullOrWhiteSpace(ticker.Symbol))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_symbol) && !string.IsNullOrWhiteSpace(Leg.ChainSymbol))
+        {
+            _symbol = Leg.ChainSymbol;
+        }
+
+        if (string.Equals(ticker.Symbol, _symbol, StringComparison.OrdinalIgnoreCase))
+        {
+           _ = InvokeAsync(StateHasChanged);
+        }
+    }
+
+    public void Dispose()
+    {
+        ViewModel.LegTickerUpdated -= HandleLegTickerUpdated;
+    }
+}
+

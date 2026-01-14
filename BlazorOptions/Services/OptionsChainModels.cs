@@ -11,6 +11,7 @@ public class OptionChainTicker
         double strike,
         LegType type,
         double markPrice,
+        double lastPrice,
         double markIv,
         double bidPrice,
         double askPrice,
@@ -27,6 +28,7 @@ public class OptionChainTicker
         Strike = strike;
         Type = type;
         MarkPrice = markPrice;
+        LastPrice = lastPrice;
         MarkIv = markIv;
         BidPrice = bidPrice;
         AskPrice = askPrice;
@@ -50,6 +52,8 @@ public class OptionChainTicker
 
     public double MarkPrice { get; }
 
+    public double LastPrice { get; }
+
     public double MarkIv { get; }
 
     public double BidPrice { get; }
@@ -68,3 +72,4 @@ public class OptionChainTicker
 
     public double? Theta { get; }
 }
+

@@ -68,50 +68,11 @@
                 <MudTh>Size</MudTh>
                 <MudTh>Price</MudTh>
                 <MudTh>Temp P/L</MudTh>
-                <MudTh>IV</MudTh>
+                <MudTh Class="iv-column">IV</MudTh>
                 <MudTh></MudTh>
             </HeaderContent>
             <RowTemplate>
-                <MudTd DataLabel="Include">
-                    <MudCheckBox T="bool"
-                                 Value="@context.IsIncluded"
-                                 ValueChanged="async checkedValue => await ViewModel.UpdateLegIncludedAsync(context, checkedValue)" />
-                </MudTd>
-                <MudTd DataLabel="Type">
-                <MudSelect T="LegType" Value="@context.Type" ValueChanged="async type => await ViewModel.UpdateLegTypeAsync(context, type)" Dense="true" Disabled="@context.IsReadOnly">
-                        @foreach (var type in ViewModel.LegTypes)
-                        {
-                            <MudSelectItem Value="@type">@type</MudSelectItem>
-                        }
-                    </MudSelect>
-                </MudTd>
-                <MudTd DataLabel="Strike">
-                <MudNumericField T="double?" Value="@context.Strike" ValueChanged="async value => await ViewModel.UpdateLegStrikeAsync(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="USDT" Disabled="@context.IsReadOnly" />
-                </MudTd>
-                <MudTd DataLabel="Expiration">
-                <MudDatePicker Date="context.ExpirationDate"
-                               DateChanged="date => ViewModel.UpdateLegExpirationAsync(context, date)"
-                               DateFormat="yyyy-MM-dd"
-                               Class="full-width"
-                               Disabled="@context.IsReadOnly" />
-                </MudTd>
-                <MudTd DataLabel="Size">
-                <MudNumericField T="double" Value="@context.Size" ValueChanged="async value => await ViewModel.UpdateLegSizeAsync(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@context.IsReadOnly" />
-                </MudTd>
-                <MudTd DataLabel="Price">
-                <MudNumericField T="double" Value="@context.Price" ValueChanged="async value => await ViewModel.UpdateLegPriceAsync(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="USDT" Disabled="@context.IsReadOnly" />
-                </MudTd>
-                <MudTd DataLabel="Temp P/L">
-                    <MudText Typo="Typo.body2" Color="@(context.TemporaryPnl >= 0 ? Color.Success : Color.Error)">
-                        @context.TemporaryPnl.ToString("0.##")
-                    </MudText>
-                </MudTd>
-                <MudTd DataLabel="IV">
-                <MudNumericField T="double?" Value="@context.ImpliedVolatility" ValueChanged="async value => await ViewModel.UpdateLegIvAsync(context, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="%" Disabled="@context.IsReadOnly" />
-                </MudTd>
-                <MudTd DataLabel="Actions" Style="text-align:right;">
-                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="async () => await ViewModel.RemoveLegAsync(context)" />
-                </MudTd>
+                <LegRow Leg="context" ViewModel="ViewModel" />
             </RowTemplate>
         </MudTable>
     </MudCardContent>
@@ -154,5 +115,30 @@
     .portfolio-color-picker .mud-input-underline,
     .portfolio-color-picker .mud-input-outlined-border {
         border: 0;
+    }
+
+    .iv-column {
+        width: 110px;
+        min-width: 110px;
+    }
+
+    .iv-input .mud-input-root {
+        max-width: 90px;
+    }
+
+    .iv-chain {
+        display: block;
+        margin-top: 2px;
+        line-height: 1.1;
+    }
+
+    .price-input .mud-input-root {
+        max-width: 120px;
+    }
+
+    .price-chain {
+        display: block;
+        margin-top: 2px;
+        line-height: 1.1;
     }
 </style>

@@ -19,6 +19,8 @@ public class PositionBuilderViewModel : IAsyncDisposable
     private string? _currentSymbol;
     private TimeSpan _livePriceUpdateInterval = TimeSpan.FromMilliseconds(1000);
     private DateTime _lastLivePriceUpdateUtc = DateTime.MinValue;
+    private static readonly TimeSpan LegPriceUpdateInterval = TimeSpan.FromSeconds(1);
+    private readonly Dictionary<string, DateTime> _lastLegPriceUpdateUtc = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Regex QuickAddAtRegex = new(@"@\s*(?<value>\d+(?:\.\d+)?)\s*(?<percent>%?)", RegexOptions.Compiled);
     private static readonly Regex QuickAddDateWithYearRegex = new(@"(?i)\b\d{1,2}[A-Z]{3}\d{2,4}\b", RegexOptions.Compiled);
     private static readonly Regex QuickAddDateWithoutYearRegex = new(@"(?i)\b\d{1,2}[A-Z]{3}\b", RegexOptions.Compiled);
@@ -77,6 +79,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         _bybitPositionService = bybitPositionService;
         _exchangeTickerService.PriceUpdated += HandlePriceUpdated;
         _optionsChainService.ChainUpdated += HandleChainUpdated;
+        _optionsChainService.TickerUpdated += HandleTickerUpdated;
     }
 
     public ObservableCollection<PositionModel> Positions { get; } = new();
@@ -672,6 +675,63 @@ public class PositionBuilderViewModel : IAsyncDisposable
         ChartConfig = new EChartOptions(positionId, xs, labels, displayPrice, chartCollections, activeCollectionId, minProfit - padding, maxProfit + padding);
     }
 
+    public double? GetLegMarkIv(LegModel leg, string? baseAsset = null)
+    {
+        var resolvedBaseAsset = baseAsset ?? SelectedPosition?.BaseAsset;
+        var ticker = _optionsChainService.FindTickerForLeg(leg, resolvedBaseAsset);
+        if (ticker is null || ticker.MarkIv <= 0)
+        {
+            return null;
+        }
+
+        return NormalizeIv(ticker.MarkIv);
+    }
+
+    public double? GetLegLastPrice(LegModel leg, string? baseAsset = null)
+    {
+        var resolvedBaseAsset = baseAsset ?? SelectedPosition?.BaseAsset;
+        var ticker = _optionsChainService.FindTickerForLeg(leg, resolvedBaseAsset);
+        if (ticker is null)
+        {
+            return null;
+        }
+
+        var lastPrice = ticker.LastPrice > 0 ? ticker.LastPrice : ticker.MarkPrice;
+        return lastPrice > 0 ? lastPrice : null;
+    }
+
+    public BidAsk GetLegBidAsk(LegModel leg, string? baseAsset = null)
+    {
+        var resolvedBaseAsset = baseAsset ?? SelectedPosition?.BaseAsset;
+        var ticker = _optionsChainService.FindTickerForLeg(leg, resolvedBaseAsset);
+        if (ticker is null)
+        {
+            return default;
+        }
+
+        var bid = ticker.BidPrice > 0 ? ticker.BidPrice : (double?)null;
+        var ask = ticker.AskPrice > 0 ? ticker.AskPrice : (double?)null;
+        return new BidAsk(bid, ask);
+    }
+
+    public string? GetLegSymbol(LegModel leg)
+    {
+        if (!string.IsNullOrWhiteSpace(leg.ChainSymbol))
+        {
+            return leg.ChainSymbol;
+        }
+
+        var baseAsset = SelectedPosition?.BaseAsset;
+        var ticker = _optionsChainService.FindTickerForLeg(leg, baseAsset);
+        if (ticker is null)
+        {
+            return null;
+        }
+
+        leg.ChainSymbol ??= ticker.Symbol;
+        return ticker.Symbol;
+    }
+
     public void SetSelectedPrice(double price)
     {
         UpdateSelectedPrice(price, refresh: true);
@@ -946,6 +1006,8 @@ public class PositionBuilderViewModel : IAsyncDisposable
             Size = leg.Size,
             Price = leg.Price,
             ImpliedVolatility = leg.ImpliedVolatility,
+            BidPrice = leg.BidPrice,
+            AskPrice = leg.AskPrice,
             ChainSymbol = leg.ChainSymbol
         };
     }
@@ -1008,7 +1070,9 @@ public class PositionBuilderViewModel : IAsyncDisposable
             ExpirationDate = expiration,
             Size = size,
             Price = price,
-            ImpliedVolatility = null
+            ImpliedVolatility = null,
+            BidPrice = null,
+            AskPrice = null
         };
     }
 
@@ -1205,17 +1269,21 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     private void UpdateLegTickerSubscription()
     {
+        _ = UpdateLegTickerSubscriptionAsync();
+    }
+
+    private async Task UpdateLegTickerSubscriptionAsync()
+    {
         if (SelectedPosition is null)
         {
             return;
         }
 
-        _optionsChainService.TrackLegs(EnumerateAllLegs(), SelectedPosition.BaseAsset);
+        var baseAsset = SelectedPosition.BaseAsset;
+        _optionsChainService.TrackLegs(EnumerateAllLegs(), baseAsset);
 
-        if (IsLive)
-        {
-            _ = _optionsChainService.RefreshAsync(SelectedPosition?.BaseAsset);
-        }
+        await _optionsChainService.RefreshAsync(baseAsset);
+        _optionsChainService.TrackLegs(EnumerateAllLegs(), baseAsset);
     }
 
     private async Task StopTickerAsync()
@@ -1275,29 +1343,39 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     private void HandleChainUpdated()
     {
-        if (!IsLive)
-        {
-            return;
-        }
-
+        UpdateLegPricesFromChain();
         UpdateTemporaryPnls();
         UpdateChart();
         OnChange?.Invoke();
     }
 
+    private void HandleTickerUpdated(OptionChainTicker ticker)
+    {
+        if (ticker is null || string.IsNullOrWhiteSpace(ticker.Symbol))
+        {
+            return;
+        }
+
+        if (UpdateLegFromTicker(ticker))
+        {
+            LegTickerUpdated?.Invoke(ticker);
+        }
+    }
+
     private LegModel ResolveLegForCalculation(LegModel leg, string? baseAsset)
     {
-        var impliedVolatility = leg.ImpliedVolatility ?? 0;
-        if (impliedVolatility <= 0)
+        var impliedVolatility = leg.ImpliedVolatility;
+        if (!impliedVolatility.HasValue || impliedVolatility.Value <= 0)
         {
-            var ticker = _optionsChainService.FindTickerForLeg(leg, baseAsset);
-            if (ticker is not null && ticker.MarkIv > 0)
+            var markIv = GetLegMarkIv(leg, baseAsset);
+            if (markIv.HasValue)
             {
-                impliedVolatility = ticker.MarkIv;
+                impliedVolatility = markIv.Value;
             }
         }
         var originalIv = leg.ImpliedVolatility ?? 0;
-        if (Math.Abs(impliedVolatility - originalIv) < 0.0001)
+        var resolvedIv = impliedVolatility ?? 0;
+        if (Math.Abs(resolvedIv - originalIv) < 0.0001)
         {
             return leg;
         }
@@ -1312,8 +1390,20 @@ public class PositionBuilderViewModel : IAsyncDisposable
             Size = leg.Size,
             Price = leg.Price,
             ImpliedVolatility = impliedVolatility,
+            BidPrice = leg.BidPrice,
+            AskPrice = leg.AskPrice,
             ChainSymbol = leg.ChainSymbol
         };
+    }
+
+    private static double NormalizeIv(double value)
+    {
+        if (value <= 0)
+        {
+            return 0;
+        }
+
+        return value <= 3 ? value * 100 : value;
     }
 
     private IEnumerable<LegModel> ResolveLegsForCalculation(IEnumerable<LegModel> legs)
@@ -1336,6 +1426,97 @@ public class PositionBuilderViewModel : IAsyncDisposable
         return SelectedPosition.Collections.SelectMany(collection => collection.Legs);
     }
 
+    private void UpdateLegPricesFromChain()
+    {
+        var baseAsset = SelectedPosition?.BaseAsset;
+        if (baseAsset is null)
+        {
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+
+        foreach (var leg in EnumerateAllLegs())
+        {
+            var ticker = _optionsChainService.FindTickerForLeg(leg, baseAsset);
+            if (ticker is null)
+            {
+                continue;
+            }
+
+            var key = !string.IsNullOrWhiteSpace(ticker.Symbol) ? ticker.Symbol : leg.Id;
+            if (_lastLegPriceUpdateUtc.TryGetValue(key, out var lastUpdate) &&
+                now - lastUpdate < LegPriceUpdateInterval)
+            {
+                continue;
+            }
+
+            leg.BidPrice = ticker.BidPrice > 0 ? ticker.BidPrice : null;
+            leg.AskPrice = ticker.AskPrice > 0 ? ticker.AskPrice : null;
+            _lastLegPriceUpdateUtc[key] = now;
+        }
+    }
+
+    private bool UpdateLegFromTicker(OptionChainTicker ticker)
+    {
+        var now = DateTime.UtcNow;
+        if (_lastLegPriceUpdateUtc.TryGetValue(ticker.Symbol, out var lastUpdate) &&
+            now - lastUpdate < LegPriceUpdateInterval)
+        {
+            return false;
+        }
+
+        var updated = false;
+
+        foreach (var leg in EnumerateAllLegs())
+        {
+            if (!IsLegMatch(leg, ticker))
+            {
+                continue;
+            }
+
+            leg.ChainSymbol ??= ticker.Symbol;
+            leg.BidPrice = ticker.BidPrice > 0 ? ticker.BidPrice : null;
+            leg.AskPrice = ticker.AskPrice > 0 ? ticker.AskPrice : null;
+            if (!leg.ImpliedVolatility.HasValue || leg.ImpliedVolatility.Value <= 0)
+            {
+                var normalizedIv = ticker.MarkIv > 0 ? NormalizeIv(ticker.MarkIv) : 0;
+                if (normalizedIv > 0)
+                {
+                    leg.ImpliedVolatility = normalizedIv;
+                }
+            }
+            updated = true;
+        }
+
+        if (updated)
+        {
+            _lastLegPriceUpdateUtc[ticker.Symbol] = now;
+        }
+
+        return updated;
+    }
+
+    private static bool IsLegMatch(LegModel leg, OptionChainTicker ticker)
+    {
+        if (!string.IsNullOrWhiteSpace(leg.ChainSymbol))
+        {
+            return string.Equals(leg.ChainSymbol, ticker.Symbol, StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (!leg.ExpirationDate.HasValue || !leg.Strike.HasValue)
+        {
+            return false;
+        }
+
+        return leg.Type == ticker.Type
+            && leg.ExpirationDate.Value.Date == ticker.ExpirationDate.Date
+            && Math.Abs(leg.Strike.Value - ticker.Strike) < 0.01;
+    }
+
+    public readonly record struct BidAsk(double? Bid, double? Ask);
+
+    public event Action<OptionChainTicker>? LegTickerUpdated;
     public event Action? OnChange;
     public event Action<string>? NotificationRequested;
 
@@ -1348,6 +1529,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
     {
         _exchangeTickerService.PriceUpdated -= HandlePriceUpdated;
         _optionsChainService.ChainUpdated -= HandleChainUpdated;
+        _optionsChainService.TickerUpdated -= HandleTickerUpdated;
         await StopTickerAsync();
     }
 
@@ -1542,3 +1724,11 @@ public class PositionBuilderViewModel : IAsyncDisposable
     }
 
 }
+
+
+
+
+
+
+
+

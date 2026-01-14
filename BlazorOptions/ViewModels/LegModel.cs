@@ -30,6 +30,10 @@ public class LegModel
 
     public double? ImpliedVolatility { get; set; }
 
+    public double? BidPrice { get; set; }
+
+    public double? AskPrice { get; set; }
+
     public string? ChainSymbol { get; set; }
 
     [JsonIgnore]

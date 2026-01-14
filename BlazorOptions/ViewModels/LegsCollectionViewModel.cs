@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using BlazorOptions.Services;
 using BlazorOptions.Shared;
 using Microsoft.AspNetCore.Components.Web;
 using MudBlazor;
@@ -303,6 +304,32 @@ public sealed class LegsCollectionViewModel
         await PersistAndRefreshAsync();
     }
 
+    public double? GetLegMarkIv(LegModel leg)
+    {
+        return _positionBuilder.GetLegMarkIv(leg);
+    }
+
+    public double? GetLegLastPrice(LegModel leg)
+    {
+        return _positionBuilder.GetLegLastPrice(leg);
+    }
+
+    public PositionBuilderViewModel.BidAsk GetLegBidAsk(LegModel leg)
+    {
+        return _positionBuilder.GetLegBidAsk(leg);
+    }
+
+    public string? GetLegSymbol(LegModel leg)
+    {
+        return _positionBuilder.GetLegSymbol(leg);
+    }
+
+    public event Action<OptionChainTicker>? LegTickerUpdated
+    {
+        add => _positionBuilder.LegTickerUpdated += value;
+        remove => _positionBuilder.LegTickerUpdated -= value;
+    }
+
     private bool EnsureActiveCollection()
     {
         return _positionBuilder.TrySetActiveCollection(Collection.Id);
@@ -316,3 +343,13 @@ public sealed class LegsCollectionViewModel
         _positionBuilder.NotifyStateChanged();
     }
 }
+
+
+
+
+
+
+
+
+
+

@@ -6,7 +6,7 @@
 - Register new services or view models with dependency injection in `Program.cs`.
 
 ## Task completion
-- Run `dotnet build` before completing the task.
+- Run `dotnet build --no-restore` before completing the task.
 - fix errors and warnings (if possible)
 
 ## Testing
@@ -16,3 +16,4 @@
 ## Formating
 
 - use windows line ending (CR LF) in cs files
+- avoid mixed line endings: after edits, ensure the entire `.cs` file is normalized to CRLF

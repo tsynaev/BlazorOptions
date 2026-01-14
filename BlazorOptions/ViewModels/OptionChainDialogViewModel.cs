@@ -217,7 +217,9 @@ public class OptionChainDialogViewModel : IDisposable
             ExpirationDate = _selectedExpiration.Value.Date,
             Size = 1,
             Price = ticker?.MarkPrice ?? 0,
-            ImpliedVolatility = ticker?.MarkIv ?? 0,
+            ImpliedVolatility = NormalizeIv(ticker?.MarkIv) ?? 0,
+            BidPrice = ticker is not null && ticker.BidPrice > 0 ? ticker.BidPrice : null,
+            AskPrice = ticker is not null && ticker.AskPrice > 0 ? ticker.AskPrice : null,
             ChainSymbol = ticker?.Symbol
         };
 
@@ -245,7 +247,9 @@ public class OptionChainDialogViewModel : IDisposable
             ExpirationDate = _selectedExpiration.Value.Date,
             Size = 1,
             Price = price > 0 ? price : ticker?.MarkPrice ?? 0,
-            ImpliedVolatility = iv > 0 ? iv : ticker?.MarkIv ?? 0,
+            ImpliedVolatility = iv > 0 ? iv : NormalizeIv(ticker?.MarkIv) ?? 0,
+            BidPrice = ticker is not null && ticker.BidPrice > 0 ? ticker.BidPrice : null,
+            AskPrice = ticker is not null && ticker.AskPrice > 0 ? ticker.AskPrice : null,
             ChainSymbol = ticker?.Symbol
         };
 
@@ -370,13 +374,15 @@ public class OptionChainDialogViewModel : IDisposable
         }
 
         var callIv = candidates.FirstOrDefault(ticker => ticker.Type == LegType.Call)?.MarkIv;
-        if (callIv > 0)
+        var normalizedCall = NormalizeIv(callIv);
+        if (normalizedCall.HasValue && normalizedCall.Value > 0)
         {
-            return callIv;
+            return normalizedCall.Value;
         }
 
         var putIv = candidates.FirstOrDefault(ticker => ticker.Type == LegType.Put)?.MarkIv;
-        return putIv > 0 ? putIv : null;
+        var normalizedPut = NormalizeIv(putIv);
+        return normalizedPut.HasValue && normalizedPut.Value > 0 ? normalizedPut.Value : null;
     }
 
     public OptionChainTicker? GetStrikeTicker(double strike, LegType type)
@@ -466,6 +472,8 @@ public class OptionChainDialogViewModel : IDisposable
             Size = leg.Size,
             Price = leg.Price,
             ImpliedVolatility = leg.ImpliedVolatility,
+            BidPrice = leg.BidPrice,
+            AskPrice = leg.AskPrice,
             ChainSymbol = leg.ChainSymbol
         };
     }
@@ -508,4 +516,16 @@ public class OptionChainDialogViewModel : IDisposable
 
         return window;
     }
+
+    private static double? NormalizeIv(double? value)
+    {
+        if (!value.HasValue || value.Value <= 0)
+        {
+            return null;
+        }
+
+        return value.Value <= 3 ? value.Value * 100 : value.Value;
+    }
 }
+
+
