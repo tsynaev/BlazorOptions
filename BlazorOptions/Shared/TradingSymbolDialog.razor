@@ -1,0 +1,99 @@
+@using BlazorOptions.ViewModels
+@using MudBlazor
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudSwitch T="bool" @bind-Value="_showRaw" Color="Color.Primary" Label="Raw" />
+
+            @if (_showRaw)
+            {
+                @if (string.IsNullOrWhiteSpace(RawJson))
+                {
+                    <MudText Typo="Typo.body2">No raw data found for this symbol.</MudText>
+                }
+                else
+                {
+                    <MudTextField T="string"
+                                  Value="RawJson"
+                                  ReadOnly="true"
+                                  Lines="26"
+                                  Variant="Variant.Outlined"
+                                  Class="w-100"
+                                  Style="font-family: Consolas, 'Courier New', monospace;" />
+                }
+            }
+            else if (Trades.Count == 0)
+            {
+                <MudText Typo="Typo.body2">No trades found for this symbol.</MudText>
+            }
+            else
+            {
+                <MudDataGrid T="TradingTransaction"
+                             Items="Trades"
+                             Dense="true"
+                             Hover="true"
+                             FixedHeader="true"
+                             Height="420px">
+                    <Columns>
+                        <TemplateColumn Title="Date">
+                            <CellTemplate>
+                                <MudStack Spacing="0">
+                                    <MudText Typo="Typo.body2">@context.Item.TimeLabel</MudText>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.TransactionType</MudText>
+                                </MudStack>
+                            </CellTemplate>
+                        </TemplateColumn>
+                        <TemplateColumn Title="Trade">
+                            <CellTemplate>
+                                @($"{context.Item.Side} {context.Item.TransactionType} {context.Item.Qty} {context.Item.Symbol}")
+                            </CellTemplate>
+                        </TemplateColumn>
+                        <TemplateColumn Title="Price">
+                            <CellTemplate>
+                                @context.Item.TradePrice
+                            </CellTemplate>
+                        </TemplateColumn>
+                        <TemplateColumn Title="Value">
+                            <CellTemplate>
+                                @($"{context.Item.Value} {context.Item.Currency}")
+                            </CellTemplate>
+                        </TemplateColumn>
+                        <TemplateColumn Title="Fee">
+                            <CellTemplate>
+                                @($"{context.Item.Fee} {context.Item.Currency}")
+                            </CellTemplate>
+                        </TemplateColumn>
+                        <PropertyColumn Property="x => x.SizeAfter" Title="Size after" />
+                        <PropertyColumn Property="x => x.AvgPriceAfter" Title="Avg price after" />
+                        <PropertyColumn Property="x => x.RealizedPnl" Title="Realized PnL" />
+                        <PropertyColumn Property="x => x.CumulativePnl" Title="Cumulative PnL" />
+                    </Columns>
+                </MudDataGrid>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Color="Color.Primary" OnClick="Close">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance? MudDialog { get; set; }
+
+    [Parameter] public string Symbol { get; set; } = string.Empty;
+    [Parameter] public string Category { get; set; } = string.Empty;
+    [Parameter] public IReadOnlyList<TradingTransaction> Trades { get; set; } = Array.Empty<TradingTransaction>();
+    [Parameter] public string RawJson { get; set; } = string.Empty;
+
+    private string Title => string.IsNullOrWhiteSpace(Symbol)
+        ? "Symbol trades"
+        : string.IsNullOrWhiteSpace(Category)
+            ? $"Trades for {Symbol}"
+            : $"Trades for {Symbol} ({Category})";
+    private bool _showRaw;
+
+    private void Close()
+    {
+        MudDialog?.Close();
+    }
+}

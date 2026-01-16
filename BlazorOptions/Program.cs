@@ -18,6 +18,8 @@ builder.Services.AddScoped<LocalStorageService>();
 builder.Services.AddScoped<PositionStorageService>();
 builder.Services.AddScoped<ExchangeSettingsService>();
 builder.Services.AddScoped<BybitPositionService>();
+builder.Services.AddScoped<BybitTransactionService>();
+builder.Services.AddScoped<TradingHistoryStorageService>();
 builder.Services.AddScoped<ExchangeTickerService>();
 builder.Services.AddScoped<IExchangeTickerClient, BybitTickerClient>();
 builder.Services.AddScoped<OptionsChainService>();
@@ -28,6 +30,7 @@ builder.Services.AddScoped<PositionBuilderViewModel>();
 builder.Services.AddScoped<LegsCollectionViewModelFactory>();
 builder.Services.AddTransient<OptionChainDialogViewModel>();
 builder.Services.AddTransient<PortfolioSettingsDialogViewModel>();
+builder.Services.AddScoped<TradingHistoryViewModel>();
 builder.Services.AddMudServices();
 
 await builder.Build().RunAsync();

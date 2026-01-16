@@ -1,0 +1,287 @@
+@page "/trading-history"
+@implements IDisposable
+@using BlazorOptions.Shared
+@inject TradingHistoryViewModel ViewModel
+@inject IDialogService DialogService
+
+<PageTitle>Trading history</PageTitle>
+
+<MudStack Spacing="3">
+    <MudText Typo="Typo.h4">Trading history</MudText>
+    <MudText Typo="Typo.body2">
+        Pull the latest transaction log entries and review recent activity.
+    </MudText>
+
+    <MudTabs Rounded="true">
+        <MudTabPanel Text="History">
+            <MudStack Spacing="3">
+                <MudPaper Class="pa-6" Elevation="1">
+                    <MudStack Spacing="2">
+                        <MudText Typo="Typo.h6">Load transactions</MudText>
+                        @if (ViewModel.IsRegistrationDateRequired)
+                        {
+                            <MudDatePicker Date="@ViewModel.RegistrationDate"
+                                           DateChanged="OnRegistrationDateChanged"
+                                           Label="Registration date"
+                                           DateFormat="yyyy-MM-dd"
+                                           Clearable="true" />
+                            <MudText Typo="Typo.caption">
+                                Select the date you registered on Bybit to backfill history.
+                            </MudText>
+                        }
+                        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                            <MudButton Variant="Variant.Filled"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.Download"
+                                       Disabled="ViewModel.IsLoading"
+                                       OnClick="LoadAsync">
+                                @(ViewModel.IsLoading ? "Loading..." : "Load")
+                            </MudButton>
+                            @if (ViewModel.LastLoadedAt.HasValue)
+                            {
+                                <MudText Typo="Typo.caption">
+                                    Last loaded @ViewModel.LastLoadedAt.Value.ToLocalTime().ToString("g")
+                                </MudText>
+                            }
+                        </MudStack>
+                        <MudText Typo="Typo.caption">
+                            Loads all new entries since the selected registration date for: linear, inverse, spot, option.
+                        </MudText>
+                        <MudText Typo="Typo.caption">
+                            Endpoint: https://bybit-exchange.github.io/docs/v5/account/transaction-log
+                        </MudText>
+                        @if (!string.IsNullOrWhiteSpace(ViewModel.ErrorMessage))
+                        {
+                            <MudAlert Severity="Severity.Error">@ViewModel.ErrorMessage</MudAlert>
+                        }
+                    </MudStack>
+                </MudPaper>
+
+                <MudPaper Class="pa-6" Elevation="1">
+                    <MudStack Spacing="2">
+                        <MudText Typo="Typo.h6">Recent transactions</MudText>
+                        @if (ViewModel.TotalTransactionsCount == 0)
+                        {
+                            <MudText Typo="Typo.body2">No transactions loaded yet.</MudText>
+                        }
+                        else
+                        {
+                            <MudDataGrid T="TradingTransaction"
+                                         @key="_gridVersion"
+                                         VirtualizeServerData="ServerDataFunc"
+                                         Virtualize="true"
+                                         Filterable="true"
+                                         FixedHeader="true"
+                                         Height="400px"
+                                         ItemSize="52.68f">
+                                <Columns>
+                                    <TemplateColumn Title="Date">
+                                        <CellTemplate>
+                                            <MudStack Spacing="0">
+                                                <MudText Typo="Typo.body2">@context.Item.TimeLabel</MudText>
+                                                <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.TransactionType</MudText>
+                                            </MudStack>
+                                        </CellTemplate>
+                                    </TemplateColumn>
+                                    <TemplateColumn Title="Trade">
+                                        <CellTemplate>
+                                            <MudStack Spacing="0">
+                                        <MudText Typo="Typo.body2">
+                                            @context.Item.Side @context.Item.TransactionType @context.Item.Qty
+                                            <MudLink OnClick="@(() => OpenSymbolDialogAsync(context.Item.Symbol, context.Item.Category))">
+                                                @context.Item.Symbol
+                                            </MudLink>
+                                        </MudText>
+                                    </MudStack>
+                                </CellTemplate>
+                            </TemplateColumn>
+                                    <TemplateColumn Title="Price">
+                                        <CellTemplate>
+                                @context.Item.TradePrice
+                                        </CellTemplate>
+                                    </TemplateColumn>
+                                    <TemplateColumn Title="Value">
+                                        <CellTemplate>
+                                @($"{context.Item.Value} {context.Item.Currency}")
+                                        </CellTemplate>
+                                    </TemplateColumn>
+                                    <TemplateColumn Title="Fee">
+                                        <CellTemplate>
+                                @($"{context.Item.Fee} {context.Item.Currency}")
+                                        </CellTemplate>
+                                    </TemplateColumn>
+                                    <PropertyColumn Property="x => x.SizeAfter" Title="Size after" />
+                                    <PropertyColumn Property="x => x.AvgPriceAfter" Title="Avg price after" />
+                                    <PropertyColumn Property="x => x.RealizedPnl" Title="Realized PnL" />
+                                    <PropertyColumn Property="x => x.CumulativePnl" Title="Cumulative PnL" />
+                                </Columns>
+                                <RowLoadingContent>
+                                    <tr class="mud-table-row">
+                                        <td class="mud-table-cell" colspan="1000">
+                                            Loading...
+                                        </td>
+                                    </tr>
+                                </RowLoadingContent>
+                            </MudDataGrid>
+                        }
+                    </MudStack>
+                </MudPaper>
+            </MudStack>
+        </MudTabPanel>
+        <MudTabPanel Text="Summary">
+            <MudStack Spacing="3">
+                <MudPaper Class="pa-6" Elevation="1">
+                    <MudStack Spacing="2">
+                        <MudText Typo="Typo.h6">Totals by symbol</MudText>
+                        @if (ViewModel.TotalTransactionsCount == 0)
+                        {
+                            <MudText Typo="Typo.body2">No transactions loaded yet.</MudText>
+                        }
+                        else
+                        {
+                            <MudTable Items="ViewModel.GetSummaryBySymbol()"
+                                      Hover="true"
+                                      Dense="true"
+                                      FixedHeader="true"
+                                      Height="500px"
+                                      GroupBy="@_summaryGroupDefinition"
+                                      GroupHeaderStyle="background-color: var(--mud-palette-background-gray);">
+                                <HeaderContent>
+                                    <MudTh>Symbol</MudTh>
+                                    <MudTh align="right">Trades</MudTh>
+                                    <MudTh align="right">Qty</MudTh>
+                                    <MudTh align="right">Value</MudTh>
+                                    <MudTh align="right">Fees</MudTh>
+                                    <MudTh align="right">Realized PnL</MudTh>
+                                </HeaderContent>
+                                <GroupHeaderTemplate>
+                                    <MudTh Class="mud-table-cell-custom-group" colspan="6">
+                                        @($"{context.GroupName}: {context.Key}")
+                                    </MudTh>
+                                </GroupHeaderTemplate>
+                                <RowTemplate>
+                                    <MudTd DataLabel="Symbol">
+                                        <MudLink OnClick="@(() => OpenSymbolDialogAsync(context.Symbol, context.Category))">
+                                            @context.Symbol
+                                        </MudLink>
+                                    </MudTd>
+                                    <MudTd DataLabel="Trades" Style="text-align:right;">@context.Trades</MudTd>
+                                    <MudTd DataLabel="Qty" Style="text-align:right;">@context.TotalQty</MudTd>
+                                    <MudTd DataLabel="Value" Style="text-align:right;">@context.TotalValue</MudTd>
+                                    <MudTd DataLabel="Fees" Style="text-align:right;">@context.TotalFees</MudTd>
+                                    <MudTd DataLabel="Realized PnL" Style="text-align:right;">@context.RealizedPnl</MudTd>
+                                </RowTemplate>
+                            </MudTable>
+                        }
+                    </MudStack>
+                </MudPaper>
+
+                <MudPaper Class="pa-6" Elevation="1">
+                    <MudStack Spacing="2">
+                        <MudText Typo="Typo.h6">Realized PnL by settle coin</MudText>
+                        @if (ViewModel.TotalTransactionsCount == 0)
+                        {
+                            <MudText Typo="Typo.body2">No transactions loaded yet.</MudText>
+                        }
+                        else
+                        {
+                            <MudTable Items="ViewModel.GetRealizedPnlBySettleCoin()"
+                                      Hover="true"
+                                      Dense="true"
+                                      FixedHeader="true"
+                                      Height="300px">
+                                <HeaderContent>
+                                    <MudTh>Settle coin</MudTh>
+                                    <MudTh align="right">Realized PnL</MudTh>
+                                    <MudTh align="right">Fees</MudTh>
+                                    <MudTh align="right">Net PnL</MudTh>
+                                </HeaderContent>
+                                <RowTemplate>
+                                    <MudTd DataLabel="Settle coin">@context.SettleCoin</MudTd>
+                                    <MudTd DataLabel="Realized PnL" Style="text-align:right;">@context.RealizedPnl</MudTd>
+                                    <MudTd DataLabel="Fees" Style="text-align:right;">@context.Fees</MudTd>
+                                    <MudTd DataLabel="Net PnL" Style="text-align:right;">@context.NetPnl</MudTd>
+                                </RowTemplate>
+                            </MudTable>
+                        }
+                    </MudStack>
+                </MudPaper>
+            </MudStack>
+        </MudTabPanel>
+    </MudTabs>
+</MudStack>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        ViewModel.OnChange += HandleViewModelChanged;
+        await ViewModel.InitializeAsync();
+    }
+
+    public void Dispose()
+    {
+        ViewModel.OnChange -= HandleViewModelChanged;
+    }
+
+    private Task LoadAsync()
+    {
+        return LoadAndRefreshAsync();
+    }
+
+    private Task OnRegistrationDateChanged(DateTime? date)
+    {
+        return ViewModel.SetRegistrationDateAsync(date);
+    }
+    
+    private async Task<GridData<TradingTransaction>> ServerDataFunc(
+        GridStateVirtualize<TradingTransaction> state,
+        CancellationToken cancellationToken)
+    {
+        await ViewModel.EnsureRangeAsync(state.StartIndex, state.Count);
+        var items = ViewModel.GetRange(state.StartIndex, state.Count);
+        return new GridData<TradingTransaction> { Items = items, TotalItems = ViewModel.TotalTransactionsCount };
+    }
+
+    private async Task OpenSymbolDialogAsync(string symbol, string? category = null)
+    {
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return;
+        }
+
+        var parameters = new DialogParameters
+        {
+            { nameof(TradingSymbolDialog.Symbol), symbol },
+            { nameof(TradingSymbolDialog.Category), category ?? string.Empty },
+            { nameof(TradingSymbolDialog.Trades), ViewModel.GetTradesForSymbol(symbol, category) },
+            { nameof(TradingSymbolDialog.RawJson), ViewModel.GetRawJsonForSymbol(symbol, category) }
+        };
+
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.ExtraLarge,
+            FullWidth = true
+        };
+
+        await DialogService.ShowAsync<TradingSymbolDialog>($"Trades for {symbol}", parameters, options);
+    }
+
+    private void HandleViewModelChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LoadAndRefreshAsync()
+    {
+        await ViewModel.LoadLatestAsync();
+        _gridVersion++;
+    }
+
+    private int _gridVersion;
+
+    private readonly TableGroupDefinition<TradingSummaryRow> _summaryGroupDefinition =
+        new(item => item.GroupKey)
+        {
+            GroupName = "Category / Settle"
+        };
+}
