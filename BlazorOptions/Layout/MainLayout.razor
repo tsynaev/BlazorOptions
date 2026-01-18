@@ -1,10 +1,44 @@
 @inherits LayoutComponentBase
+@implements IDisposable
+@inject BlazorOptions.ViewModels.MainLayoutViewModel ViewModel
 
 <MudLayout>
     <MudAppBar>
-        Blazor Options
+        <MudText Typo="Typo.h6">Blazor Options</MudText>
+        <MudSpacer />
+        @if (ViewModel.IsAuthenticated && !string.IsNullOrWhiteSpace(ViewModel.UserName))
+        {
+            <MudText Typo="Typo.subtitle2">@ViewModel.UserName</MudText>
+        }
+        <MudIconButton Icon="@Icons.Material.Filled.AccountCircle"
+                       Color="Color.Inherit"
+                       Href="account-settings"
+                       AriaLabel="Account settings" />
     </MudAppBar>
     <MudMainContent>
         @Body
     </MudMainContent>
 </MudLayout>
+
+@code {
+    protected override void OnInitialized()
+    {
+        ViewModel.OnChange += HandleViewModelChanged;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ViewModel.InitializeAsync();
+    }
+
+    public void Dispose()
+    {
+        ViewModel.OnChange -= HandleViewModelChanged;
+        ViewModel.Dispose();
+    }
+
+    private void HandleViewModelChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+}

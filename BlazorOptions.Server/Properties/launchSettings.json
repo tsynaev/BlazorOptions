@@ -5,7 +5,7 @@
       "commandName": "Project",
       "dotnetRunMessages": true,
       "launchBrowser": true,
-      "launchUrl": "trading-history",
+      "launchUrl": "account-settings",
       "applicationUrl": "http://localhost:5117",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"

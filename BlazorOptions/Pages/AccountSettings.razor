@@ -20,12 +20,51 @@
             <MudText Typo="Typo.caption">@ViewModel.SystemPreferenceLabel</MudText>
         </MudStack>
     </MudPaper>
+
+    <MudPaper Class="pa-6" Elevation="1">
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.h6">Sync account</MudText>
+
+            @if (ViewModel.IsAuthenticated)
+            {
+                <MudTextField Label="User name" Value="ViewModel.CurrentUserName" ReadOnly="true" />
+                <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="ViewModel.IsAuthBusy" OnClick="HandleLogoutAsync">
+                    Sign out
+                </MudButton>
+            }
+            else
+            {
+                <MudText Typo="Typo.body2">@ViewModel.AuthStatusLabel</MudText>
+                <MudTextField Label="User name" @bind-Value="ViewModel.UserName" Disabled="ViewModel.IsAuthBusy" />
+                <MudTextField Label="Password" InputType="InputType.Password" @bind-Value="ViewModel.Password" Disabled="ViewModel.IsAuthBusy" />
+
+                <MudStack Direction="Row" Spacing="2">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="ViewModel.IsAuthBusy" OnClick="HandleRegisterAsync">
+                        Register
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="ViewModel.IsAuthBusy" OnClick="HandleLoginAsync">
+                        Sign in
+                    </MudButton>
+                </MudStack>
+
+                @if (!string.IsNullOrWhiteSpace(ViewModel.AuthError))
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Error">@ViewModel.AuthError</MudText>
+                }
+            }
+        </MudStack>
+    </MudPaper>
 </MudStack>
 
 @code {
     protected override void OnInitialized()
     {
         ViewModel.OnChange += HandleViewModelChanged;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ViewModel.InitializeAsync();
     }
 
     public void Dispose()
@@ -37,5 +76,20 @@
     private void HandleViewModelChanged()
     {
         _ = InvokeAsync(StateHasChanged);
+    }
+
+    private Task HandleRegisterAsync()
+    {
+        return ViewModel.RegisterAsync();
+    }
+
+    private Task HandleLoginAsync()
+    {
+        return ViewModel.LoginAsync();
+    }
+
+    private Task HandleLogoutAsync()
+    {
+        return ViewModel.LogoutAsync();
     }
 }
