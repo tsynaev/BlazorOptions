@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Options;
 using BlazorOptions.Server.Models;
+using BlazorOptions.Server.Options;
 
 namespace BlazorOptions.Server.Services;
 
@@ -9,9 +11,9 @@ public class UserRegistryService
     private readonly string _dbPath;
     private readonly SemaphoreSlim _mutex = new(1, 1);
 
-    public UserRegistryService(IWebHostEnvironment environment)
+    public UserRegistryService(IWebHostEnvironment environment, IOptions<DataStorageOptions> dataOptions)
     {
-        var dataRoot = Path.Combine(environment.ContentRootPath, "Data");
+        var dataRoot = ResolveDataRoot(environment.ContentRootPath, dataOptions.Value.Path);
         Directory.CreateDirectory(dataRoot);
         _dbPath = Path.Combine(dataRoot, "users.db");
         EnsureDatabase();
@@ -204,5 +206,18 @@ public class UserRegistryService
         using var pbkdf2 = new Rfc2898DeriveBytes(password, salt, 100_000, HashAlgorithmName.SHA256);
         var computed = pbkdf2.GetBytes(32);
         return CryptographicOperations.FixedTimeEquals(computed, hash);
+    }
+
+    private static string ResolveDataRoot(string contentRootPath, string? configuredPath)
+    {
+        if (string.IsNullOrWhiteSpace(configuredPath))
+        {
+            return Path.Combine(contentRootPath, "Data");
+        }
+
+        var trimmed = configuredPath.Trim();
+        return Path.IsPathRooted(trimmed)
+            ? trimmed
+            : Path.GetFullPath(Path.Combine(contentRootPath, trimmed));
     }
 }

@@ -1,4 +1,5 @@
 using BlazorOptions.Server.Models;
+using BlazorOptions.Server.Options;
 using BlazorOptions.Server.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -6,6 +7,8 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+builder.Services.Configure<DataStorageOptions>(
+    builder.Configuration.GetSection(DataStorageOptions.SectionName));
 builder.Services.AddSingleton<UserRegistryService>();
 
 var app = builder.Build();
