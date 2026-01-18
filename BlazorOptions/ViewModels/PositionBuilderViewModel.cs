@@ -25,6 +25,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
     private static readonly Regex QuickAddDateWithYearRegex = new(@"(?i)\b\d{1,2}[A-Z]{3}\d{2,4}\b", RegexOptions.Compiled);
     private static readonly Regex QuickAddDateWithoutYearRegex = new(@"(?i)\b\d{1,2}[A-Z]{3}\b", RegexOptions.Compiled);
     private static readonly Regex QuickAddNumericDateRegex = new(@"\b\d{4}\b", RegexOptions.Compiled);
+    private bool _isInitialized;
 
     private static readonly ObservableCollection<LegModel> EmptyLegs = new();
     private static readonly ObservableCollection<LegsCollectionModel> EmptyCollections = new();
@@ -96,6 +97,12 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     public async Task InitializeAsync()
     {
+        if (_isInitialized)
+        {
+            return;
+        }
+
+        _isInitialized = true;
         var storedPositions = await _storageService.LoadPositionsAsync();
 
         if (storedPositions.Count == 0)
