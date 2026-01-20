@@ -24,6 +24,8 @@ builder.Services.AddScoped<DeviceIdentityService>();
 builder.Services.AddScoped<AuthSessionService>();
 builder.Services.AddScoped<AuthApiService>();
 builder.Services.AddScoped<PositionStorageService>();
+builder.Services.AddScoped<PositionSyncOutboxService>();
+builder.Services.AddScoped<PositionSyncService>();
 builder.Services.AddScoped<ExchangeSettingsService>();
 builder.Services.AddScoped<BybitPositionService>();
 builder.Services.AddScoped<BybitTransactionService>();

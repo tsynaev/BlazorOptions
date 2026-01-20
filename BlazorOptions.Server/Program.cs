@@ -10,6 +10,12 @@ builder.Services.AddOpenApi();
 builder.Services.Configure<DataStorageOptions>(
     builder.Configuration.GetSection(DataStorageOptions.SectionName));
 builder.Services.AddSingleton<UserRegistryService>();
+builder.Services.AddSingleton<UserDataStore>();
+builder.Services.AddSignalR()
+    .AddHubOptions<SyncHub>(options =>
+    {
+        options.MaximumReceiveMessageSize = 256 * 1024;
+    });
 
 var app = builder.Build();
 
@@ -54,7 +60,19 @@ app.MapGet("/api/auth/me", async (HttpContext context, UserRegistryService regis
     return user is null ? Results.Unauthorized() : Results.Ok(new { user.UserName });
 });
 
+app.MapGet("/api/positions/snapshot", async (HttpContext context, UserRegistryService registry, UserDataStore dataStore) =>
+{
+    var user = await AuthenticateAsync(context, registry);
+    if (user is null)
+    {
+        return Results.Unauthorized();
+    }
 
+    var snapshot = await dataStore.GetPositionSnapshotAsync(user.Id);
+    return snapshot is null ? Results.NoContent() : Results.Ok(snapshot);
+});
+
+app.MapHub<SyncHub>("/syncHub");
 
 app.UseBlazorFrameworkFiles();   // serve _framework from Client build
 app.UseStaticFiles();
