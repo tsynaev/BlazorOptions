@@ -9,7 +9,6 @@ public record EChartOptions(
     string[] Labels,
     double? TemporaryPrice,
     IReadOnlyList<ChartCollectionSeries> Collections,
-    Guid? ActiveCollectionId,
     double YMin,
     double YMax);
 

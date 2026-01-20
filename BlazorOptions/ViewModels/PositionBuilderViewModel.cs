@@ -4,6 +4,8 @@ using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 using BlazorOptions.Services;
+using BlazorOptions.Sync;
+using System.Linq.Expressions;
 
 namespace BlazorOptions.ViewModels;
 
@@ -15,17 +17,20 @@ public class PositionBuilderViewModel : IAsyncDisposable
     private readonly ExchangeTickerService _exchangeTickerService;
     private readonly OptionsChainService _optionsChainService;
     private readonly BybitPositionService _bybitPositionService;
+    private readonly PositionSyncService _positionSyncService;
     private CancellationTokenSource? _tickerCts;
     private string? _currentSymbol;
     private TimeSpan _livePriceUpdateInterval = TimeSpan.FromMilliseconds(1000);
     private DateTime _lastLivePriceUpdateUtc = DateTime.MinValue;
     private static readonly TimeSpan LegPriceUpdateInterval = TimeSpan.FromSeconds(1);
     private readonly Dictionary<string, DateTime> _lastLegPriceUpdateUtc = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, double> _temporaryPnls = new(StringComparer.Ordinal);
     private static readonly Regex QuickAddAtRegex = new(@"@\s*(?<value>\d+(?:\.\d+)?)\s*(?<percent>%?)", RegexOptions.Compiled);
     private static readonly Regex QuickAddDateWithYearRegex = new(@"(?i)\b\d{1,2}[A-Z]{3}\d{2,4}\b", RegexOptions.Compiled);
     private static readonly Regex QuickAddDateWithoutYearRegex = new(@"(?i)\b\d{1,2}[A-Z]{3}\b", RegexOptions.Compiled);
     private static readonly Regex QuickAddNumericDateRegex = new(@"\b\d{4}\b", RegexOptions.Compiled);
     private bool _isInitialized;
+    private bool _suppressSync;
 
     private static readonly ObservableCollection<LegModel> EmptyLegs = new();
     private static readonly ObservableCollection<LegsCollectionModel> EmptyCollections = new();
@@ -70,7 +75,8 @@ public class PositionBuilderViewModel : IAsyncDisposable
         ExchangeSettingsService exchangeSettingsService,
         ExchangeTickerService exchangeTickerService,
         OptionsChainService optionsChainService,
-        BybitPositionService bybitPositionService)
+        BybitPositionService bybitPositionService,
+        PositionSyncService positionSyncService)
     {
         _optionsService = optionsService;
         _storageService = storageService;
@@ -78,6 +84,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         _exchangeTickerService = exchangeTickerService;
         _optionsChainService = optionsChainService;
         _bybitPositionService = bybitPositionService;
+        _positionSyncService = positionSyncService;
         _exchangeTickerService.PriceUpdated += HandlePriceUpdated;
         _optionsChainService.ChainUpdated += HandleChainUpdated;
         _optionsChainService.TickerUpdated += HandleTickerUpdated;
@@ -93,7 +100,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     public ObservableCollection<LegModel> Legs => SelectedCollection?.Legs ?? EmptyLegs;
 
-    public EChartOptions ChartConfig { get; private set; } = new(Guid.Empty, Array.Empty<double>(), Array.Empty<string>(), null, Array.Empty<ChartCollectionSeries>(), null, 0, 0);
+    public EChartOptions ChartConfig { get; private set; } = new(Guid.Empty, Array.Empty<double>(), Array.Empty<string>(), null, Array.Empty<ChartCollectionSeries>(), 0, 0);
 
     public async Task InitializeAsync()
     {
@@ -104,6 +111,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
         _isInitialized = true;
         var storedPositions = await _storageService.LoadPositionsAsync();
+        var deletedPositionIds = await _storageService.LoadDeletedPositionsAsync();
 
         if (storedPositions.Count == 0)
         {
@@ -117,6 +125,8 @@ public class PositionBuilderViewModel : IAsyncDisposable
             await PersistPositionsAsync();
             await StartTickerAsync();
             UpdateLegTickerSubscription();
+            await _positionSyncService.QueueLocalSnapshotAsync(Positions, deletedPositionIds);
+            await _positionSyncService.InitializeAsync(ApplyServerSnapshotAsync, ApplyServerItemAsync);
             return;
         }
 
@@ -136,6 +146,8 @@ public class PositionBuilderViewModel : IAsyncDisposable
         UpdateTemporaryPnls();
         await StartTickerAsync();
         UpdateLegTickerSubscription();
+        await _positionSyncService.QueueLocalSnapshotAsync(Positions, deletedPositionIds);
+        await _positionSyncService.InitializeAsync(ApplyServerSnapshotAsync, ApplyServerItemAsync);
     }
 
     public async Task AddLegAsync()
@@ -248,8 +260,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
             ExpirationDate = expirationDate.Date,
             Size = size,
             Price = RoundPrice(priceOverride ?? tickerMatch.MarkPrice),
-            ImpliedVolatility = ivOverride ?? 0,
-            ChainSymbol = tickerMatch.Symbol
+            ImpliedVolatility = ivOverride ?? 0
         };
 
         SelectedCollection.Legs.Add(leg);
@@ -300,9 +311,9 @@ public class PositionBuilderViewModel : IAsyncDisposable
         return false;
     }
 
-    public async Task AddPositionAsync(string? pair = null)
+    public async Task AddPositionAsync(string? name = null, string? baseAsset = null, string? quoteAsset = null)
     {
-        var position = CreateDefaultPosition(pair ?? $"Position {Positions.Count + 1}");
+        var position = CreateDefaultPosition(name ?? $"Position {Positions.Count + 1}", baseAsset, quoteAsset);
         Positions.Add(position);
         SelectedPosition = position;
         SetSelectedCollection(position);
@@ -334,11 +345,10 @@ public class PositionBuilderViewModel : IAsyncDisposable
         return true;
     }
 
-    public async Task UpdatePairAsync(PositionModel position, string pair)
+    public async Task UpdateNameAsync(PositionModel position, string name)
     {
-        position.Pair = pair;
-        UpdateAssetsFromPair(position);
-        await PersistPositionsAsync();
+        position.Name = name;
+        await PersistPositionsAsync(position);
         if (SelectedPosition?.Id == position.Id)
         {
             await UpdateTickerSubscriptionAsync();
@@ -400,12 +410,6 @@ public class PositionBuilderViewModel : IAsyncDisposable
             return;
         }
 
-        var existingSymbols = new HashSet<string>(collection.Legs
-            .Select(leg => leg.ChainSymbol)
-            .Where(symbol => !string.IsNullOrWhiteSpace(symbol))
-            .Select(symbol => symbol!),
-            StringComparer.OrdinalIgnoreCase);
-
         var totalFetched = 0;
         var added = 0;
         var quoteAsset = SelectedPosition.QuoteAsset?.Trim();
@@ -435,12 +439,12 @@ public class PositionBuilderViewModel : IAsyncDisposable
                 }
 
                 var leg = CreateLegFromBybitPosition(position, baseAsset, category);
-                if (leg is null || string.IsNullOrWhiteSpace(leg.ChainSymbol))
+                if (leg is null)
                 {
                     continue;
                 }
 
-                var existedLeg = collection.Legs.FirstOrDefault(l => string.Equals(l.ChainSymbol, leg.ChainSymbol, StringComparison.OrdinalIgnoreCase));
+                var existedLeg = FindMatchingLeg(collection.Legs, leg);
 
                 if (existedLeg == null)
                 {
@@ -474,6 +478,68 @@ public class PositionBuilderViewModel : IAsyncDisposable
         await PersistPositionsAsync();
         UpdateLegTickerSubscription();
         Notify($"Loaded {added} Bybit position leg{(added == 1 ? string.Empty : "s")}.");
+        OnChange?.Invoke();
+    }
+
+    public async Task AddBybitPositionsToCollectionAsync(
+        PositionModel position,
+        LegsCollectionModel collection,
+        IReadOnlyList<BybitPosition> positions)
+    {
+        if (position is null || collection is null || positions.Count == 0)
+        {
+            return;
+        }
+
+        if (!Positions.Contains(position) || !position.Collections.Contains(collection))
+        {
+            return;
+        }
+
+        var baseAsset = position.BaseAsset?.Trim();
+        if (string.IsNullOrWhiteSpace(baseAsset))
+        {
+            Notify("Specify a base asset before loading Bybit positions.");
+            return;
+        }
+
+        var added = 0;
+
+        foreach (var bybitPosition in positions)
+        {
+            if (Math.Abs(bybitPosition.Size) < 0.0001)
+            {
+                continue;
+            }
+
+            var leg = CreateLegFromBybitPosition(bybitPosition, baseAsset, bybitPosition.Category);
+            if (leg is null)
+            {
+                continue;
+            }
+
+            var existing = FindMatchingLeg(collection.Legs, leg);
+            if (existing is null)
+            {
+                collection.Legs.Add(leg);
+                added++;
+            }
+            else
+            {
+                existing.Price = leg.Price;
+                existing.Size = leg.Size;
+            }
+        }
+
+        if (added == 0)
+        {
+            return;
+        }
+
+        UpdateTemporaryPnls();
+        UpdateChart();
+        await PersistPositionsAsync(position);
+        UpdateLegTickerSubscription();
         OnChange?.Invoke();
     }
 
@@ -513,7 +579,6 @@ public class PositionBuilderViewModel : IAsyncDisposable
         }
 
         SelectedCollection = collection;
-        SelectedPosition.ActiveCollectionId = collection.Id;
         return true;
     }
 
@@ -570,9 +635,24 @@ public class PositionBuilderViewModel : IAsyncDisposable
         return true;
     }
 
-    public async Task PersistPositionsAsync()
+    public async Task PersistPositionsAsync(PositionModel? changedPosition = null)
     {
         await _storageService.SavePositionsAsync(Positions);
+        if (!_suppressSync)
+        {
+            var positionToSync = changedPosition ?? SelectedPosition;
+            if (positionToSync is null)
+            {
+                return;
+            }
+
+            if (SelectedPosition?.Id != positionToSync.Id)
+            {
+                return;
+            }
+
+            await _positionSyncService.NotifyLocalChangeAsync(positionToSync);
+        }
     }
 
     public void UpdateChart()
@@ -677,9 +757,8 @@ public class PositionBuilderViewModel : IAsyncDisposable
         var range = Math.Abs(maxProfit - minProfit);
         var padding = Math.Max(10, range * 0.1);
         var positionId = position?.Id ?? Guid.Empty;
-        var activeCollectionId = SelectedCollection?.Id;
 
-        ChartConfig = new EChartOptions(positionId, xs, labels, displayPrice, chartCollections, activeCollectionId, minProfit - padding, maxProfit + padding);
+        ChartConfig = new EChartOptions(positionId, xs, labels, displayPrice, chartCollections, minProfit - padding, maxProfit + padding);
     }
 
     public double? GetLegMarkIv(LegModel leg, string? baseAsset = null)
@@ -721,13 +800,47 @@ public class PositionBuilderViewModel : IAsyncDisposable
         return new BidAsk(bid, ask);
     }
 
-    public string? GetLegSymbol(LegModel leg)
+    public double? GetLegMarkPrice(LegModel leg, string? baseAsset = null)
     {
-        if (!string.IsNullOrWhiteSpace(leg.ChainSymbol))
+        var resolvedBaseAsset = baseAsset ?? SelectedPosition?.BaseAsset;
+        var ticker = _optionsChainService.FindTickerForLeg(leg, resolvedBaseAsset);
+        if (ticker is null)
         {
-            return leg.ChainSymbol;
+            return null;
         }
 
+        return ticker.MarkPrice > 0 ? ticker.MarkPrice : null;
+    }
+
+    public double? GetLegMarketPrice(LegModel leg, string? baseAsset = null)
+    {
+        var resolvedBaseAsset = baseAsset ?? SelectedPosition?.BaseAsset;
+        var ticker = _optionsChainService.FindTickerForLeg(leg, resolvedBaseAsset);
+        if (ticker is null)
+        {
+            return null;
+        }
+
+        if (leg.Size < 0 && ticker.BidPrice > 0)
+        {
+            return ticker.BidPrice;
+        }
+
+        if (leg.Size >= 0 && ticker.AskPrice > 0)
+        {
+            return ticker.AskPrice;
+        }
+
+        return ticker.MarkPrice > 0 ? ticker.MarkPrice : null;
+    }
+
+    public double GetLegTemporaryPnl(LegModel leg)
+    {
+        return _temporaryPnls.TryGetValue(leg.Id, out var value) ? value : 0;
+    }
+
+    public string? GetLegSymbol(LegModel leg)
+    {
         var baseAsset = SelectedPosition?.BaseAsset;
         var ticker = _optionsChainService.FindTickerForLeg(leg, baseAsset);
         if (ticker is null)
@@ -735,7 +848,6 @@ public class PositionBuilderViewModel : IAsyncDisposable
             return null;
         }
 
-        leg.ChainSymbol ??= ticker.Symbol;
         return ticker.Symbol;
     }
 
@@ -816,12 +928,13 @@ public class PositionBuilderViewModel : IAsyncDisposable
     {
         var price = GetEffectivePrice();
         var baseAsset = SelectedPosition?.BaseAsset;
+        _temporaryPnls.Clear();
 
         foreach (var leg in EnumerateAllLegs())
         {
             if (!leg.IsIncluded)
             {
-                leg.TemporaryPnl = 0;
+                _temporaryPnls[leg.Id] = 0;
                 continue;
             }
 
@@ -830,13 +943,14 @@ public class PositionBuilderViewModel : IAsyncDisposable
                 var ticker = _optionsChainService.FindTickerForLeg(leg, baseAsset);
                 if (ticker is not null)
                 {
-                    leg.TemporaryPnl = (ticker.MarkPrice - leg.Price) * leg.Size;
+                    var entryPrice = ResolveLegEntryPrice(leg, baseAsset);
+                    _temporaryPnls[leg.Id] = (ticker.MarkPrice - entryPrice) * leg.Size;
                     continue;
                 }
             }
 
             var calculationLeg = ResolveLegForCalculation(leg, baseAsset);
-            leg.TemporaryPnl = _optionsService.CalculateLegTheoreticalProfit(calculationLeg, price, SelectedValuationDate);
+            _temporaryPnls[leg.Id] = _optionsService.CalculateLegTheoreticalProfit(calculationLeg, price, SelectedValuationDate);
         }
     }
 
@@ -850,7 +964,9 @@ public class PositionBuilderViewModel : IAsyncDisposable
         }
 
         var removedPosition = Positions[positionIndex];
+        var removedWasSelected = SelectedPosition?.Id == removedPosition.Id;
         Positions.RemoveAt(positionIndex);
+        await _storageService.MarkDeletedPositionAsync(positionId);
 
         if (SelectedPosition?.Id == removedPosition.Id)
         {
@@ -871,17 +987,22 @@ public class PositionBuilderViewModel : IAsyncDisposable
         UpdateChart();
         UpdateTemporaryPnls();
         await PersistPositionsAsync();
+        if (removedWasSelected)
+        {
+            await _positionSyncService.NotifyLocalChangeAsync(removedPosition, true);
+        }
         await UpdateTickerSubscriptionAsync();
         return true;
     }
 
-    private PositionModel CreateDefaultPosition(string? pair = null)
+    private PositionModel CreateDefaultPosition(string? name = null, string? baseAsset = null, string? quoteAsset = null)
     {
         var position = new PositionModel
         {
-            Pair = pair ?? "ETH/USDT"
+            Name = name ?? "Position",
+            BaseAsset = string.IsNullOrWhiteSpace(baseAsset) ? "ETH" : baseAsset.Trim().ToUpperInvariant(),
+            QuoteAsset = string.IsNullOrWhiteSpace(quoteAsset) ? "USDT" : quoteAsset.Trim().ToUpperInvariant()
         };
-        UpdateAssetsFromPair(position);
 
         var collection = CreateCollection(position, GetNextCollectionName(position));
         collection.Legs.Add(new LegModel
@@ -905,45 +1026,15 @@ public class PositionBuilderViewModel : IAsyncDisposable
         });
 
         position.Collections.Add(collection);
-        position.ActiveCollectionId = collection.Id;
 
         return position;
-    }
-
-    private static void UpdateAssetsFromPair(PositionModel position)
-    {
-        if (string.IsNullOrWhiteSpace(position.Pair))
-        {
-            return;
-        }
-
-        var parts = position.Pair.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (parts.Length >= 2)
-        {
-            position.BaseAsset = parts[0];
-            position.QuoteAsset = parts[1];
-        }
     }
 
     private void NormalizeCollections(PositionModel position)
     {
         if (position.Collections.Count == 0)
         {
-            if (position.Legs.Count > 0)
-            {
-                var migrated = CreateCollection(position, GetNextCollectionName(position), position.Legs.Select(CloneLeg));
-                position.Collections.Add(migrated);
-                position.Legs.Clear();
-            }
-            else
-            {
-                position.Collections.Add(CreateCollection(position, GetNextCollectionName(position)));
-            }
-        }
-
-        if (!position.ActiveCollectionId.HasValue)
-        {
-            position.ActiveCollectionId = position.Collections.FirstOrDefault()?.Id;
+            position.Collections.Add(CreateCollection(position, GetNextCollectionName(position)));
         }
     }
 
@@ -952,13 +1043,10 @@ public class PositionBuilderViewModel : IAsyncDisposable
         var resolved = collection;
         if (resolved is null)
         {
-            resolved = position.ActiveCollectionId.HasValue
-                ? position.Collections.FirstOrDefault(item => item.Id == position.ActiveCollectionId.Value)
-                : position.Collections.FirstOrDefault();
+            resolved = position.Collections.FirstOrDefault();
         }
 
         SelectedCollection = resolved ?? position.Collections.FirstOrDefault();
-        position.ActiveCollectionId = SelectedCollection?.Id;
     }
 
     private LegsCollectionModel CreateCollection(PositionModel position, string name, IEnumerable<LegModel>? legs = null)
@@ -1012,11 +1100,56 @@ public class PositionBuilderViewModel : IAsyncDisposable
             ExpirationDate = leg.ExpirationDate,
             Size = leg.Size,
             Price = leg.Price,
-            ImpliedVolatility = leg.ImpliedVolatility,
-            BidPrice = leg.BidPrice,
-            AskPrice = leg.AskPrice,
-            ChainSymbol = leg.ChainSymbol
+            ImpliedVolatility = leg.ImpliedVolatility
         };
+    }
+
+    private double ResolveLegEntryPrice(LegModel leg, string? baseAsset)
+    {
+        if (leg.Price.HasValue)
+        {
+            return leg.Price.Value;
+        }
+
+        return GetLegMarketPrice(leg, baseAsset) ?? 0;
+    }
+
+    private static LegModel? FindMatchingLeg(IEnumerable<LegModel> legs, LegModel candidate)
+    {
+        return legs.FirstOrDefault(leg =>
+            leg.Type == candidate.Type
+            && IsDateMatch(leg.ExpirationDate, candidate.ExpirationDate)
+            && IsStrikeMatch(leg.Strike, candidate.Strike));
+    }
+
+    private static bool IsStrikeMatch(double? left, double? right)
+    {
+        if (!left.HasValue && !right.HasValue)
+        {
+            return true;
+        }
+
+        if (!left.HasValue || !right.HasValue)
+        {
+            return false;
+        }
+
+        return Math.Abs(left.Value - right.Value) < 0.01;
+    }
+
+    private static bool IsDateMatch(DateTime? left, DateTime? right)
+    {
+        if (!left.HasValue && !right.HasValue)
+        {
+            return true;
+        }
+
+        if (!left.HasValue || !right.HasValue)
+        {
+            return false;
+        }
+
+        return left.Value.Date == right.Value.Date;
     }
 
     private LegModel? CreateLegFromBybitPosition(BybitPosition position, string baseAsset, string category)
@@ -1066,20 +1199,16 @@ public class PositionBuilderViewModel : IAsyncDisposable
         }
 
         var price = position.AvgPrice;
-        var chainSymbol = position.Symbol;
 
         return new LegModel
         {
             IsReadOnly = true,
-            ChainSymbol = chainSymbol,
             Type = type,
             Strike = strike,
             ExpirationDate = expiration,
             Size = size,
             Price = price,
-            ImpliedVolatility = null,
-            BidPrice = null,
-            AskPrice = null
+            ImpliedVolatility = null
         };
     }
 
@@ -1170,7 +1299,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
             return 1000;
         }
 
-        return activeLegs.Average(l => l.Strike.HasValue && l.Strike.Value > 0 ? l.Strike.Value : l.Price);
+        return activeLegs.Average(l => l.Strike.HasValue && l.Strike.Value > 0 ? l.Strike.Value : (l.Price ?? 0));
     }
 
     private void RefreshValuationDateBounds(IEnumerable<LegModel> legs)
@@ -1312,15 +1441,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
             return $"{baseAsset}{quoteAsset}".Replace(" ", string.Empty, StringComparison.OrdinalIgnoreCase).ToUpperInvariant();
         }
 
-        var pair = position.Pair?.Trim();
-        if (string.IsNullOrWhiteSpace(pair))
-        {
-            return string.Empty;
-        }
-
-        return pair.Replace("/", string.Empty, StringComparison.OrdinalIgnoreCase)
-            .Replace(" ", string.Empty, StringComparison.OrdinalIgnoreCase)
-            .ToUpperInvariant();
+        return string.Empty;
     }
 
     private void HandlePriceUpdated(object? sender, ExchangePriceUpdate update)
@@ -1350,7 +1471,6 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     private void HandleChainUpdated()
     {
-        UpdateLegPricesFromChain();
         UpdateTemporaryPnls();
         UpdateChart();
         OnChange?.Invoke();
@@ -1371,6 +1491,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     private LegModel ResolveLegForCalculation(LegModel leg, string? baseAsset)
     {
+        var resolvedPrice = ResolveLegEntryPrice(leg, baseAsset);
         var impliedVolatility = leg.ImpliedVolatility;
         if (!impliedVolatility.HasValue || impliedVolatility.Value <= 0)
         {
@@ -1382,7 +1503,8 @@ public class PositionBuilderViewModel : IAsyncDisposable
         }
         var originalIv = leg.ImpliedVolatility ?? 0;
         var resolvedIv = impliedVolatility ?? 0;
-        if (Math.Abs(resolvedIv - originalIv) < 0.0001)
+        var priceChanged = !leg.Price.HasValue || Math.Abs(resolvedPrice - leg.Price.Value) > 0.0001;
+        if (!priceChanged && Math.Abs(resolvedIv - originalIv) < 0.0001)
         {
             return leg;
         }
@@ -1395,11 +1517,8 @@ public class PositionBuilderViewModel : IAsyncDisposable
             Strike = leg.Strike,
             ExpirationDate = leg.ExpirationDate,
             Size = leg.Size,
-            Price = leg.Price,
-            ImpliedVolatility = impliedVolatility,
-            BidPrice = leg.BidPrice,
-            AskPrice = leg.AskPrice,
-            ChainSymbol = leg.ChainSymbol
+            Price = resolvedPrice,
+            ImpliedVolatility = impliedVolatility
         };
     }
 
@@ -1433,37 +1552,6 @@ public class PositionBuilderViewModel : IAsyncDisposable
         return SelectedPosition.Collections.SelectMany(collection => collection.Legs);
     }
 
-    private void UpdateLegPricesFromChain()
-    {
-        var baseAsset = SelectedPosition?.BaseAsset;
-        if (baseAsset is null)
-        {
-            return;
-        }
-
-        var now = DateTime.UtcNow;
-
-        foreach (var leg in EnumerateAllLegs())
-        {
-            var ticker = _optionsChainService.FindTickerForLeg(leg, baseAsset);
-            if (ticker is null)
-            {
-                continue;
-            }
-
-            var key = !string.IsNullOrWhiteSpace(ticker.Symbol) ? ticker.Symbol : leg.Id;
-            if (_lastLegPriceUpdateUtc.TryGetValue(key, out var lastUpdate) &&
-                now - lastUpdate < LegPriceUpdateInterval)
-            {
-                continue;
-            }
-
-            leg.BidPrice = ticker.BidPrice > 0 ? ticker.BidPrice : null;
-            leg.AskPrice = ticker.AskPrice > 0 ? ticker.AskPrice : null;
-            _lastLegPriceUpdateUtc[key] = now;
-        }
-    }
-
     private bool UpdateLegFromTicker(OptionChainTicker ticker)
     {
         var now = DateTime.UtcNow;
@@ -1482,9 +1570,6 @@ public class PositionBuilderViewModel : IAsyncDisposable
                 continue;
             }
 
-            leg.ChainSymbol ??= ticker.Symbol;
-            leg.BidPrice = ticker.BidPrice > 0 ? ticker.BidPrice : null;
-            leg.AskPrice = ticker.AskPrice > 0 ? ticker.AskPrice : null;
             if (!leg.ImpliedVolatility.HasValue || leg.ImpliedVolatility.Value <= 0)
             {
                 var normalizedIv = ticker.MarkIv > 0 ? NormalizeIv(ticker.MarkIv) : 0;
@@ -1506,11 +1591,6 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     private static bool IsLegMatch(LegModel leg, OptionChainTicker ticker)
     {
-        if (!string.IsNullOrWhiteSpace(leg.ChainSymbol))
-        {
-            return string.Equals(leg.ChainSymbol, ticker.Symbol, StringComparison.OrdinalIgnoreCase);
-        }
-
         if (!leg.ExpirationDate.HasValue || !leg.Strike.HasValue)
         {
             return false;
@@ -1538,11 +1618,138 @@ public class PositionBuilderViewModel : IAsyncDisposable
         _optionsChainService.ChainUpdated -= HandleChainUpdated;
         _optionsChainService.TickerUpdated -= HandleTickerUpdated;
         await StopTickerAsync();
+        await _positionSyncService.DisposeAsync();
+    }
+
+    private async Task ApplyServerSnapshotAsync(PositionSnapshotPayload payload, DateTime occurredUtc)
+    {
+        _ = occurredUtc;
+        _suppressSync = true;
+        try
+        {
+            Positions.Clear();
+            if (payload.Positions.Count == 0)
+            {
+                var defaultPosition = CreateDefaultPosition();
+                Positions.Add(defaultPosition);
+            }
+            else
+            {
+                foreach (var position in payload.Positions)
+                {
+                    NormalizeCollections(position);
+                    Positions.Add(position);
+                }
+            }
+
+            SelectedPosition = Positions.FirstOrDefault();
+            if (SelectedPosition is not null)
+            {
+                SetSelectedCollection(SelectedPosition);
+            }
+
+            LivePrice = CalculateAnchorPrice(Legs);
+            UpdateTemporaryPnls();
+            UpdateChart();
+            await PersistPositionsAsync();
+            await UpdateTickerSubscriptionAsync();
+            UpdateLegTickerSubscription();
+            OnChange?.Invoke();
+            await PruneDeletedPositionsAsync();
+
+        }
+        finally
+        {
+            _suppressSync = false;
+        }
+    }
+
+    private async Task ApplyServerItemAsync(PositionItemSnapshotPayload payload, DateTime occurredUtc)
+    {
+        _ = occurredUtc;
+        _suppressSync = true;
+        try
+        {
+            var existingIndex = Positions.ToList().FindIndex(position => position.Id == payload.PositionId);
+            var wasSelected = SelectedPosition?.Id == payload.PositionId;
+
+            if (payload.IsDeleted)
+            {
+                if (existingIndex >= 0)
+                {
+                    Positions.RemoveAt(existingIndex);
+                }
+                await _storageService.RemoveDeletedPositionsAsync(new[] { payload.PositionId });
+            }
+            else if (payload.Position is not null)
+            {
+                NormalizeCollections(payload.Position);
+                if (existingIndex >= 0)
+                {
+                    Positions.RemoveAt(existingIndex);
+                    Positions.Insert(existingIndex, payload.Position);
+                }
+                else
+                {
+                    Positions.Add(payload.Position);
+                }
+            }
+
+            if (Positions.Count == 0)
+            {
+                SelectedPosition = null;
+                SelectedCollection = null;
+            }
+            else if (wasSelected || SelectedPosition is null)
+            {
+                SelectedPosition = Positions.FirstOrDefault(position => position.Id == payload.PositionId) ??
+                                   Positions.FirstOrDefault();
+                if (SelectedPosition is not null)
+                {
+                    SetSelectedCollection(SelectedPosition);
+                }
+            }
+
+            LivePrice = CalculateAnchorPrice(Legs);
+            UpdateTemporaryPnls();
+            UpdateChart();
+            OnChange?.Invoke();
+            try
+            {
+                await PersistPositionsAsync();
+            }
+            catch
+            {
+            }
+
+            _ = UpdateTickerSubscriptionAsync();
+            UpdateLegTickerSubscription();
+        }
+        finally
+        {
+            _suppressSync = false;
+        }
     }
 
     private void Notify(string message)
     {
         NotificationRequested?.Invoke(message);
+    }
+
+    private async Task PruneDeletedPositionsAsync()
+    {
+        var deletedIds = await _storageService.LoadDeletedPositionsAsync();
+        if (deletedIds.Count == 0)
+        {
+            return;
+        }
+
+        var activeIds = Positions.Select(position => position.Id).ToHashSet();
+        var resolved = deletedIds.Where(id => !activeIds.Contains(id)).ToList();
+        if (resolved.Count > 0)
+        {
+            await _storageService.RemoveDeletedPositionsAsync(resolved);
+        }
     }
 
     private async Task<IReadOnlyList<OptionChainTicker>> LoadChainTickersAsync(string baseAsset)

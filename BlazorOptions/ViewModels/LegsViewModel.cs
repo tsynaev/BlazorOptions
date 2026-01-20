@@ -145,7 +145,7 @@ public class LegsViewModel
         await PersistAndRefreshAsync();
     }
 
-    public async Task UpdateLegPriceAsync(LegModel leg, double price)
+    public async Task UpdateLegPriceAsync(LegModel leg, double? price)
     {
         leg.Price = price;
         await PersistAndRefreshAsync();

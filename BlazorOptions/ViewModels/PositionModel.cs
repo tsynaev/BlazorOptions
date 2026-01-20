@@ -11,11 +11,7 @@ public class PositionModel
 
     public string QuoteAsset { get; set; } = "USDT";
 
-    public string Pair { get; set; } = "ETH/USDT";
-
-    public Guid? ActiveCollectionId { get; set; }
+    public string Name { get; set; } = "Position";
 
     public ObservableCollection<LegsCollectionModel> Collections { get; set; } = new();
-
-    public ObservableCollection<LegModel> Legs { get; set; } = new();
 }

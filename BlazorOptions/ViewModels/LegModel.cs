@@ -1,6 +1,4 @@
 using System;
-using System.Text.Json.Serialization;
-
 namespace BlazorOptions.ViewModels;
 
 public enum LegType
@@ -26,16 +24,9 @@ public class LegModel
 
     public double Size { get; set; } = 1;
 
-    public double Price { get; set; } = 50;
+    public double? Price { get; set; }
 
     public double? ImpliedVolatility { get; set; }
-
-    public double? BidPrice { get; set; }
-
-    public double? AskPrice { get; set; }
-
-    public string? ChainSymbol { get; set; }
-
-    [JsonIgnore]
-    public double TemporaryPnl { get; set; }
 }
+
+
