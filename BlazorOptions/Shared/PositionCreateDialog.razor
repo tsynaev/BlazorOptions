@@ -63,8 +63,8 @@
                     <MudTh />
                     <MudTh>Symbol</MudTh>
                     <MudTh>Side</MudTh>
-                    <MudTh Align="right">Size</MudTh>
-                    <MudTh Align="right">Avg price</MudTh>
+                    <MudTh align="right">Size</MudTh>
+                    <MudTh align="right">Avg price</MudTh>
                 </HeaderContent>
                 <RowTemplate Context="position">
                     <MudTd>
@@ -77,8 +77,8 @@
                         <MudText Typo="Typo.caption" Class="bybit-category">@position.Category</MudText>
                     </MudTd>
                     <MudTd>@position.Side</MudTd>
-                    <MudTd Align="right">@FormatSignedSize(position)</MudTd>
-                    <MudTd Align="right">@position.AvgPrice</MudTd>
+                    <MudTd align="right">@FormatSignedSize(position)</MudTd>
+                    <MudTd align="right">@position.AvgPrice</MudTd>
                 </RowTemplate>
             </MudTable>
         </MudStack>
