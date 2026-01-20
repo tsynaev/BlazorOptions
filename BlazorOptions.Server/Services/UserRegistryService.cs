@@ -19,7 +19,10 @@ public class UserRegistryService
         EnsureDatabase();
     }
 
-    public async Task<(bool Success, string? Error, AuthResponse? Response, string? UserId)> RegisterAsync(string userName, string password)
+    public async Task<(bool Success, string? Error, AuthResponse? Response, string? UserId)> RegisterAsync(
+        string userName,
+        string password,
+        string? deviceId)
     {
         if (string.IsNullOrWhiteSpace(userName) || string.IsNullOrWhiteSpace(password))
         {
@@ -59,7 +62,18 @@ public class UserRegistryService
             insertCommand.Parameters.AddWithValue("$createdUtc", DateTime.UtcNow.ToString("O"));
             await insertCommand.ExecuteNonQueryAsync();
 
-            return (true, null, new AuthResponse(normalized, token), userId);
+            var tokenInsertCommand = connection.CreateCommand();
+            tokenInsertCommand.CommandText = """
+                INSERT OR IGNORE INTO UserTokens (Token, UserId, DeviceId, CreatedUtc)
+                VALUES ($token, $userId, $deviceId, $createdUtc)
+                """;
+            tokenInsertCommand.Parameters.AddWithValue("$token", token);
+            tokenInsertCommand.Parameters.AddWithValue("$userId", userId);
+            tokenInsertCommand.Parameters.AddWithValue("$deviceId", deviceId);
+            tokenInsertCommand.Parameters.AddWithValue("$createdUtc", DateTime.UtcNow.ToString("O"));
+            await tokenInsertCommand.ExecuteNonQueryAsync();
+
+            return (true, null, new AuthResponse(normalized, token, deviceId), userId);
         }
         finally
         {
@@ -67,7 +81,10 @@ public class UserRegistryService
         }
     }
 
-    public async Task<(bool Success, string? Error, AuthResponse? Response)> LoginAsync(string userName, string password)
+    public async Task<(bool Success, string? Error, AuthResponse? Response)> LoginAsync(
+        string userName,
+        string password,
+        string? deviceId)
     {
         if (string.IsNullOrWhiteSpace(userName) || string.IsNullOrWhiteSpace(password))
         {
@@ -104,13 +121,19 @@ public class UserRegistryService
             }
 
             var token = Guid.NewGuid().ToString("N");
-            var updateCommand = connection.CreateCommand();
-            updateCommand.CommandText = "UPDATE Users SET Token = $token WHERE Id = $id";
-            updateCommand.Parameters.AddWithValue("$token", token);
-            updateCommand.Parameters.AddWithValue("$id", userId);
-            await updateCommand.ExecuteNonQueryAsync();
+            var resolvedDeviceId = string.IsNullOrWhiteSpace(deviceId) ? Guid.NewGuid().ToString("N") : deviceId.Trim();
+            var tokenInsertCommand = connection.CreateCommand();
+            tokenInsertCommand.CommandText = """
+                INSERT OR IGNORE INTO UserTokens (Token, UserId, DeviceId, CreatedUtc)
+                VALUES ($token, $userId, $deviceId, $createdUtc)
+                """;
+            tokenInsertCommand.Parameters.AddWithValue("$token", token);
+            tokenInsertCommand.Parameters.AddWithValue("$userId", userId);
+            tokenInsertCommand.Parameters.AddWithValue("$deviceId", resolvedDeviceId);
+            tokenInsertCommand.Parameters.AddWithValue("$createdUtc", DateTime.UtcNow.ToString("O"));
+            await tokenInsertCommand.ExecuteNonQueryAsync();
 
-            return (true, null, new AuthResponse(normalized, token));
+            return (true, null, new AuthResponse(normalized, token, resolvedDeviceId));
         }
         finally
         {
@@ -132,18 +155,18 @@ public class UserRegistryService
             await connection.OpenAsync();
             var selectCommand = connection.CreateCommand();
             selectCommand.CommandText = """
-                SELECT Id, UserName, Token
-                FROM Users
-                WHERE Token = $token
+                SELECT Users.Id, Users.UserName
+                FROM UserTokens
+                JOIN Users ON Users.Id = UserTokens.UserId
+                WHERE UserTokens.Token = $token
                 """;
             selectCommand.Parameters.AddWithValue("$token", token.Trim());
             await using var reader = await selectCommand.ExecuteReaderAsync();
-            if (!await reader.ReadAsync())
+            if (await reader.ReadAsync())
             {
-                return null;
+                return new UserRecord(reader.GetString(0), reader.GetString(1), token.Trim());
             }
-
-            return new UserRecord(reader.GetString(0), reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2));
+            return null;
         }
         finally
         {
@@ -163,11 +186,11 @@ public class UserRegistryService
         {
             await using var connection = new SqliteConnection($"Data Source={_dbPath}");
             await connection.OpenAsync();
-            var updateCommand = connection.CreateCommand();
-            updateCommand.CommandText = "UPDATE Users SET Token = NULL WHERE Token = $token";
-            updateCommand.Parameters.AddWithValue("$token", token.Trim());
-            var updated = await updateCommand.ExecuteNonQueryAsync();
-            return updated > 0;
+            var deleteCommand = connection.CreateCommand();
+            deleteCommand.CommandText = "DELETE FROM UserTokens WHERE Token = $token";
+            deleteCommand.Parameters.AddWithValue("$token", token.Trim());
+            var removed = await deleteCommand.ExecuteNonQueryAsync();
+            return removed > 0;
         }
         finally
         {
@@ -187,6 +210,13 @@ public class UserRegistryService
                 PasswordHash BLOB NOT NULL,
                 PasswordSalt BLOB NOT NULL,
                 Token TEXT NULL,
+                CreatedUtc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS UserTokens (
+                Token TEXT PRIMARY KEY,
+                UserId TEXT NOT NULL,
+                DeviceId TEXT NOT NULL,
                 CreatedUtc TEXT NOT NULL
             );
             """;

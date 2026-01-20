@@ -20,9 +20,10 @@ if (app.Environment.IsDevelopment())
     app.UseWebAssemblyDebugging();
 }
 
-app.MapPost("/api/auth/register", async (AuthRequest request, UserRegistryService registry) =>
+app.MapPost("/api/auth/register", async (HttpContext context, AuthRequest request, UserRegistryService registry) =>
 {
-    var (success, error, response, userId) = await registry.RegisterAsync(request.UserName, request.Password);
+    var deviceId = GetDeviceId(context);
+    var (success, error, response, userId) = await registry.RegisterAsync(request.UserName, request.Password, deviceId);
     if (!success || response is null || string.IsNullOrWhiteSpace(userId))
     {
         return Results.BadRequest(new { error });
@@ -31,9 +32,10 @@ app.MapPost("/api/auth/register", async (AuthRequest request, UserRegistryServic
     return Results.Ok(response);
 });
 
-app.MapPost("/api/auth/login", async (AuthRequest request, UserRegistryService registry) =>
+app.MapPost("/api/auth/login", async (HttpContext context, AuthRequest request, UserRegistryService registry) =>
 {
-    var (success, error, response) = await registry.LoginAsync(request.UserName, request.Password);
+    var deviceId = GetDeviceId(context);
+    var (success, error, response) = await registry.LoginAsync(request.UserName, request.Password, deviceId);
     return success && response is not null
         ? Results.Ok(response)
         : Results.BadRequest(new { error });
@@ -46,6 +48,11 @@ app.MapPost("/api/auth/logout", async (HttpContext context, UserRegistryService 
     return success ? Results.Ok() : Results.BadRequest();
 });
 
+app.MapGet("/api/auth/me", async (HttpContext context, UserRegistryService registry) =>
+{
+    var user = await AuthenticateAsync(context, registry);
+    return user is null ? Results.Unauthorized() : Results.Ok(new { user.UserName });
+});
 
 
 
@@ -59,6 +66,16 @@ app.Run();
 static string? GetToken(HttpContext context)
 {
     if (!context.Request.Headers.TryGetValue("X-User-Token", out var values))
+    {
+        return null;
+    }
+
+    return values.FirstOrDefault();
+}
+
+static string? GetDeviceId(HttpContext context)
+{
+    if (!context.Request.Headers.TryGetValue("X-User-Device-Id", out var values))
     {
         return null;
     }

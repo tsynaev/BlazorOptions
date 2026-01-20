@@ -1,3 +1,3 @@
 namespace BlazorOptions.Server.Models;
 
-public record AuthResponse(string UserName, string Token);
+public sealed record AuthResponse(string UserName, string Token, string DeviceId);
