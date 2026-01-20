@@ -14,9 +14,9 @@ The Positions feature lets you build, manage, and visualize option strategies an
 
 ## Persistence and sync
 - Client persists the current positions locally for offline use.
-- When signed in, position changes are sent as events to the server.
-- The server stores the event stream and applies the latest snapshot.
-- Changes are broadcast to other devices via SignalR so their views update.
+- When signed in, position changes are sent as per-position snapshot events.
+- When the Positions page opens, the client queues a local snapshot of added/updated positions and deleted position ids, then connects to sync.
+- The server stores only the latest position snapshots and broadcasts updates to other devices via SignalR (no event stream storage).
 
 ## Typical workflow
 1) Create a position or duplicate an existing collection.
