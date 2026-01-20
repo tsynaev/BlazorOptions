@@ -10,7 +10,7 @@ window.payoffChart = {
             return;
         }
 
-        if (!element) {
+        if (!element || typeof element.offsetWidth !== 'number' || typeof element.offsetHeight !== 'number') {
             return;
         }
         const hasSize = element.offsetWidth > 0 || element.offsetHeight > 0;
@@ -355,6 +355,9 @@ window.payoffChart = {
             }
         });
 
+        if (!element || typeof element.offsetWidth !== 'number') {
+            return;
+        }
         const isNarrow = element.offsetWidth <= 480;
         const axisFontSize = isNarrow ? 8 : 10;
         const gridLeft = isNarrow ? 35 : 35;

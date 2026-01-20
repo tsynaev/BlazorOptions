@@ -94,15 +94,6 @@ public class OptionsChainService
     {
         var snapshot = GetSnapshot();
 
-        if (!string.IsNullOrWhiteSpace(leg.ChainSymbol))
-        {
-            var symbolMatch = snapshot.FirstOrDefault(ticker => string.Equals(ticker.Symbol, leg.ChainSymbol, StringComparison.OrdinalIgnoreCase));
-            if (symbolMatch is not null)
-            {
-                return symbolMatch;
-            }
-        }
-
         if (string.IsNullOrWhiteSpace(baseAsset) || !leg.ExpirationDate.HasValue || !leg.Strike.HasValue)
         {
             return null;
@@ -124,12 +115,6 @@ public class OptionsChainService
 
         foreach (var leg in legs)
         {
-            if (!string.IsNullOrWhiteSpace(leg.ChainSymbol))
-            {
-                symbols.Add(leg.ChainSymbol);
-                continue;
-            }
-
             var ticker = FindTickerForLeg(leg, baseAsset);
             if (ticker is not null)
             {

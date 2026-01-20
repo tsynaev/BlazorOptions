@@ -43,7 +43,7 @@ namespace BlazorOptions
         {
             var activeLegs = legs.Where(l => l.IsIncluded).ToList();
             var anchor = activeLegs.Count > 0
-                ? activeLegs.Average(l => l.Strike.HasValue && l.Strike.Value > 0 ? l.Strike.Value : l.Price)
+                ? activeLegs.Average(l => l.Strike.HasValue && l.Strike.Value > 0 ? l.Strike.Value : (l.Price ?? 0))
                 : 1000;
 
             var start = Math.Max(0, anchor * 0.5);
@@ -83,11 +83,12 @@ namespace BlazorOptions
         public double CalculateLegProfit(LegModel leg, double underlyingPrice)
         {
             var strike = leg.Strike ?? 0;
+            var entryPrice = leg.Price ?? 0;
             return leg.Type switch
             {
-                LegType.Call => (Math.Max(underlyingPrice - strike, 0) - leg.Price) * leg.Size,
-                LegType.Put => (Math.Max(strike - underlyingPrice, 0) - leg.Price) * leg.Size,
-                LegType.Future => (underlyingPrice - leg.Price) * leg.Size,
+                LegType.Call => (Math.Max(underlyingPrice - strike, 0) - entryPrice) * leg.Size,
+                LegType.Put => (Math.Max(strike - underlyingPrice, 0) - entryPrice) * leg.Size,
+                LegType.Future => (underlyingPrice - entryPrice) * leg.Size,
                 _ => throw new ArgumentOutOfRangeException()
             };
         }
@@ -99,13 +100,14 @@ namespace BlazorOptions
             var expiration = leg.ExpirationDate;
             var impliedVolatility = leg.ImpliedVolatility;
 
+            var entryPrice = leg.Price ?? 0;
             return leg.Type switch
             {
                 LegType.Call when strike.HasValue && expiration.HasValue && impliedVolatility.HasValue =>
-                    (_blackScholes.CalculatePrice(underlyingPrice, strike.Value, impliedVolatility.Value, expiration.Value, true, evaluationDate) - leg.Price) * leg.Size,
+                    (_blackScholes.CalculatePrice(underlyingPrice, strike.Value, impliedVolatility.Value, expiration.Value, true, evaluationDate) - entryPrice) * leg.Size,
                 LegType.Put when strike.HasValue && expiration.HasValue && impliedVolatility.HasValue =>
-                    (_blackScholes.CalculatePrice(underlyingPrice, strike.Value, impliedVolatility.Value, expiration.Value, false, evaluationDate) - leg.Price) * leg.Size,
-                LegType.Future => (underlyingPrice - leg.Price) * leg.Size,
+                    (_blackScholes.CalculatePrice(underlyingPrice, strike.Value, impliedVolatility.Value, expiration.Value, false, evaluationDate) - entryPrice) * leg.Size,
+                LegType.Future => (underlyingPrice - entryPrice) * leg.Size,
                 _ => 0
             };
         }
