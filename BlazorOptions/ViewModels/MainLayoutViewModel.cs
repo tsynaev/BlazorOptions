@@ -5,10 +5,12 @@ namespace BlazorOptions.ViewModels;
 public class MainLayoutViewModel : IDisposable
 {
     private readonly AuthSessionService _sessionService;
+    private readonly AuthApiService _authApiService;
 
-    public MainLayoutViewModel(AuthSessionService sessionService)
+    public MainLayoutViewModel(AuthSessionService sessionService, AuthApiService authApiService)
     {
         _sessionService = sessionService;
+        _authApiService = authApiService;
         _sessionService.OnChange += HandleSessionChanged;
     }
 
@@ -18,9 +20,10 @@ public class MainLayoutViewModel : IDisposable
 
     public bool IsAuthenticated => _sessionService.IsAuthenticated;
 
-    public Task InitializeAsync()
+    public async Task InitializeAsync()
     {
-        return _sessionService.InitializeAsync();
+        await _sessionService.InitializeAsync();
+        await _authApiService.ValidateSessionAsync();
     }
 
     public void Dispose()
