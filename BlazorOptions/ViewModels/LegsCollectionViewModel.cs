@@ -121,8 +121,34 @@ public sealed class LegsCollectionViewModel
         {
             return;
         }
+        if (_positionBuilder.SelectedPosition is null)
+        {
+            return;
+        }
 
-        await _positionBuilder.LoadPositionsFromBybitAsync(Collection);
+        var parameters = new DialogParameters
+        {
+            [nameof(BybitPositionsDialog.InitialBaseAsset)] = _positionBuilder.SelectedPosition.BaseAsset,
+            [nameof(BybitPositionsDialog.InitialQuoteAsset)] = _positionBuilder.SelectedPosition.QuoteAsset,
+            [nameof(BybitPositionsDialog.ExistingLegs)] = Collection.Legs.ToList()
+        };
+
+        var options = new DialogOptions
+        {
+            CloseOnEscapeKey = true,
+            MaxWidth = MaxWidth.Large,
+            FullWidth = true
+        };
+
+        var dialog = await _dialogService.ShowAsync<BybitPositionsDialog>("Add Bybit positions", parameters, options);
+        var result = await dialog.Result;
+
+        if (result is null || result.Canceled || result.Data is not IReadOnlyList<BybitPosition> positions)
+        {
+            return;
+        }
+
+        await _positionBuilder.AddBybitPositionsToCollectionAsync(_positionBuilder.SelectedPosition, Collection, positions);
     }
 
     public async Task SetVisibilityAsync(bool isVisible)
@@ -282,7 +308,7 @@ public sealed class LegsCollectionViewModel
         await PersistAndRefreshAsync();
     }
 
-    public async Task UpdateLegPriceAsync(LegModel leg, double price)
+    public async Task UpdateLegPriceAsync(LegModel leg, double? price)
     {
         if (!EnsureActiveCollection() || leg.IsReadOnly)
         {
@@ -319,6 +345,21 @@ public sealed class LegsCollectionViewModel
         return _positionBuilder.GetLegBidAsk(leg);
     }
 
+    public double? GetLegMarkPrice(LegModel leg)
+    {
+        return _positionBuilder.GetLegMarkPrice(leg);
+    }
+
+    public double? GetLegMarketPrice(LegModel leg)
+    {
+        return _positionBuilder.GetLegMarketPrice(leg);
+    }
+
+    public double GetLegTemporaryPnl(LegModel leg)
+    {
+        return _positionBuilder.GetLegTemporaryPnl(leg);
+    }
+
     public string? GetLegSymbol(LegModel leg)
     {
         return _positionBuilder.GetLegSymbol(leg);
@@ -343,6 +384,8 @@ public sealed class LegsCollectionViewModel
         _positionBuilder.NotifyStateChanged();
     }
 }
+
+
 
 
 

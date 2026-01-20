@@ -86,7 +86,7 @@
 
     protected override void OnParametersSet()
     {
-        if (ViewModel is null || ViewModel.Collection.Id != Collection.Id)
+        if (ViewModel is null || !ReferenceEquals(ViewModel.Collection, Collection))
         {
             ViewModel = ViewModelFactory.Create(Collection);
         }

@@ -1,0 +1,251 @@
+@using MudBlazor
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using System.Collections.Generic
+@using BlazorOptions.Services
+@using BlazorOptions.ViewModels
+@inject BybitPositionService BybitPositionService
+
+<MudDialog Class="position-name-dialog">
+    <DialogContent>
+        <MudTextField @bind-Value="_name"
+                      Label="Position name"
+                      Placeholder="Enter a name"
+                      Immediate="true"
+                      Margin="Margin.Dense"
+                      Variant="Variant.Outlined"
+                      FullWidth="true"
+                      OnKeyDown="HandleKeyDown" />
+        <MudStack Row="true" Spacing="2" Class="mt-3">
+            <MudTextField @bind-Value="_baseAsset"
+                          Label="Base asset"
+                          Placeholder="ETH"
+                          Immediate="true"
+                          Margin="Margin.Dense"
+                          Variant="Variant.Outlined"
+                          FullWidth="true"
+                          OnKeyDown="HandleKeyDown" />
+            <MudTextField @bind-Value="_quoteAsset"
+                          Label="Quote asset"
+                          Placeholder="USDT"
+                          Immediate="true"
+                          Margin="Margin.Dense"
+                          Variant="Variant.Outlined"
+                          FullWidth="true"
+                          OnKeyDown="HandleKeyDown" />
+        </MudStack>
+        <MudDivider Class="my-4" />
+        <MudStack Spacing="1">
+            <MudText Typo="Typo.subtitle2">Bybit positions</MudText>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="_isLoading" OnClick="LoadBybitPositionsAsync">
+                    Load
+                </MudButton>
+                <MudButton Variant="Variant.Text" Disabled="_bybitPositions.Count == 0" OnClick="SelectAll">
+                    Select all
+                </MudButton>
+                <MudButton Variant="Variant.Text" Disabled="_selectedPositions.Count == 0" OnClick="ClearSelection">
+                    Clear
+                </MudButton>
+                <MudSpacer />
+                <MudText Typo="Typo.caption">@SelectedCountLabel</MudText>
+            </MudStack>
+            @if (_isLoading)
+            {
+                <MudProgressLinear Indeterminate="true" />
+            }
+            @if (!string.IsNullOrWhiteSpace(_loadError))
+            {
+                <MudText Typo="Typo.caption" Color="Color.Error">@_loadError</MudText>
+            }
+            <MudTable Items="_bybitPositions" Dense="true" Hover="true" Bordered="true">
+                <HeaderContent>
+                    <MudTh />
+                    <MudTh>Symbol</MudTh>
+                    <MudTh>Side</MudTh>
+                    <MudTh Align="right">Size</MudTh>
+                    <MudTh Align="right">Avg price</MudTh>
+                </HeaderContent>
+                <RowTemplate Context="position">
+                    <MudTd>
+                        <MudCheckBox T="bool"
+                                     Value="@GetSelection(position)"
+                                     ValueChanged="@(checkedValue => SetSelection(position, checkedValue))" />
+                    </MudTd>
+                    <MudTd>
+                        <MudText Typo="Typo.body2">@position.Symbol</MudText>
+                        <MudText Typo="Typo.caption" Class="bybit-category">@position.Category</MudText>
+                    </MudTd>
+                    <MudTd>@position.Side</MudTd>
+                    <MudTd Align="right">@FormatSignedSize(position)</MudTd>
+                    <MudTd Align="right">@position.AvgPrice</MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Color="Color.Default" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="!CanSave" OnClick="Save">Create</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    [Parameter] public string? InitialName { get; set; }
+
+    [Parameter] public string? InitialBaseAsset { get; set; }
+
+    [Parameter] public string? InitialQuoteAsset { get; set; }
+
+    private string _name = string.Empty;
+    private string _baseAsset = string.Empty;
+    private string _quoteAsset = string.Empty;
+    private readonly List<BybitPosition> _bybitPositions = new();
+    private readonly HashSet<BybitPosition> _selectedPositions = new();
+    private bool _isLoading;
+    private string? _loadError;
+    private static readonly string[] BybitPositionCategories = { "option", "linear", "inverse" };
+
+    private bool CanSave => !string.IsNullOrWhiteSpace(_name)
+                            && !string.IsNullOrWhiteSpace(_baseAsset)
+                            && !string.IsNullOrWhiteSpace(_quoteAsset);
+
+    private string SelectedCountLabel => _selectedPositions.Count == 0
+        ? "No positions selected"
+        : $"Selected: {_selectedPositions.Count}";
+
+    protected override void OnInitialized()
+    {
+        _name = string.IsNullOrWhiteSpace(InitialName) ? "Position" : InitialName;
+        _baseAsset = string.IsNullOrWhiteSpace(InitialBaseAsset) ? "ETH" : InitialBaseAsset;
+        _quoteAsset = string.IsNullOrWhiteSpace(InitialQuoteAsset) ? "USDT" : InitialQuoteAsset;
+    }
+
+    private void Save()
+    {
+        var name = _name.Trim();
+        var baseAsset = _baseAsset.Trim().ToUpperInvariant();
+        var quoteAsset = _quoteAsset.Trim().ToUpperInvariant();
+        Dialog.Close(DialogResult.Ok(new PositionCreateRequest(name, baseAsset, quoteAsset, new List<BybitPosition>(_selectedPositions))));
+    }
+
+    private void Cancel()
+    {
+        Dialog.Cancel();
+    }
+
+    private void HandleKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter" && CanSave)
+        {
+            Save();
+        }
+        else if (args.Key == "Escape")
+        {
+            Cancel();
+        }
+    }
+
+    private async Task LoadBybitPositionsAsync()
+    {
+        _loadError = null;
+        _isLoading = true;
+        _bybitPositions.Clear();
+        _selectedPositions.Clear();
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_baseAsset))
+            {
+                _loadError = "Enter a base asset before loading Bybit positions.";
+                return;
+            }
+
+            var baseAsset = _baseAsset.Trim();
+            var quoteAsset = _quoteAsset.Trim();
+
+            foreach (var category in BybitPositionCategories)
+            {
+                try
+                {
+                    var settleCoin = string.Equals(category, "option", StringComparison.OrdinalIgnoreCase) ? null : quoteAsset;
+                    var positions = await BybitPositionService.GetPositionsAsync(baseAsset, category, settleCoin);
+                    _bybitPositions.AddRange(positions);
+                }
+                catch (Exception ex)
+                {
+                    _loadError = $"Failed to load {category} positions: {ex.Message}";
+                    return;
+                }
+            }
+
+            if (_bybitPositions.Count == 0)
+            {
+                _loadError = "No Bybit positions found for the selected asset.";
+            }
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private void ToggleSelection(BybitPosition position, bool isSelected)
+    {
+        if (isSelected)
+        {
+            _selectedPositions.Add(position);
+        }
+        else
+        {
+            _selectedPositions.Remove(position);
+        }
+    }
+
+    private bool GetSelection(BybitPosition position)
+    {
+        return _selectedPositions.Contains(position);
+    }
+
+    private void SetSelection(BybitPosition position, bool isSelected)
+    {
+        ToggleSelection(position, isSelected);
+    }
+
+    private void SelectAll()
+    {
+        foreach (var position in _bybitPositions)
+        {
+            _selectedPositions.Add(position);
+        }
+    }
+
+    private void ClearSelection()
+    {
+        _selectedPositions.Clear();
+    }
+
+    private static string FormatSignedSize(BybitPosition position)
+    {
+        var magnitude = Math.Abs(position.Size);
+        if (magnitude < 0.0001)
+        {
+            return "0";
+        }
+
+        var sign = string.Equals(position.Side, "Sell", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(position.Side, "Short", StringComparison.OrdinalIgnoreCase)
+            ? "-"
+            : "+";
+
+        return $"{sign}{magnitude:0.####}";
+    }
+}
+
+<style>
+    .bybit-category {
+        color: rgba(0, 0, 0, 0.45);
+        line-height: 1.2;
+    }
+</style>

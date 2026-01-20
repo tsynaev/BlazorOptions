@@ -6,6 +6,7 @@
 @using System.Linq
 @using Microsoft.AspNetCore.Components.Web
 @using BlazorOptions.Shared
+@using BlazorOptions.ViewModels
 
 <PageTitle>Positions</PageTitle>
 
@@ -31,7 +32,7 @@
                                     <MudTabPanel @key="position.Id" Text="@position.Id.ToString()">
                                         <TabContent>
                                             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="tab-header">
-                                                <MudText Class="tab-name-label">@position.Pair</MudText>
+                                                <MudText Class="tab-name-label">@position.Name</MudText>
                                             </MudStack>
                                         </TabContent>
                                     </MudTabPanel>
@@ -287,7 +288,33 @@
 
     private async Task CreatePosition()
     {
-        await ViewModel.AddPositionAsync();
+        var parameters = new DialogParameters
+        {
+            [nameof(PositionCreateDialog.InitialName)] = $"Position {ViewModel.Positions.Count + 1}",
+            [nameof(PositionCreateDialog.InitialBaseAsset)] = ViewModel.SelectedPosition?.BaseAsset ?? "ETH",
+            [nameof(PositionCreateDialog.InitialQuoteAsset)] = ViewModel.SelectedPosition?.QuoteAsset ?? "USDT"
+        };
+
+        var options = new DialogOptions
+        {
+            CloseOnEscapeKey = true,
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true
+        };
+
+        var dialog = await DialogService.ShowAsync<PositionCreateDialog>("Create position", parameters, options);
+        var result = await dialog.Result;
+
+        if (result is null || result.Canceled || result.Data is not PositionCreateRequest request)
+        {
+            return;
+        }
+
+        await ViewModel.AddPositionAsync(request.Name, request.BaseAsset, request.QuoteAsset);
+        if (request.SelectedBybitPositions.Count > 0 && ViewModel.SelectedPosition is not null && ViewModel.SelectedCollection is not null)
+        {
+            await ViewModel.AddBybitPositionsToCollectionAsync(ViewModel.SelectedPosition, ViewModel.SelectedCollection, request.SelectedBybitPositions);
+        }
         _activeTabIndex = Math.Max(0, ViewModel.Positions.Count - 1);
         await RefreshChartAsync();
     }
@@ -342,7 +369,7 @@
 
         var parameters = new DialogParameters
         {
-            [nameof(PositionNameDialog.InitialName)] = ViewModel.SelectedPosition.Pair
+            [nameof(PositionNameDialog.InitialName)] = ViewModel.SelectedPosition.Name
         };
 
         var options = new DialogOptions
@@ -367,16 +394,16 @@
             return;
         }
 
-        await ViewModel.UpdatePairAsync(active, name);
+        await ViewModel.UpdateNameAsync(active, name);
         StateHasChanged();
     }
 
     private async Task ConfirmAndRemovePositionAsync(PositionModel position)
     {
-        await ConfirmAndRemovePositionAsync(position.Id, position.Pair);
+        await ConfirmAndRemovePositionAsync(position.Id, position.Name);
     }
 
-    private async Task ConfirmAndRemovePositionAsync(Guid positionId, string? pair = null)
+    private async Task ConfirmAndRemovePositionAsync(Guid positionId, string? name = null)
     {
         var position = ViewModel.Positions.FirstOrDefault(p => p.Id == positionId);
 
@@ -385,7 +412,7 @@
             return;
         }
 
-        var confirmed = await DialogService.ShowMessageBox("Remove position?", $"Delete {pair ?? position.Pair} and its chart view?", yesText: "Delete", cancelText: "Cancel");
+        var confirmed = await DialogService.ShowMessageBox("Remove position?", $"Delete {name ?? position.Name} and its chart view?", yesText: "Delete", cancelText: "Cancel");
 
         if (confirmed != true)
         {

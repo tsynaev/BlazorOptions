@@ -29,18 +29,42 @@
 </MudTd>
 <MudTd DataLabel="Price">
     <MudStack Spacing="0">
-        <MudNumericField T="double" Value="@Leg.Price" ValueChanged="async value => await ViewModel.UpdateLegPriceAsync(Leg, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="USDT" Disabled="@Leg.IsReadOnly" Class="price-input" />
-        @if (Leg.BidPrice.HasValue || Leg.AskPrice.HasValue)
+        @{
+            var placeholderPrice = Leg.Price.HasValue ? null : ViewModel.GetLegMarketPrice(Leg);
+            var placeholder = placeholderPrice.HasValue ? placeholderPrice.Value.ToString("0.##") : null;
+        }
+        <MudNumericField T="double?"
+                         Value="@Leg.Price"
+                         ValueChanged="async value => await ViewModel.UpdateLegPriceAsync(Leg, value)"
+                         Variant="Variant.Outlined"
+                         Margin="Margin.Dense"
+                         Adornment="Adornment.End"
+                         AdornmentText="USDT"
+                         Placeholder="@placeholder"
+                         Disabled="@Leg.IsReadOnly"
+                         Class="price-input" />
+        @{
+            var bidAsk = ViewModel.GetLegBidAsk(Leg);
+            var markPrice = ViewModel.GetLegMarkPrice(Leg);
+        }
+        @if (bidAsk.Bid.HasValue || bidAsk.Ask.HasValue)
         {
             <MudText Typo="Typo.caption" Class="price-chain">
-                Bid: @(Leg.BidPrice?.ToString("0.##") ?? "-") | Ask: @(Leg.AskPrice?.ToString("0.##") ?? "-")
+                <span class="price-bid">@FormatPrice(bidAsk.Bid)<span class="price-diff">@FormatDiff(bidAsk.Bid, markPrice)</span></span>
+                <span class="price-sep">|</span>
+                <span class="price-mark">@FormatPrice(markPrice)</span>
+                <span class="price-sep">|</span>
+                <span class="price-ask"><span class="price-diff">@FormatDiff(bidAsk.Ask, markPrice)</span> @FormatPrice(bidAsk.Ask)</span>
             </MudText>
         }
     </MudStack>
 </MudTd>
 <MudTd DataLabel="Temp P/L">
-    <MudText Typo="Typo.body2" Color="@(Leg.TemporaryPnl >= 0 ? Color.Success : Color.Error)">
-        @Leg.TemporaryPnl.ToString("0.##")
+    @{
+        var tempPnl = ViewModel.GetLegTemporaryPnl(Leg);
+    }
+    <MudText Typo="Typo.body2" Color="@(tempPnl >= 0 ? Color.Success : Color.Error)">
+        @tempPnl.ToString("0.##")
     </MudText>
 </MudTd>
 <MudTd DataLabel="IV" Class="iv-column">
@@ -82,11 +106,6 @@
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(_symbol) && !string.IsNullOrWhiteSpace(Leg.ChainSymbol))
-        {
-            _symbol = Leg.ChainSymbol;
-        }
-
         if (string.Equals(ticker.Symbol, _symbol, StringComparison.OrdinalIgnoreCase))
         {
            _ = InvokeAsync(StateHasChanged);
@@ -97,5 +116,57 @@
     {
         ViewModel.LegTickerUpdated -= HandleLegTickerUpdated;
     }
+
+    private static string FormatPrice(double? price)
+    {
+        return price.HasValue ? price.Value.ToString("0.##") : "-";
+    }
+
+    private static string FormatDiff(double? price, double? mark)
+    {
+        if (!price.HasValue || !mark.HasValue)
+        {
+            return string.Empty;
+        }
+
+        var diff = price.Value - mark.Value;
+        if (Math.Abs(diff) < 0.0001)
+        {
+            return string.Empty;
+        }
+
+        var sign = diff > 0 ? "+" : string.Empty;
+        return $"({sign}{diff:0.##})";
+    }
 }
+
+<style>
+    .price-chain {
+        display: inline-flex;
+        gap: 4px;
+        align-items: center;
+        white-space: nowrap;
+    }
+
+    .price-bid {
+        color: #2e7d32;
+    }
+
+    .price-ask {
+        color: #c62828;
+    }
+
+    .price-mark {
+        color: rgba(255, 255, 255, 0.9);
+    }
+
+    .price-diff {
+        color: var(--mud-palette-text-disabled, rgba(0, 0, 0, 0.45));
+        margin-left: 2px;
+    }
+
+    .price-sep {
+        color: var(--mud-palette-text-disabled, rgba(0, 0, 0, 0.38));
+    }
+</style>
 

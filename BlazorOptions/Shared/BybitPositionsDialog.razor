@@ -1,0 +1,395 @@
+@using MudBlazor
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using BlazorOptions.ViewModels
+@inject BybitPositionService BybitPositionService
+
+<MudDialog Class="position-name-dialog">
+    <DialogContent>
+        <MudStack Row="true" Spacing="2">
+            <MudTextField @bind-Value="_baseAsset"
+                          Label="Base asset"
+                          Placeholder="ETH"
+                          Immediate="true"
+                          Margin="Margin.Dense"
+                          Variant="Variant.Outlined"
+                          FullWidth="true"
+                          OnKeyDown="HandleKeyDown" />
+            <MudTextField @bind-Value="_quoteAsset"
+                          Label="Quote asset"
+                          Placeholder="USDT"
+                          Immediate="true"
+                          Margin="Margin.Dense"
+                          Variant="Variant.Outlined"
+                          FullWidth="true"
+                          OnKeyDown="HandleKeyDown" />
+        </MudStack>
+        <MudDivider Class="my-4" />
+        <MudStack Spacing="1">
+            <MudText Typo="Typo.subtitle2">Bybit positions</MudText>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="_isLoading" OnClick="LoadBybitPositionsAsync">
+                    Load
+                </MudButton>
+                <MudButton Variant="Variant.Text" Disabled="_bybitPositions.Count == 0" OnClick="SelectAll">
+                    Select all
+                </MudButton>
+                <MudButton Variant="Variant.Text" Disabled="_selectedPositions.Count == 0" OnClick="ClearSelection">
+                    Clear
+                </MudButton>
+                <MudSpacer />
+                <MudText Typo="Typo.caption">@SelectedCountLabel</MudText>
+            </MudStack>
+            @if (_isLoading)
+            {
+                <MudProgressLinear Indeterminate="true" />
+            }
+            @if (!string.IsNullOrWhiteSpace(_loadError))
+            {
+                <MudText Typo="Typo.caption" Color="Color.Error">@_loadError</MudText>
+            }
+            @if (_excludedCount > 0)
+            {
+                <MudText Typo="Typo.caption">Excluded: @_excludedCount already in this portfolio.</MudText>
+            }
+            <MudTable Items="_bybitPositions" Dense="true" Hover="true" Bordered="true">
+                <HeaderContent>
+                    <MudTh />
+                    <MudTh>Symbol</MudTh>
+                    <MudTh>Side</MudTh>
+                    <MudTh Align="right">Size</MudTh>
+                    <MudTh Align="right">Avg price</MudTh>
+                </HeaderContent>
+                <RowTemplate Context="position">
+                    <MudTd>
+                        <MudCheckBox T="bool"
+                                     Value="@GetSelection(position)"
+                                     ValueChanged="@(checkedValue => SetSelection(position, checkedValue))" />
+                    </MudTd>
+                    <MudTd>
+                        <MudText Typo="Typo.body2">@position.Symbol</MudText>
+                        <MudText Typo="Typo.caption" Class="bybit-category">@position.Category</MudText>
+                    </MudTd>
+                    <MudTd>@position.Side</MudTd>
+                    <MudTd Align="right">@FormatSignedSize(position)</MudTd>
+                    <MudTd Align="right">@position.AvgPrice</MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Color="Color.Default" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="_selectedPositions.Count == 0" OnClick="Save">Add</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    [Parameter] public string? InitialBaseAsset { get; set; }
+
+    [Parameter] public string? InitialQuoteAsset { get; set; }
+
+    [Parameter] public IReadOnlyList<LegModel>? ExistingLegs { get; set; }
+
+    private string _baseAsset = string.Empty;
+    private string _quoteAsset = string.Empty;
+    private readonly List<BybitPosition> _bybitPositions = new();
+    private readonly HashSet<BybitPosition> _selectedPositions = new();
+    private bool _isLoading;
+    private string? _loadError;
+    private int _excludedCount;
+    private static readonly string[] BybitPositionCategories = { "option", "linear", "inverse" };
+    private static readonly string[] PositionExpirationFormats = { "ddMMMyy", "ddMMMyyyy" };
+
+    private string SelectedCountLabel => _selectedPositions.Count == 0
+        ? "No positions selected"
+        : $"Selected: {_selectedPositions.Count}";
+
+    protected override void OnInitialized()
+    {
+        _baseAsset = string.IsNullOrWhiteSpace(InitialBaseAsset) ? "ETH" : InitialBaseAsset;
+        _quoteAsset = string.IsNullOrWhiteSpace(InitialQuoteAsset) ? "USDT" : InitialQuoteAsset;
+    }
+
+    private void Save()
+    {
+        Dialog.Close(DialogResult.Ok(new List<BybitPosition>(_selectedPositions)));
+    }
+
+    private void Cancel()
+    {
+        Dialog.Cancel();
+    }
+
+    private void HandleKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter" && _selectedPositions.Count > 0)
+        {
+            Save();
+        }
+        else if (args.Key == "Escape")
+        {
+            Cancel();
+        }
+    }
+
+    private async Task LoadBybitPositionsAsync()
+    {
+        _loadError = null;
+        _isLoading = true;
+        _bybitPositions.Clear();
+        _selectedPositions.Clear();
+        _excludedCount = 0;
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_baseAsset))
+            {
+                _loadError = "Enter a base asset before loading Bybit positions.";
+                return;
+            }
+
+            var baseAsset = _baseAsset.Trim();
+            var quoteAsset = _quoteAsset.Trim();
+            var existingLegs = ExistingLegs ?? Array.Empty<LegModel>();
+
+            foreach (var category in BybitPositionCategories)
+            {
+                try
+                {
+                    var settleCoin = string.Equals(category, "option", StringComparison.OrdinalIgnoreCase) ? null : quoteAsset;
+                    var positions = await BybitPositionService.GetPositionsAsync(baseAsset, category, settleCoin);
+                    foreach (var position in positions)
+                    {
+                        if (!TryBuildLegFromBybitPosition(position, baseAsset, category, out var candidate))
+                        {
+                            continue;
+                        }
+
+                        if (existingLegs.Any(existing => IsLegMatch(existing, candidate)))
+                        {
+                            _excludedCount++;
+                            continue;
+                        }
+
+                        _bybitPositions.Add(position);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _loadError = $"Failed to load {category} positions: {ex.Message}";
+                    return;
+                }
+            }
+
+            if (_bybitPositions.Count == 0)
+            {
+                _loadError = _excludedCount > 0
+                    ? "All Bybit positions are already in this portfolio."
+                    : "No Bybit positions found for the selected asset.";
+            }
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private bool GetSelection(BybitPosition position)
+    {
+        return _selectedPositions.Contains(position);
+    }
+
+    private void SetSelection(BybitPosition position, bool isSelected)
+    {
+        if (isSelected)
+        {
+            _selectedPositions.Add(position);
+        }
+        else
+        {
+            _selectedPositions.Remove(position);
+        }
+    }
+
+    private void SelectAll()
+    {
+        foreach (var position in _bybitPositions)
+        {
+            _selectedPositions.Add(position);
+        }
+    }
+
+    private void ClearSelection()
+    {
+        _selectedPositions.Clear();
+    }
+
+    private static string FormatSignedSize(BybitPosition position)
+    {
+        var magnitude = Math.Abs(position.Size);
+        if (magnitude < 0.0001)
+        {
+            return "0";
+        }
+
+        var sign = string.Equals(position.Side, "Sell", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(position.Side, "Short", StringComparison.OrdinalIgnoreCase)
+            ? "-"
+            : "+";
+
+        return $"{sign}{magnitude:0.####}";
+    }
+
+    private static bool TryBuildLegFromBybitPosition(BybitPosition position, string baseAsset, string category, out LegModel leg)
+    {
+        leg = new LegModel();
+        if (string.IsNullOrWhiteSpace(position.Symbol))
+        {
+            return false;
+        }
+
+        DateTime? expiration = null;
+        double? strike = null;
+        var type = LegType.Future;
+        if (string.Equals(category, "option", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!TryParsePositionSymbol(position.Symbol, out var parsedBase, out var parsedExpiration, out var parsedStrike, out var parsedType))
+            {
+                return false;
+            }
+
+            if (!string.Equals(parsedBase, baseAsset, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            expiration = parsedExpiration;
+            strike = parsedStrike;
+            type = parsedType;
+        }
+        else
+        {
+            if (!position.Symbol.StartsWith(baseAsset, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (TryParseFutureExpiration(position.Symbol, out var parsedFutureExpiration))
+            {
+                expiration = parsedFutureExpiration;
+            }
+        }
+
+        leg = new LegModel
+        {
+            Type = type,
+            Strike = strike,
+            ExpirationDate = expiration
+        };
+
+        return true;
+    }
+
+    private static bool IsLegMatch(LegModel existing, LegModel candidate)
+    {
+        return existing.Type == candidate.Type
+            && IsDateMatch(existing.ExpirationDate, candidate.ExpirationDate)
+            && IsStrikeMatch(existing.Strike, candidate.Strike);
+    }
+
+    private static bool IsStrikeMatch(double? left, double? right)
+    {
+        if (!left.HasValue && !right.HasValue)
+        {
+            return true;
+        }
+
+        if (!left.HasValue || !right.HasValue)
+        {
+            return false;
+        }
+
+        return Math.Abs(left.Value - right.Value) < 0.01;
+    }
+
+    private static bool IsDateMatch(DateTime? left, DateTime? right)
+    {
+        if (!left.HasValue && !right.HasValue)
+        {
+            return true;
+        }
+
+        if (!left.HasValue || !right.HasValue)
+        {
+            return false;
+        }
+
+        return left.Value.Date == right.Value.Date;
+    }
+
+    private static bool TryParsePositionSymbol(string symbol, out string baseAsset, out DateTime expiration, out double strike, out LegType type)
+    {
+        baseAsset = string.Empty;
+        expiration = default;
+        strike = 0;
+        type = LegType.Call;
+
+        var parts = symbol.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length < 4)
+        {
+            return false;
+        }
+
+        baseAsset = parts[0];
+        if (!DateTime.TryParseExact(parts[1], PositionExpirationFormats, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out var parsedExpiration))
+        {
+            return false;
+        }
+
+        expiration = parsedExpiration.Date;
+
+        if (!double.TryParse(parts[2], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out strike))
+        {
+            return false;
+        }
+
+        var typeToken = parts[3].Trim();
+        type = typeToken.Equals("P", StringComparison.OrdinalIgnoreCase) ? LegType.Put : LegType.Call;
+        return true;
+    }
+
+    private static bool TryParseFutureExpiration(string symbol, out DateTime expiration)
+    {
+        expiration = default;
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return false;
+        }
+
+        var tokens = symbol.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (tokens.Length >= 2 &&
+            DateTime.TryParseExact(tokens[1], PositionExpirationFormats, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out var parsed))
+        {
+            expiration = parsed.Date;
+            return true;
+        }
+
+        var match = System.Text.RegularExpressions.Regex.Match(symbol, @"(\d{8}|\d{6})$");
+        if (!match.Success)
+        {
+            return false;
+        }
+
+        var format = match.Groups[1].Value.Length == 8 ? "yyyyMMdd" : "yyMMdd";
+        return DateTime.TryParseExact(match.Groups[1].Value, format, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out expiration);
+    }
+}
+
+<style>
+    .bybit-category {
+        color: rgba(0, 0, 0, 0.45);
+        line-height: 1.2;
+    }
+</style>
