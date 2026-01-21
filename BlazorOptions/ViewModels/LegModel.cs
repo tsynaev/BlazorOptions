@@ -27,6 +27,8 @@ public class LegModel
     public double? Price { get; set; }
 
     public double? ImpliedVolatility { get; set; }
+
+    public string? Symbol { get; set; }
 }
 
 

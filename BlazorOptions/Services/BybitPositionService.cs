@@ -12,16 +12,36 @@ public class BybitPositionService : BybitApiService
     private const string RequestPath = "/v5/position/list";
     private readonly ExchangeSettingsService _exchangeSettingsService;
 
+    private const string DefaultSettleCoin = "USDT";
+
+    private List<string> _settleCoins = new() { DefaultSettleCoin };
+
     public BybitPositionService(HttpClient httpClient, ExchangeSettingsService exchangeSettingsService)
         : base(httpClient)
     {
         _exchangeSettingsService = exchangeSettingsService;
     }
 
-    public async Task<IReadOnlyList<BybitPosition>> GetPositionsAsync(string baseCoin, string category, string? settleCoin = null, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<BybitPosition>> GetPositionsAsync(CancellationToken cancellationToken = default)
+    {
+        var allPositions = new List<BybitPosition>();
+        foreach (var category in new[] { "linear", "inverse" })
+        {
+            foreach (var settleCoin in _settleCoins)
+            {
+                var positions = await GetPositionsAsync(category, settleCoin, cancellationToken);
+                allPositions.AddRange(positions);
+            }
+        }
+
+        allPositions.AddRange(await GetPositionsAsync("option", null, cancellationToken));
+        return allPositions;
+    }
+
+    public async Task<IReadOnlyList<BybitPosition>> GetPositionsAsync(string category, string? settleCoin, CancellationToken cancellationToken = default)
     {
         var settings = await _exchangeSettingsService.LoadBybitSettingsAsync();
-        var queryParameters = BuildQueryParameters(baseCoin, category, settleCoin);
+        var queryParameters = BuildQueryParameters(category, settleCoin);
         var queryString = BuildQueryString(queryParameters.ToDictionary(p => p.Key, p => (string?)p.Value, StringComparer.Ordinal));
         var payload = await SendSignedRequestAsync(
             HttpMethod.Get,
@@ -62,23 +82,18 @@ public class BybitPositionService : BybitApiService
         return positions;
     }
 
-    private static List<KeyValuePair<string, string>> BuildQueryParameters(string baseCoin, string category, string? settleCoin)
+    private static List<KeyValuePair<string, string>> BuildQueryParameters(string category, string? settleCoin)
     {
         var parameters = new List<KeyValuePair<string, string>>
         {
             new("category", category)
         };
 
-        if (!string.IsNullOrWhiteSpace(settleCoin))
+        if (!string.IsNullOrEmpty(settleCoin))
         {
-            parameters.Add(new("settleCoin", settleCoin.Trim().ToUpperInvariant()));
+            parameters.Add(new KeyValuePair<string, string>("settleCoin", settleCoin));
         }
-
-        if (!string.IsNullOrWhiteSpace(baseCoin))
-        {
-            parameters.Add(new("baseCoin", baseCoin.Trim().ToUpperInvariant()));
-        }
-
+        
         return parameters;
     }
 

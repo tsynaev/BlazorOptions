@@ -1,0 +1,100 @@
+@using System.Linq
+@using BlazorOptions.ViewModels
+@using BlazorOptions.Services
+@implements IDisposable
+
+@if (ShowAssetInputs)
+{
+    <MudStack Row="true" Spacing="2">
+        <MudTextField T="string"
+                      Value="@ViewModel.BaseAsset"
+                      ValueChanged="@(value => ViewModel.SetBaseAsset(value))"
+                      Label="Base asset"
+                      Placeholder="ETH"
+                      Immediate="true"
+                      Margin="Margin.Dense"
+                      Variant="Variant.Outlined"
+                      FullWidth="true" />
+        <MudTextField T="string"
+                      Value="@ViewModel.QuoteAsset"
+                      ValueChanged="@(value => ViewModel.SetQuoteAsset(value))"
+                      Label="Quote asset"
+                      Placeholder="USDT"
+                      Immediate="true"
+                      Margin="Margin.Dense"
+                      Variant="Variant.Outlined"
+                      FullWidth="true" />
+    </MudStack>
+    <MudDivider Class="my-4" />
+}
+<MudStack Spacing="1">
+    <MudText Typo="Typo.subtitle2">Active positions</MudText>
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+        <MudButton Variant="Variant.Text" Disabled="@(!ViewModel.Positions.Any())" OnClick="ViewModel.SelectAll">
+            Select all
+        </MudButton>
+        <MudButton Variant="Variant.Text" Disabled="@(ViewModel.SelectedPositions.Count == 0)" OnClick="ViewModel.ClearSelection">
+            Clear
+        </MudButton>
+        <MudSpacer />
+        <MudText Typo="Typo.caption">@ViewModel.SelectedCountLabel</MudText>
+    </MudStack>
+    @if (ViewModel.IsLoading)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    @if (!string.IsNullOrWhiteSpace(ViewModel.LoadError))
+    {
+        <MudText Typo="Typo.caption" Color="Color.Error">@ViewModel.LoadError</MudText>
+    }
+    <MudTable Items="@ViewModel.Positions" Dense="true" Hover="true" Bordered="true">
+        <HeaderContent>
+            <MudTh />
+            <MudTh>Symbol</MudTh>
+            <MudTh>Side</MudTh>
+            <MudTh align="right">Size</MudTh>
+            <MudTh align="right">Avg price</MudTh>
+        </HeaderContent>
+        <RowTemplate Context="position">
+            <MudTd>
+                <MudCheckBox T="bool"
+                             Value="@ViewModel.GetSelection(position)"
+                             ValueChanged="@(checkedValue => ViewModel.SetSelection(position, checkedValue))" />
+            </MudTd>
+            <MudTd>
+                <MudText Typo="Typo.body2">@position.Symbol</MudText>
+                <MudText Typo="Typo.caption" Class="bybit-category">@position.Category</MudText>
+            </MudTd>
+            <MudTd>@position.Side</MudTd>
+            <MudTd align="right">@ActivePositionsPanelViewModel.FormatSignedSize(position)</MudTd>
+            <MudTd align="right">@position.AvgPrice</MudTd>
+        </RowTemplate>
+    </MudTable>
+</MudStack>
+
+@code {
+    [Parameter, EditorRequired] public ActivePositionsPanelViewModel ViewModel { get; set; } = default!;
+    [Parameter] public bool ShowAssetInputs { get; set; } = true;
+
+    protected override void OnInitialized()
+    {
+        ViewModel.OnChange += HandleStateChanged;
+    }
+
+    private void HandleStateChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        ViewModel.OnChange -= HandleStateChanged;
+    }
+}
+
+<style>
+    .bybit-category {
+        color: rgba(0, 0, 0, 0.45);
+        line-height: 1.2;
+    }
+</style>

@@ -386,6 +386,7 @@ window.payoffChart = {
             },
             tooltip: {
                 trigger: 'axis',
+                renderMode: 'richText',
                 axisPointer: {
                     type: 'cross',
                     snap: true,
@@ -434,7 +435,7 @@ window.payoffChart = {
                     const lines = [`Price: ${formatPrice(price)}`];
                     seriesLines.forEach(line => lines.push(line));
 
-                    return lines.join('<br/>');
+                    return lines.join('\n');
                 }
             },
             xAxis: {

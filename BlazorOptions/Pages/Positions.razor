@@ -310,7 +310,8 @@
             return;
         }
 
-        await ViewModel.AddPositionAsync(request.Name, request.BaseAsset, request.QuoteAsset);
+        var includeSampleLegs = request.SelectedBybitPositions.Count == 0;
+        await ViewModel.AddPositionAsync(request.Name, request.BaseAsset, request.QuoteAsset, includeSampleLegs);
         if (request.SelectedBybitPositions.Count > 0 && ViewModel.SelectedPosition is not null && ViewModel.SelectedCollection is not null)
         {
             await ViewModel.AddBybitPositionsToCollectionAsync(ViewModel.SelectedPosition, ViewModel.SelectedCollection, request.SelectedBybitPositions);

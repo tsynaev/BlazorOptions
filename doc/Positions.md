@@ -8,12 +8,14 @@ The Positions feature lets you build, manage, and visualize option strategies an
 - Add legs manually or by parsing quick input (e.g., size/type/strike/expiry).
 - Duplicate collections to iterate on variants.
 - Load live positions from Bybit (options/linear/inverse) into a collection.
+- Create positions from an Active Positions panel that mirrors your Bybit account holdings.
 - Toggle leg inclusion and collection visibility to control what is shown in charts.
 - Live price tracking and automatic leg price refresh from option chain data.
 - Payoff chart updates for visible collections and selected valuation date.
 
 ## Persistence and sync
 - Client persists the current positions locally for offline use.
+- Active Bybit positions are cached in local storage and refreshed by a REST snapshot on initial connect and reconnect, then kept up to date by websocket updates.
 - When signed in, position changes are sent as per-position snapshot events.
 - When the Positions page opens, the client queues a local snapshot of added/updated positions and deleted position ids, then connects to sync.
 - The server stores only the latest position snapshots and broadcasts updates to other devices via SignalR (no event stream storage).

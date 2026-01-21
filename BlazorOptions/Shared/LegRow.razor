@@ -1,4 +1,5 @@
 @using BlazorOptions.ViewModels
+@using BlazorOptions.Services
 @implements IDisposable
 
 <MudTd DataLabel="Include">
@@ -92,6 +93,7 @@
     protected override void OnInitialized()
     {
         ViewModel.LegTickerUpdated += HandleLegTickerUpdated;
+        ViewModel.ActivePositionUpdated += HandleActivePositionUpdated;
     }
 
     protected override void OnParametersSet()
@@ -112,9 +114,23 @@
         }
     }
 
+    private void HandleActivePositionUpdated(BybitPosition position)
+    {
+        if (position is null || string.IsNullOrWhiteSpace(position.Symbol))
+        {
+            return;
+        }
+
+        if (string.Equals(position.Symbol, _symbol, StringComparison.OrdinalIgnoreCase))
+        {
+            _ = InvokeAsync(StateHasChanged);
+        }
+    }
+
     public void Dispose()
     {
         ViewModel.LegTickerUpdated -= HandleLegTickerUpdated;
+        ViewModel.ActivePositionUpdated -= HandleActivePositionUpdated;
     }
 
     private static string FormatPrice(double? price)

@@ -371,6 +371,12 @@ public sealed class LegsCollectionViewModel
         remove => _positionBuilder.LegTickerUpdated -= value;
     }
 
+    public event Action<BybitPosition>? ActivePositionUpdated
+    {
+        add => _positionBuilder.ActivePositionUpdated += value;
+        remove => _positionBuilder.ActivePositionUpdated -= value;
+    }
+
     private bool EnsureActiveCollection()
     {
         return _positionBuilder.TrySetActiveCollection(Collection.Id);
