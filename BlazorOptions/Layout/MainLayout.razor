@@ -5,6 +5,12 @@
 <MudLayout>
     <MudAppBar>
         <MudText Typo="Typo.h6">Blazor Options</MudText>
+        <MudStack Row="true" Spacing="1" Class="appbar-links">
+            <MudNavLink Href="/" Match="NavLinkMatch.All" Class="appbar-link">Home</MudNavLink>
+            <MudNavLink Href="/positions" Class="appbar-link">Positions</MudNavLink>
+            <MudNavLink Href="/trading-history" Class="appbar-link">Trading</MudNavLink>
+            <MudNavLink Href="/bybit-settings" Class="appbar-link">Bybit</MudNavLink>
+        </MudStack>
         <MudSpacer />
         @if (ViewModel.IsAuthenticated && !string.IsNullOrWhiteSpace(ViewModel.UserName))
         {
@@ -42,3 +48,20 @@
         _ = InvokeAsync(StateHasChanged);
     }
 }
+
+<style>
+    .appbar-links {
+        margin-left: 16px;
+        align-items: center;
+    }
+
+    .appbar-link {
+        color: inherit;
+        text-decoration: none;
+        font-weight: 500;
+    }
+
+    .appbar-link.active {
+        text-decoration: underline;
+    }
+</style>

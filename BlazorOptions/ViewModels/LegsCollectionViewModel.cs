@@ -360,6 +360,11 @@ public sealed class LegsCollectionViewModel
         return _positionBuilder.GetLegTemporaryPnl(leg);
     }
 
+    public double? GetLegTemporaryPnlPercent(LegModel leg)
+    {
+        return _positionBuilder.GetLegTemporaryPnlPercent(leg);
+    }
+
     public string? GetLegSymbol(LegModel leg)
     {
         return _positionBuilder.GetLegSymbol(leg);

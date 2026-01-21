@@ -63,10 +63,19 @@
 <MudTd DataLabel="Temp P/L">
     @{
         var tempPnl = ViewModel.GetLegTemporaryPnl(Leg);
+        var tempPnlPercent = ViewModel.GetLegTemporaryPnlPercent(Leg);
     }
-    <MudText Typo="Typo.body2" Color="@(tempPnl >= 0 ? Color.Success : Color.Error)">
-        @tempPnl.ToString("0.##")
-    </MudText>
+    <MudStack Spacing="0">
+        <MudText Typo="Typo.body2" Color="@(tempPnl >= 0 ? Color.Success : Color.Error)">
+            @tempPnl.ToString("0.##")
+        </MudText>
+        @if (tempPnlPercent.HasValue)
+        {
+            <MudText Typo="Typo.caption" Class="temp-pnl-percent">
+                @($"{tempPnlPercent.Value:0.##}%")
+            </MudText>
+        }
+    </MudStack>
 </MudTd>
 <MudTd DataLabel="IV" Class="iv-column">
     @{
@@ -183,6 +192,12 @@
 
     .price-sep {
         color: var(--mud-palette-text-disabled, rgba(0, 0, 0, 0.38));
+    }
+
+    .temp-pnl-percent {
+        display: block;
+        margin-top: 2px;
+        line-height: 1.1;
     }
 </style>
 

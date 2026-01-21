@@ -756,6 +756,25 @@ public class PositionBuilderViewModel : IAsyncDisposable
         return _temporaryPnls.TryGetValue(leg.Id, out var value) ? value : 0;
     }
 
+    public double? GetLegTemporaryPnlPercent(LegModel leg)
+    {
+        if (!leg.Price.HasValue)
+        {
+            return null;
+        }
+
+        var baseAsset = SelectedPosition?.BaseAsset;
+        var entryPrice = ResolveLegEntryPrice(leg, baseAsset);
+        var positionValue = entryPrice * leg.Size;
+        if (Math.Abs(positionValue) < 0.0001)
+        {
+            return null;
+        }
+
+        var tempPnl = GetLegTemporaryPnl(leg);
+        return tempPnl / Math.Abs(positionValue) * 100;
+    }
+
     public string? GetLegSymbol(LegModel leg)
     {
         if (!string.IsNullOrWhiteSpace(leg.Symbol))
