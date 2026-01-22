@@ -1,30 +1,62 @@
 using System.Collections.ObjectModel;
 using BlazorOptions.Services;
-using BlazorOptions.Shared;
 using Microsoft.AspNetCore.Components.Web;
-using MudBlazor;
 
 namespace BlazorOptions.ViewModels;
+
+public readonly record struct BidAsk(double? Bid, double? Ask);
+
 
 public sealed class LegsCollectionViewModel
 {
     private readonly PositionBuilderViewModel _positionBuilder;
-    private readonly IDialogService _dialogService;
+    private readonly ILegsCollectionDialogService _dialogService;
+    private string? _baseAsset;
+    private LegsCollectionModel _collection;
 
-    public LegsCollectionViewModel(PositionBuilderViewModel positionBuilder, IDialogService dialogService, LegsCollectionModel collection)
+    public LegsCollectionViewModel(
+        PositionBuilderViewModel positionBuilder,
+        ILegsCollectionDialogService dialogService,
+        OptionsChainService optionsChainService)
     {
         _positionBuilder = positionBuilder;
         _dialogService = dialogService;
-        Collection = collection;
+
+
+
+        QuickAdd = new QuickAddViewModel(positionBuilder, optionsChainService);
+        QuickAdd.LegCreated += HandleQuickAddLegCreated;
+
     }
 
-    public LegsCollectionModel Collection { get; }
+    public string? BaseAsset
+    {
+        get => _baseAsset;
+        set {
+           _baseAsset = value;
+           QuickAdd.BaseAsset = value;
+        }
+    }
+
+    public LegsCollectionModel Collection
+    {
+        get => _collection;
+        set
+        {
+            _collection = value;
+            QuickAdd.Collection = value;
+        } 
+    }
 
     public ObservableCollection<LegModel> Legs => Collection.Legs;
 
     public IEnumerable<LegType> LegTypes => Enum.GetValues<LegType>();
 
-    public string QuickLegInput { get; set; } = string.Empty;
+    public QuickAddViewModel QuickAdd { get; }
+
+    public event Func<LegModel, Task>? LegAdded;
+    public event Func<LegModel, Task>? LegRemoved;
+    public event Func<Task>? Updated;
 
     public string Name
     {
@@ -40,31 +72,10 @@ public sealed class LegsCollectionViewModel
 
     public bool HasActivePosition => _positionBuilder.SelectedPosition is not null;
 
-    public bool IsSelected => _positionBuilder.SelectedCollection?.Id == Collection.Id;
-
     public bool IsVisible
     {
         get => Collection.IsVisible;
         set => _ = SetVisibilityAsync(value);
-    }
-
-    public async Task OnQuickLegKeyDown(KeyboardEventArgs args)
-    {
-        if (args.Key == "Enter")
-        {
-            await AddQuickLegAsync();
-        }
-    }
-
-    public async Task AddQuickLegAsync()
-    {
-        if (!EnsureActiveCollection())
-        {
-            return;
-        }
-
-        await _positionBuilder.AddLegFromTextAsync(QuickLegInput);
-        QuickLegInput = string.Empty;
     }
 
     public async Task AddLegAsync()
@@ -79,30 +90,29 @@ public sealed class LegsCollectionViewModel
             return;
         }
 
-        var parameters = new DialogParameters
-        {
-            [nameof(OptionChainDialog.Position)] = _positionBuilder.SelectedPosition,
-            [nameof(OptionChainDialog.Collection)] = Collection,
-            [nameof(OptionChainDialog.UnderlyingPrice)] = _positionBuilder.SelectedPrice ?? _positionBuilder.LivePrice
-        };
-
-        var options = new DialogOptions
-        {
-            CloseOnEscapeKey = true,
-            MaxWidth = MaxWidth.Large,
-            FullWidth = true
-        };
-
-        var dialog = await _dialogService.ShowAsync<OptionChainDialog>("Add leg", parameters, options);
-        var result = await dialog.Result;
-
-        if (result is null || result.Canceled || result.Data is not IEnumerable<LegModel> legs)
+        var legs = await _dialogService.ShowOptionChainDialogAsync(
+            _positionBuilder.SelectedPosition,
+            Collection,
+            _positionBuilder.SelectedPrice ?? _positionBuilder.LivePrice);
+        if (legs is null)
         {
             return;
         }
 
         await _positionBuilder.UpdateLegsAsync(legs);
-        _positionBuilder.NotifyStateChanged();
+        await RaiseUpdatedAsync();
+    }
+
+    public Task AddQuickLegAsync()
+    {
+        SyncQuickAddPrice();
+        return QuickAdd.AddQuickLegAsync();
+    }
+
+    public Task OnQuickLegKeyDown(KeyboardEventArgs args)
+    {
+        SyncQuickAddPrice();
+        return QuickAdd.OnQuickLegKeyDown(args);
     }
 
     public async Task DuplicateCollectionAsync()
@@ -126,24 +136,11 @@ public sealed class LegsCollectionViewModel
             return;
         }
 
-        var parameters = new DialogParameters
-        {
-            [nameof(BybitPositionsDialog.InitialBaseAsset)] = _positionBuilder.SelectedPosition.BaseAsset,
-            [nameof(BybitPositionsDialog.InitialQuoteAsset)] = _positionBuilder.SelectedPosition.QuoteAsset,
-            [nameof(BybitPositionsDialog.ExistingLegs)] = Collection.Legs.ToList()
-        };
-
-        var options = new DialogOptions
-        {
-            CloseOnEscapeKey = true,
-            MaxWidth = MaxWidth.Large,
-            FullWidth = true
-        };
-
-        var dialog = await _dialogService.ShowAsync<BybitPositionsDialog>("Add Bybit positions", parameters, options);
-        var result = await dialog.Result;
-
-        if (result is null || result.Canceled || result.Data is not IReadOnlyList<BybitPosition> positions)
+        var positions = await _dialogService.ShowBybitPositionsDialogAsync(
+            _positionBuilder.SelectedPosition.BaseAsset,
+            _positionBuilder.SelectedPosition.QuoteAsset,
+            Collection.Legs.ToList());
+        if (positions is null)
         {
             return;
         }
@@ -174,9 +171,7 @@ public sealed class LegsCollectionViewModel
         }
 
         Collection.Color = color;
-        await _positionBuilder.PersistPositionsAsync();
-        _positionBuilder.UpdateChart();
-        _positionBuilder.NotifyStateChanged();
+        await RaiseUpdatedAsync();
     }
 
     public async Task SetNameAsync(string name)
@@ -192,9 +187,7 @@ public sealed class LegsCollectionViewModel
         }
 
         Collection.Name = name.Trim();
-        await _positionBuilder.PersistPositionsAsync();
-        _positionBuilder.UpdateChart();
-        _positionBuilder.NotifyStateChanged();
+        await RaiseUpdatedAsync();
     }
 
     public async Task RemoveCollectionAsync()
@@ -204,11 +197,7 @@ public sealed class LegsCollectionViewModel
             return;
         }
 
-        var confirmed = await _dialogService.ShowMessageBox(
-            "Remove portfolio?",
-            $"Delete {Collection.Name} and its legs?",
-            yesText: "Delete",
-            cancelText: "Cancel");
+        var confirmed = await _dialogService.ConfirmRemoveCollectionAsync(Collection.Name);
 
         if (confirmed != true)
         {
@@ -220,19 +209,7 @@ public sealed class LegsCollectionViewModel
 
     public async Task OpenSettingsAsync()
     {
-        var parameters = new DialogParameters
-        {
-            [nameof(PortfolioSettingsDialog.CollectionId)] = Collection.Id
-        };
-
-        var options = new DialogOptions
-        {
-            CloseOnEscapeKey = true,
-            MaxWidth = MaxWidth.Small,
-            FullWidth = true
-        };
-
-        await _dialogService.ShowAsync<PortfolioSettingsDialog>("Portfolio settings", parameters, options);
+        await _dialogService.ShowPortfolioSettingsAsync(Collection.Id);
     }
 
     public async Task RemoveLegAsync(LegModel leg)
@@ -242,11 +219,14 @@ public sealed class LegsCollectionViewModel
             return;
         }
 
-        if (await _positionBuilder.RemoveLegAsync(leg))
+        if (!Collection.Legs.Contains(leg))
         {
-            _positionBuilder.UpdateChart();
-            _positionBuilder.NotifyStateChanged();
+            return;
         }
+
+        Collection.Legs.Remove(leg);
+        await RaiseUpdatedAsync();
+        await RaiseLegRemovedAsync(leg);
     }
 
     public async Task UpdateLegIncludedAsync(LegModel leg, bool include)
@@ -257,7 +237,8 @@ public sealed class LegsCollectionViewModel
         }
 
         leg.IsIncluded = include;
-        await PersistAndRefreshAsync();
+        await RaiseUpdatedAsync();
+        await RaiseLegUpdatedAsync(leg);
     }
 
     public async Task UpdateLegTypeAsync(LegModel leg, LegType type)
@@ -268,7 +249,8 @@ public sealed class LegsCollectionViewModel
         }
 
         leg.Type = type;
-        await PersistAndRefreshAsync();
+        await RaiseUpdatedAsync();
+        await RaiseLegUpdatedAsync(leg);
     }
 
     public async Task UpdateLegStrikeAsync(LegModel leg, double? strike)
@@ -279,7 +261,8 @@ public sealed class LegsCollectionViewModel
         }
 
         leg.Strike = strike;
-        await PersistAndRefreshAsync();
+        await RaiseUpdatedAsync();
+        await RaiseLegUpdatedAsync(leg);
     }
 
     public async Task UpdateLegExpirationAsync(LegModel leg, DateTime? date)
@@ -294,7 +277,8 @@ public sealed class LegsCollectionViewModel
             leg.ExpirationDate = date.Value;
         }
 
-        await PersistAndRefreshAsync();
+        await RaiseUpdatedAsync();
+        await RaiseLegUpdatedAsync(leg);
     }
 
     public async Task UpdateLegSizeAsync(LegModel leg, double size)
@@ -305,7 +289,8 @@ public sealed class LegsCollectionViewModel
         }
 
         leg.Size = size;
-        await PersistAndRefreshAsync();
+        await RaiseUpdatedAsync();
+        await RaiseLegUpdatedAsync(leg);
     }
 
     public async Task UpdateLegPriceAsync(LegModel leg, double? price)
@@ -316,7 +301,8 @@ public sealed class LegsCollectionViewModel
         }
 
         leg.Price = price;
-        await PersistAndRefreshAsync();
+        await RaiseUpdatedAsync();
+        await RaiseLegUpdatedAsync(leg);
     }
 
     public async Task UpdateLegIvAsync(LegModel leg, double? iv)
@@ -327,7 +313,8 @@ public sealed class LegsCollectionViewModel
         }
 
         leg.ImpliedVolatility = iv;
-        await PersistAndRefreshAsync();
+        await RaiseUpdatedAsync();
+        await RaiseLegUpdatedAsync(leg);
     }
 
     public double? GetLegMarkIv(LegModel leg)
@@ -340,7 +327,7 @@ public sealed class LegsCollectionViewModel
         return _positionBuilder.GetLegLastPrice(leg);
     }
 
-    public PositionBuilderViewModel.BidAsk GetLegBidAsk(LegModel leg)
+    public BidAsk GetLegBidAsk(LegModel leg)
     {
         return _positionBuilder.GetLegBidAsk(leg);
     }
@@ -387,12 +374,44 @@ public sealed class LegsCollectionViewModel
         return _positionBuilder.TrySetActiveCollection(Collection.Id);
     }
 
-    private async Task PersistAndRefreshAsync()
+    private Task RaiseUpdatedAsync()
     {
+        return Updated?.Invoke() ?? Task.CompletedTask;
+    }
+
+    private Task RaiseLegRemovedAsync(LegModel leg)
+    {
+        return LegRemoved?.Invoke(leg) ?? Task.CompletedTask;
+    }
+
+    private Task RaiseLegAddedAsync(LegModel leg)
+    {
+        return LegAdded?.Invoke(leg) ?? Task.CompletedTask;
+    }
+
+    private Task RaiseLegUpdatedAsync(LegModel leg)
+    {
+        return RaiseLegRemovedAsync(leg)
+            .ContinueWith(_ => RaiseLegAddedAsync(leg))
+            .Unwrap();
+    }
+
+    private async Task HandleQuickAddLegCreated(LegModel leg)
+    {
+        _ = leg;
         await _positionBuilder.PersistPositionsAsync();
         _positionBuilder.UpdateTemporaryPnls();
         _positionBuilder.UpdateChart();
+        _positionBuilder.RefreshLegTickerSubscription();
         _positionBuilder.NotifyStateChanged();
+        await RaiseUpdatedAsync();
+        await RaiseLegAddedAsync(leg);
+    }
+
+    private void SyncQuickAddPrice()
+    {
+        QuickAdd.Price = _positionBuilder.SelectedPrice ?? _positionBuilder.LivePrice;
+        QuickAdd.BaseAsset = _positionBuilder.SelectedPosition?.BaseAsset;
     }
 }
 

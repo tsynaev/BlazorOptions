@@ -13,22 +13,6 @@
             </MudStack>
             <MudSpacer />
             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                <MudTextField T="string"
-                              @bind-Value="ViewModel.QuickLegInput"
-                              Label="Quick add"
-                              Placeholder="+1 C 3400"
-                              Variant="Variant.Outlined"
-                              Margin="Margin.Dense"
-                              Immediate="true"
-                              OnKeyDown="ViewModel.OnQuickLegKeyDown"
-                              Class="quick-leg-input"
-                              Disabled="@(!ViewModel.HasActivePosition)" />
-                <MudButton Variant="Variant.Filled"
-                           Color="Color.Primary"
-                           Disabled="@(!ViewModel.HasActivePosition)"
-                           OnClick="async () => await ViewModel.AddQuickLegAsync()">
-                    Add
-                </MudButton>
                 <MudTooltip Text="Duplicate portfolio">
                     <MudIconButton Icon="@Icons.Material.Filled.FileCopy"
                                    Color="Color.Default"
@@ -74,6 +58,9 @@
                 <LegRow Leg="context" ViewModel="ViewModel" />
             </RowTemplate>
         </MudTable>
+        <MudCardActions>
+           <QuickAddPanel ViewModel="ViewModel.QuickAdd" />
+        </MudCardActions>
     </MudCardContent>
 </MudCard>
 
@@ -88,7 +75,8 @@
     {
         if (ViewModel is null || !ReferenceEquals(ViewModel.Collection, Collection))
         {
-            ViewModel = ViewModelFactory.Create(Collection);
+            ViewModel = ViewModelFactory.Create();
+            ViewModel.Collection = Collection;
         }
     }
 }

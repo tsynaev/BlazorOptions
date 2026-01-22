@@ -1,0 +1,39 @@
+@using BlazorOptions.ViewModels
+<MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mt-3 quick-add-panel">
+    <MudAutocomplete T="string"
+                     @bind-Value="ViewModel.QuickLegInput"
+                     Label="Quick add"
+                     Placeholder="+1 C 3400"
+                     Variant="Variant.Outlined"
+                     Margin="Margin.Dense"
+                     Immediate="true"
+                     MinCharacters="1"
+                     ResetValueOnEmptyText="false"
+                     CoerceText="true"
+                     CoerceValue="true"
+                     SearchFunc="ViewModel.SearchQuickLegSymbolsAsync"
+                     OnKeyDown="ViewModel.OnQuickLegKeyDown"
+                     Class="quick-leg-input"
+                    />
+    <MudButton Variant="Variant.Filled"
+               Color="Color.Primary"
+               OnClick="async () => await ViewModel.AddQuickLegAsync()">
+        Add
+    </MudButton>
+</MudStack>
+
+@code {
+    [Parameter, EditorRequired] public QuickAddViewModel ViewModel { get; set; }
+
+}
+
+<style>
+    .quick-add-panel {
+        flex-wrap: nowrap;
+    }
+
+    .quick-add-panel .quick-leg-input {
+        width: 220px;
+        flex: 0 0 220px;
+    }
+</style>

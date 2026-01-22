@@ -5,11 +5,10 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using BlazorOptions.Services;
 using BlazorOptions.Sync;
-using System.Linq.Expressions;
 
 namespace BlazorOptions.ViewModels;
 
-public class PositionBuilderViewModel : IAsyncDisposable
+public class PositionBuilderViewModel : IAsyncDisposable, IQuickAddContext
 {
     private readonly OptionsService _optionsService;
     private readonly PositionStorageService _storageService;
@@ -26,10 +25,6 @@ public class PositionBuilderViewModel : IAsyncDisposable
     private static readonly TimeSpan LegPriceUpdateInterval = TimeSpan.FromSeconds(1);
     private readonly Dictionary<string, DateTime> _lastLegPriceUpdateUtc = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, double> _temporaryPnls = new(StringComparer.Ordinal);
-    private static readonly Regex QuickAddAtRegex = new(@"@\s*(?<value>\d+(?:\.\d+)?)\s*(?<percent>%?)", RegexOptions.Compiled);
-    private static readonly Regex QuickAddDateWithYearRegex = new(@"(?i)\b\d{1,2}[A-Z]{3}\d{2,4}\b", RegexOptions.Compiled);
-    private static readonly Regex QuickAddDateWithoutYearRegex = new(@"(?i)\b\d{1,2}[A-Z]{3}\b", RegexOptions.Compiled);
-    private static readonly Regex QuickAddNumericDateRegex = new(@"\b\d{4}\b", RegexOptions.Compiled);
     private bool _isInitialized;
     private bool _suppressSync;
     private IReadOnlyList<TradingHistoryEntry> _tradingHistoryEntries = Array.Empty<TradingHistoryEntry>();
@@ -55,11 +50,9 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     public double? LivePrice { get; private set; }
 
-    public bool HasSelectedPrice => SelectedPrice.HasValue;
 
     public bool IsLive { get; private set; } = true;
 
-    public string QuickLegInput { get; set; } = string.Empty;
 
     public DateTime SelectedValuationDate { get; private set; } = DateTime.UtcNow.Date;
 
@@ -158,128 +151,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         await _positionSyncService.InitializeAsync(ApplyServerSnapshotAsync, ApplyServerItemAsync);
     }
 
-    public async Task AddLegAsync()
-    {
-        if (SelectedCollection is null)
-        {
-            return;
-        }
 
-        SelectedCollection.Legs.Add(new LegModel
-        {
-            Type = LegType.Call,
-            Strike = 3300,
-            Price = 150,
-            Size = 1,
-            ImpliedVolatility = 70,
-            ExpirationDate = DateTime.UtcNow.Date.AddMonths(1)
-        });
-
-        UpdateTemporaryPnls();
-        await PersistPositionsAsync();
-        UpdateLegTickerSubscription();
-    }
-
-    public async Task<bool> AddLegFromTextAsync(string? input)
-    {
-        if (SelectedCollection is null || SelectedPosition is null)
-        {
-            Notify("Select a position before adding a leg.");
-            return false;
-        }
-
-        if (string.IsNullOrWhiteSpace(input))
-        {
-            Notify("Enter a leg expression like '+1 C 3400' or '+1 P'.");
-            return false;
-        }
-
-        var trimmed = input.Trim();
-        var tokens = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var size = 1.0;
-        var tokenIndex = 0;
-
-        if (tokens.Length > 0 && TryParseNumber(tokens[0], out var parsedSize))
-        {
-            size = parsedSize;
-            tokenIndex = 1;
-        }
-
-        if (Math.Abs(size) < 0.0001)
-        {
-            Notify("Leg size must be non-zero.");
-            return false;
-        }
-
-        if (!TryFindLegType(tokens, tokenIndex, out var type, out var typeIndex))
-        {
-            Notify("Specify an option type (CALL or PUT).");
-            return false;
-        }
-
-        var strike = TryParseStrike(tokens, typeIndex);
-        var expiration = TryParseExpirationDate(trimmed, out var parsedExpiration)
-            ? parsedExpiration
-            : (DateTime?)null;
-        var (priceOverride, ivOverride) = ParsePriceOverrides(trimmed);
-
-        var baseAsset = SelectedPosition.BaseAsset;
-        if (string.IsNullOrWhiteSpace(baseAsset))
-        {
-            Notify("The position base asset is missing.");
-            return false;
-        }
-
-        var chainTickers = await LoadChainTickersAsync(baseAsset);
-        if (chainTickers.Count == 0)
-        {
-            Notify("Option chain is unavailable. Please refresh and try again.");
-            return false;
-        }
-
-        var expirationDate = expiration ?? ResolveDefaultExpirationDate();
-        var candidates = chainTickers
-            .Where(ticker => ticker.Type == type && ticker.ExpirationDate.Date == expirationDate.Date)
-            .ToList();
-
-        if (candidates.Count == 0)
-        {
-            Notify($"No contracts found for {type} expiring on {expirationDate:ddMMMyy}.");
-            return false;
-        }
-
-        var resolvedStrike = strike ?? ResolveAtmStrike(candidates);
-        var matchingTickers = candidates
-            .Where(ticker => Math.Abs(ticker.Strike - resolvedStrike) < 0.01)
-            .ToList();
-
-        if (matchingTickers.Count != 1)
-        {
-            Notify("Ambiguous contract selection. Please refine the input.");
-            return false;
-        }
-
-        var tickerMatch = matchingTickers[0];
-
-        var leg = new LegModel
-        {
-            Type = type,
-            Strike = tickerMatch.Strike,
-            ExpirationDate = expirationDate.Date,
-            Size = size,
-            Price = RoundPrice(priceOverride ?? tickerMatch.MarkPrice),
-            ImpliedVolatility = ivOverride ?? 0
-        };
-
-        SelectedCollection.Legs.Add(leg);
-        QuickLegInput = string.Empty;
-        UpdateTemporaryPnls();
-        UpdateChart();
-        await PersistPositionsAsync();
-        UpdateLegTickerSubscription();
-        OnChange?.Invoke();
-        return true;
-    }
 
     public async Task UpdateLegsAsync(IEnumerable<LegModel> legs)
     {
@@ -298,25 +170,6 @@ public class PositionBuilderViewModel : IAsyncDisposable
         UpdateChart();
         await PersistPositionsAsync();
         UpdateLegTickerSubscription();
-    }
-
-    public async Task<bool> RemoveLegAsync(LegModel leg)
-    {
-        if (SelectedCollection is null)
-        {
-            return false;
-        }
-
-        if (SelectedCollection.Legs.Contains(leg))
-        {
-            SelectedCollection.Legs.Remove(leg);
-            await PersistPositionsAsync();
-            UpdateTemporaryPnls();
-            UpdateLegTickerSubscription();
-            return true;
-        }
-
-        return false;
     }
 
     public async Task AddPositionAsync(string? name = null, string? baseAsset = null, string? quoteAsset = null, bool includeSampleLegs = true)
@@ -1697,7 +1550,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
             && Math.Abs(leg.Strike.Value - ticker.Strike) < 0.01;
     }
 
-    public readonly record struct BidAsk(double? Bid, double? Ask);
+
 
     public event Action<OptionChainTicker>? LegTickerUpdated;
     public event Action<BybitPosition>? ActivePositionUpdated;
@@ -1707,6 +1560,16 @@ public class PositionBuilderViewModel : IAsyncDisposable
     public void NotifyStateChanged()
     {
         OnChange?.Invoke();
+    }
+
+    public void NotifyUser(string message)
+    {
+        NotificationRequested?.Invoke(message);
+    }
+
+    public void RefreshLegTickerSubscription()
+    {
+        UpdateLegTickerSubscription();
     }
 
     public async ValueTask DisposeAsync()
@@ -1849,191 +1712,6 @@ public class PositionBuilderViewModel : IAsyncDisposable
         {
             await _storageService.RemoveDeletedPositionsAsync(resolved);
         }
-    }
-
-    private async Task<IReadOnlyList<OptionChainTicker>> LoadChainTickersAsync(string baseAsset)
-    {
-        var snapshot = _optionsChainService.GetSnapshot()
-            .Where(ticker => string.Equals(ticker.BaseAsset, baseAsset, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        if (snapshot.Count > 0)
-        {
-            return snapshot;
-        }
-
-        await _optionsChainService.RefreshAsync(baseAsset);
-        return _optionsChainService.GetSnapshot()
-            .Where(ticker => string.Equals(ticker.BaseAsset, baseAsset, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-    }
-
-    private double ResolveAtmStrike(IReadOnlyList<OptionChainTicker> candidates)
-    {
-        var referencePrice = SelectedPrice ?? LivePrice;
-        if (!referencePrice.HasValue)
-        {
-            referencePrice = candidates.Average(ticker => ticker.Strike);
-        }
-
-        return candidates
-            .OrderBy(ticker => Math.Abs(ticker.Strike - referencePrice.Value))
-            .First()
-            .Strike;
-    }
-
-    private DateTime ResolveDefaultExpirationDate()
-    {
-        if (SelectedCollection?.Legs.Count > 0)
-        {
-            var lastWithExpiration = SelectedCollection.Legs.LastOrDefault(leg => leg.ExpirationDate.HasValue);
-            if (lastWithExpiration?.ExpirationDate.HasValue ?? false)
-            {
-                return lastWithExpiration.ExpirationDate.Value.Date;
-            }
-        }
-
-        return GetNextMonthEndDate(DateTime.UtcNow.Date, 7);
-    }
-
-    private static DateTime GetNextMonthEndDate(DateTime reference, int minDaysOut)
-    {
-        var target = reference;
-        while (true)
-        {
-            var candidate = new DateTime(target.Year, target.Month, DateTime.DaysInMonth(target.Year, target.Month));
-            if ((candidate - reference.Date).TotalDays > minDaysOut)
-            {
-                return candidate;
-            }
-
-            target = target.AddMonths(1);
-        }
-    }
-
-    private static bool TryParseNumber(string token, out double value)
-    {
-        var cleaned = token.Trim().Trim(',', ';');
-        return double.TryParse(cleaned, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
-    }
-
-    private static bool TryFindLegType(string[] tokens, int startIndex, out LegType type, out int typeIndex)
-    {
-        for (var i = startIndex; i < tokens.Length; i++)
-        {
-            var normalized = tokens[i].Trim().Trim(',', ';').ToUpperInvariant();
-            switch (normalized)
-            {
-                case "C":
-                case "CALL":
-                case "CALLS":
-                    type = LegType.Call;
-                    typeIndex = i;
-                    return true;
-                case "P":
-                case "PUT":
-                case "PUTS":
-                    type = LegType.Put;
-                    typeIndex = i;
-                    return true;
-            }
-        }
-
-        type = LegType.Call;
-        typeIndex = -1;
-        return false;
-    }
-
-    private static double? TryParseStrike(string[] tokens, int typeIndex)
-    {
-        for (var i = typeIndex + 1; i < tokens.Length; i++)
-        {
-            var token = tokens[i].Trim().Trim(',', ';');
-            if (string.Equals(token, "@", StringComparison.Ordinal) || token.StartsWith("@", StringComparison.Ordinal))
-            {
-                break;
-            }
-
-            if (TryParseNumber(token, out var strike))
-            {
-                return strike;
-            }
-        }
-
-        return null;
-    }
-
-    private static (double? price, double? iv) ParsePriceOverrides(string input)
-    {
-        var match = QuickAddAtRegex.Match(input);
-        if (!match.Success)
-        {
-            return (null, null);
-        }
-
-        if (!double.TryParse(match.Groups["value"].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
-        {
-            return (null, null);
-        }
-
-        return match.Groups["percent"].Value == "%"
-            ? (null, value)
-            : (value, null);
-    }
-
-    private static bool TryParseExpirationDate(string input, out DateTime expirationDate)
-    {
-        var match = QuickAddDateWithYearRegex.Match(input);
-        if (match.Success)
-        {
-            if (DateTime.TryParseExact(match.Value.ToUpperInvariant(), new[] { "ddMMMyy", "ddMMMyyyy" }, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
-            {
-                expirationDate = parsed.Date;
-                return true;
-            }
-        }
-
-        match = QuickAddDateWithoutYearRegex.Match(input);
-        if (match.Success && DateTime.TryParseExact(match.Value.ToUpperInvariant(), "ddMMM", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedWithoutYear))
-        {
-            var candidate = BuildDateFromMonthDay(parsedWithoutYear.Month, parsedWithoutYear.Day);
-            expirationDate = candidate;
-            return true;
-        }
-
-        match = QuickAddNumericDateRegex.Match(input);
-        if (match.Success && match.Value.Length == 4)
-        {
-            var day = int.Parse(match.Value[..2], CultureInfo.InvariantCulture);
-            var month = int.Parse(match.Value.Substring(2, 2), CultureInfo.InvariantCulture);
-            if (month is >= 1 and <= 12 && day >= 1 && day <= DateTime.DaysInMonth(DateTime.UtcNow.Year, month))
-            {
-                expirationDate = BuildDateFromMonthDay(month, day);
-                return true;
-            }
-        }
-
-        expirationDate = default;
-        return false;
-    }
-
-    private static double RoundPrice(double value)
-    {
-        return Math.Round(value, 2, MidpointRounding.AwayFromZero);
-    }
-
-    private static DateTime BuildDateFromMonthDay(int month, int day)
-    {
-        var today = DateTime.UtcNow.Date;
-        var daysInMonth = DateTime.DaysInMonth(today.Year, month);
-        var safeDay = Math.Min(day, daysInMonth);
-        var candidate = new DateTime(today.Year, month, safeDay);
-        if ((candidate - today).TotalDays <= 7)
-        {
-            candidate = candidate.AddYears(1);
-        }
-
-        return candidate;
     }
 
 }
