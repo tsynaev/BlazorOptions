@@ -43,7 +43,8 @@ public class TradingHistoryViewModel
 
     public DateTime? RegistrationDate { get; private set; }
 
-    public bool IsRegistrationDateRequired => _totalCount == 0 && !_meta.RegistrationTimeMs.HasValue;
+    public bool IsRegistrationDateRequired =>
+        !_meta.RegistrationTimeMs.HasValue && !HasLatestSyncedTimes();
 
     public bool IsLoading { get; private set; }
 
@@ -92,15 +93,10 @@ public class TradingHistoryViewModel
                 return;
             }
 
-            if (IsRegistrationDateRequired)
-            {
-                ErrorMessage = "Select your registration date before loading transactions.";
-                return;
-            }
-
             var latest = new List<TradingTransactionRaw>();
             var registrationTime = _meta.RegistrationTimeMs;
             var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var hasStart = false;
 
             foreach (var category in Categories)
             {
@@ -109,6 +105,7 @@ public class TradingHistoryViewModel
                 {
                     continue;
                 }
+                hasStart = true;
 
                 var forwardCursor = startTime.Value;
 
@@ -143,6 +140,12 @@ public class TradingHistoryViewModel
                     forwardCursor = endTime + 1;
                     _meta.LatestSyncedTimeMsByCategory[category] = forwardCursor;
                 }
+            }
+
+            if (!hasStart)
+            {
+                ErrorMessage = "Select your registration date before loading transactions.";
+                return;
             }
 
             var entries = latest.Select(MapRecordToEntry).ToList();
@@ -707,7 +710,25 @@ public class TradingHistoryViewModel
             return synced;
         }
 
-        return registrationTime;
+        if (registrationTime.HasValue)
+        {
+            return registrationTime.Value;
+        }
+
+        return null;
+    }
+
+    private bool HasLatestSyncedTimes()
+    {
+        foreach (var value in _meta.LatestSyncedTimeMsByCategory.Values)
+        {
+            if (value > 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private long? GetOldestTimeForCategory(string category)

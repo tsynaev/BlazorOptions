@@ -23,11 +23,11 @@
                         {
                             <MudDatePicker Date="@ViewModel.RegistrationDate"
                                            DateChanged="OnRegistrationDateChanged"
-                                           Label="Registration date"
+                                           Label="Registration date (optional)"
                                            DateFormat="yyyy-MM-dd"
                                            Clearable="true" />
                             <MudText Typo="Typo.caption">
-                                Select the date you registered on Bybit to backfill history.
+                                Select the date you registered on Bybit to backfill older history.
                             </MudText>
                         }
                         <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
@@ -59,7 +59,7 @@
                             }
                         </MudStack>
                         <MudText Typo="Typo.caption">
-                            Loads all new entries since the selected registration date for: linear, inverse, spot, option.
+                            Loads new entries since the last sync. If registration date is set, backfills from that date for: linear, inverse, spot, option.
                         </MudText>
                         <MudText Typo="Typo.caption">
                             Endpoint: https://bybit-exchange.github.io/docs/v5/account/transaction-log
