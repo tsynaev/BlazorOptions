@@ -6,7 +6,6 @@ public record TradingTransactionRaw
 {
     public string UniqueKey { get; init; } = Guid.NewGuid().ToString("N");
     public string RawJson { get; init; } = string.Empty;
-    public string TimeLabel { get; init; } = "N/A";
     public long? Timestamp { get; init; }
     public string Category { get; init; } = string.Empty;
     public string Symbol { get; init; } = string.Empty;

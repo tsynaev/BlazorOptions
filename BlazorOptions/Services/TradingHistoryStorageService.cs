@@ -1,46 +1,153 @@
-using System.Text.Json;
 using BlazorOptions.ViewModels;
+using Microsoft.JSInterop;
 
 namespace BlazorOptions.Services;
 
 public class TradingHistoryStorageService
 {
-    private const string StorageKey = "blazor-options-trading-history";
-    private readonly LocalStorageService _localStorageService;
-    private readonly JsonSerializerOptions _serializerOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
+    private readonly IJSRuntime _jsRuntime;
+    private bool _isInitialized;
 
-    public TradingHistoryStorageService(LocalStorageService localStorageService)
+    public TradingHistoryStorageService(IJSRuntime jsRuntime)
     {
-        _localStorageService = localStorageService;
+        _jsRuntime = jsRuntime;
     }
 
-    public async Task<TradingHistoryState> LoadStateAsync()
+    public async Task InitializeAsync()
     {
-        var stored = await _localStorageService.GetItemAsync(StorageKey);
-
-        if (string.IsNullOrWhiteSpace(stored))
+        if (_isInitialized)
         {
-            return new TradingHistoryState();
+            return;
         }
 
         try
         {
-            return JsonSerializer.Deserialize<TradingHistoryState>(stored, _serializerOptions)
-                   ?? new TradingHistoryState();
+            await _jsRuntime.InvokeVoidAsync("tradingHistoryDb.init");
         }
-        catch
+        catch (JSException)
         {
-            return new TradingHistoryState();
+            await EnsureScriptLoadedAsync();
+            await _jsRuntime.InvokeVoidAsync("tradingHistoryDb.init");
+        }
+        _isInitialized = true;
+    }
+
+    public async Task<TradingHistoryMeta> LoadMetaAsync()
+    {
+        await InitializeAsync();
+        var meta = await _jsRuntime.InvokeAsync<TradingHistoryMeta?>("tradingHistoryDb.getMeta");
+        return meta ?? new TradingHistoryMeta();
+    }
+
+    public async Task SaveMetaAsync(TradingHistoryMeta meta)
+    {
+        await InitializeAsync();
+        await _jsRuntime.InvokeVoidAsync("tradingHistoryDb.setMeta", meta);
+    }
+
+    public async Task SaveDailySummariesAsync(IEnumerable<TradingDailySummary> summaries)
+    {
+        await InitializeAsync();
+        var payload = summaries.ToArray();
+        if (payload.Length == 0)
+        {
+            return;
+        }
+
+        await _jsRuntime.InvokeAsync<int>("tradingHistoryDb.replaceDailySummaries", (object)payload);
+    }
+
+    public async Task<int> GetCountAsync()
+    {
+        await InitializeAsync();
+        return await _jsRuntime.InvokeAsync<int>("tradingHistoryDb.getCount");
+    }
+
+    public async Task SaveTradesAsync(IEnumerable<TradingHistoryEntry> entries)
+    {
+        await InitializeAsync();
+        var payload = entries.ToArray();
+        if (payload.Length == 0)
+        {
+            return;
+        }
+
+        var written = await _jsRuntime.InvokeAsync<int>("tradingHistoryDb.putTrades", (object)payload);
+        if (written == 0)
+        {
+            var jsError = await _jsRuntime.InvokeAsync<string?>("tradingHistoryDb.getLastError");
+            Console.WriteLine($"TradingHistoryStorageService: No trades written (payload {payload.Length}). JS error: {jsError ?? "none"}");
         }
     }
 
-    public Task SaveStateAsync(TradingHistoryState state)
+    public async Task<IReadOnlyList<TradingHistoryEntry>> LoadLatestAsync(int limit)
     {
-        var payload = JsonSerializer.Serialize(state, _serializerOptions);
-        return _localStorageService.SetItemAsync(StorageKey, payload).AsTask();
+        await InitializeAsync();
+        return await _jsRuntime.InvokeAsync<TradingHistoryEntry[]>("tradingHistoryDb.fetchLatest", limit);
     }
 
+    public async Task<IReadOnlyList<TradingHistoryEntry>> LoadAnyAsync(int limit)
+    {
+        await InitializeAsync();
+        return await _jsRuntime.InvokeAsync<TradingHistoryEntry[]>("tradingHistoryDb.fetchAny", limit);
+    }
+
+    public async Task<IReadOnlyList<TradingHistoryEntry>> LoadBeforeAsync(long? beforeTimestamp, string? beforeKey, int limit)
+    {
+        await InitializeAsync();
+        return await _jsRuntime.InvokeAsync<TradingHistoryEntry[]>("tradingHistoryDb.fetchBefore", beforeTimestamp, beforeKey, limit);
+    }
+
+    public async Task<IReadOnlyList<TradingHistoryEntry>> LoadBySymbolAsync(string symbol, string? category = null)
+    {
+        await InitializeAsync();
+        var symbolKey = NormalizeSymbolKey(symbol);
+        var categoryKey = NormalizeCategoryKey(category);
+        return await _jsRuntime.InvokeAsync<TradingHistoryEntry[]>("tradingHistoryDb.fetchBySymbol", symbolKey, categoryKey);
+    }
+
+    public async Task<IReadOnlyList<TradingHistoryEntry>> LoadAllAscAsync()
+    {
+        await InitializeAsync();
+        return await _jsRuntime.InvokeAsync<TradingHistoryEntry[]>("tradingHistoryDb.fetchAllAsc");
+    }
+
+    private static string NormalizeSymbolKey(string? symbol)
+    {
+        return string.IsNullOrWhiteSpace(symbol)
+            ? string.Empty
+            : symbol.Trim().ToUpperInvariant();
+    }
+
+    private static string? NormalizeCategoryKey(string? category)
+    {
+        return string.IsNullOrWhiteSpace(category)
+            ? null
+            : category.Trim().ToLowerInvariant();
+    }
+
+    private async Task EnsureScriptLoadedAsync()
+    {
+        const string ensureScript = """
+            window.__ensureTradingHistoryDb = window.__ensureTradingHistoryDb || (function () {
+                return function () {
+                    if (window.tradingHistoryDb) {
+                        return true;
+                    }
+                    return new Promise(function (resolve, reject) {
+                        var script = document.createElement('script');
+                        script.src = 'js/trading-history-db.js?v=3';
+                        script.async = false;
+                        script.onload = function () { resolve(true); };
+                        script.onerror = function () { reject('Failed to load trading-history-db.js'); };
+                        document.head.appendChild(script);
+                    });
+                };
+            })();
+            """;
+
+        await _jsRuntime.InvokeVoidAsync("eval", ensureScript);
+        await _jsRuntime.InvokeAsync<bool>("__ensureTradingHistoryDb");
+    }
 }
+

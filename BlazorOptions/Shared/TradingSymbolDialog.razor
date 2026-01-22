@@ -1,5 +1,6 @@
 @using BlazorOptions.ViewModels
 @using MudBlazor
+@using System.Globalization
 <MudDialog>
     <DialogContent>
         <MudStack Spacing="2">
@@ -28,7 +29,7 @@
             }
             else
             {
-                <MudDataGrid T="TradingTransaction"
+                <MudDataGrid T="TradingHistoryEntry"
                              Items="Trades"
                              Dense="true"
                              Hover="true"
@@ -38,24 +39,24 @@
                         <TemplateColumn Title="Date">
                             <CellTemplate>
                                 <MudStack Spacing="0">
-                                    <MudText Typo="Typo.body2">@context.Item.TimeLabel</MudText>
+                                    <MudText Typo="Typo.body2">@FormatTimestamp(context.Item.Timestamp)</MudText>
                                     <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.TransactionType</MudText>
                                 </MudStack>
                             </CellTemplate>
                         </TemplateColumn>
                         <TemplateColumn Title="Trade">
                             <CellTemplate>
-                                @($"{context.Item.Side} {context.Item.TransactionType} {context.Item.Qty} {context.Item.Symbol}")
+                                @($"{context.Item.Side} {context.Item.TransactionType} {context.Item.Size} {context.Item.Symbol}")
                             </CellTemplate>
                         </TemplateColumn>
                         <TemplateColumn Title="Price">
                             <CellTemplate>
-                                @context.Item.TradePrice
+                                @context.Item.Price
                             </CellTemplate>
                         </TemplateColumn>
                         <TemplateColumn Title="Value">
                             <CellTemplate>
-                                @($"{context.Item.Value} {context.Item.Currency}")
+                                @($"{FormatValue(context.Item.Size, context.Item.Price)} {context.Item.Currency}")
                             </CellTemplate>
                         </TemplateColumn>
                         <TemplateColumn Title="Fee">
@@ -63,10 +64,10 @@
                                 @($"{context.Item.Fee} {context.Item.Currency}")
                             </CellTemplate>
                         </TemplateColumn>
-                        <PropertyColumn Property="x => x.SizeAfter" Title="Size after" />
-                        <PropertyColumn Property="x => x.AvgPriceAfter" Title="Avg price after" />
-                        <PropertyColumn Property="x => x.RealizedPnl" Title="Realized PnL" />
-                        <PropertyColumn Property="x => x.CumulativePnl" Title="Cumulative PnL" />
+                        <PropertyColumn Property="x => x.Calculated.SizeAfter" Title="Size after" />
+                        <PropertyColumn Property="x => x.Calculated.AvgPriceAfter" Title="Avg price after" />
+                        <PropertyColumn Property="x => x.Calculated.RealizedPnl" Title="Realized PnL" />
+                        <PropertyColumn Property="x => x.Calculated.CumulativePnl" Title="Cumulative PnL" />
                     </Columns>
                 </MudDataGrid>
             }
@@ -82,7 +83,7 @@
 
     [Parameter] public string Symbol { get; set; } = string.Empty;
     [Parameter] public string Category { get; set; } = string.Empty;
-    [Parameter] public IReadOnlyList<TradingTransaction> Trades { get; set; } = Array.Empty<TradingTransaction>();
+    [Parameter] public IReadOnlyList<TradingHistoryEntry> Trades { get; set; } = Array.Empty<TradingHistoryEntry>();
     [Parameter] public string RawJson { get; set; } = string.Empty;
 
     private string Title => string.IsNullOrWhiteSpace(Symbol)
@@ -91,6 +92,40 @@
             ? $"Trades for {Symbol}"
             : $"Trades for {Symbol} ({Category})";
     private bool _showRaw;
+
+    private static string FormatTimestamp(long? timestamp)
+    {
+        if (!timestamp.HasValue || timestamp.Value <= 0)
+        {
+            return "N/A";
+        }
+
+        try
+        {
+            return DateTimeOffset.FromUnixTimeMilliseconds(timestamp.Value)
+                .ToLocalTime()
+                .ToString("g");
+        }
+        catch
+        {
+            return "N/A";
+        }
+    }
+
+    private static string FormatValue(string? qty, string? price)
+    {
+        if (!decimal.TryParse(qty, NumberStyles.Any, CultureInfo.InvariantCulture, out var qtyValue))
+        {
+            qtyValue = 0m;
+        }
+
+        if (!decimal.TryParse(price, NumberStyles.Any, CultureInfo.InvariantCulture, out var priceValue))
+        {
+            priceValue = 0m;
+        }
+
+        return (qtyValue * priceValue).ToString("0.##########", CultureInfo.InvariantCulture);
+    }
 
     private void Close()
     {

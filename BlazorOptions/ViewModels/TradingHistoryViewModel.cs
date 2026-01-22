@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Linq;
 using System.Text.Json;
 using BlazorOptions.Services;
 
@@ -7,15 +8,22 @@ namespace BlazorOptions.ViewModels;
 public class TradingHistoryViewModel
 {
     private const int PageLimit = 100;
-    private const int PageSize = 50;
+    private const int PageSize = 100;
     private static readonly TimeSpan WindowSize = TimeSpan.FromDays(7);
     private const string NoMoreCursor = "__END__";
     private readonly ExchangeSettingsService _settingsService;
     private readonly BybitTransactionService _transactionService;
     private readonly TradingHistoryStorageService _storageService;
-    private TradingHistoryState _state = new();
+    private TradingHistoryMeta _meta = new();
     private IReadOnlyList<TradingSummaryRow>? _summaryBySymbolCache;
     private IReadOnlyList<TradingPnlByCoinRow>? _pnlByCoinCache;
+    private readonly List<TradingHistoryEntry> _loadedEntries = new();
+    private bool _isInitialized;
+    private bool _isLoadingRange;
+    private bool _isLoadingSummary;
+    private long? _loadedBeforeTimestamp;
+    private string? _loadedBeforeKey;
+    private int _totalCount;
 
     public TradingHistoryViewModel(
         ExchangeSettingsService settingsService,
@@ -29,14 +37,13 @@ public class TradingHistoryViewModel
 
     public event Action? OnChange;
 
-    public int TotalTransactionsCount => _state.Transactions.Count;
+    public int TotalTransactionsCount => _totalCount;
 
-    private readonly Dictionary<string, TradingTransaction> _viewCache = new(StringComparer.OrdinalIgnoreCase);
     public IReadOnlyList<string> Categories { get; } = new[] { "linear", "inverse", "spot", "option" };
 
     public DateTime? RegistrationDate { get; private set; }
 
-    public bool IsRegistrationDateRequired => _state.Transactions.Count == 0 && !_state.RegistrationTimeMs.HasValue;
+    public bool IsRegistrationDateRequired => _totalCount == 0 && !_meta.RegistrationTimeMs.HasValue;
 
     public bool IsLoading { get; private set; }
 
@@ -48,25 +55,22 @@ public class TradingHistoryViewModel
 
     public async Task InitializeAsync()
     {
-        _state = await _storageService.LoadStateAsync();
-        if (_state.RegistrationTimeMs.HasValue)
+        if (_isInitialized)
         {
-            RegistrationDate = DateTimeOffset.FromUnixTimeMilliseconds(_state.RegistrationTimeMs.Value)
-                .ToLocalTime()
-                .Date;
+            return;
         }
-        if (NeedsRecalculation(_state.Transactions))
-        {
-            _state.Transactions = ApplyCalculatedFields(_state.Transactions);
-        }
-        _viewCache.Clear();
+
+        _isInitialized = true;
+        await _storageService.InitializeAsync();
+        _meta = await _storageService.LoadMetaAsync();
+        _totalCount = await _storageService.GetCountAsync();
+        UpdateRegistrationDate();
+        await LoadLatestPageFromDbAsync();
         InvalidateSummaryCache();
+        _ = EnsureSummaryCacheAsync();
         OnChange?.Invoke();
     }
 
-    /// <summary>
-    /// Fetches new transactions forward from the last synced time (or registration date) up to now.
-    /// </summary>
     public async Task LoadLatestAsync()
     {
         if (IsLoading || IsLoadingOlder)
@@ -94,8 +98,8 @@ public class TradingHistoryViewModel
                 return;
             }
 
-            var latest = new List<TradingTransactionRecord>();
-            var registrationTime = _state.RegistrationTimeMs;
+            var latest = new List<TradingTransactionRaw>();
+            var registrationTime = _meta.RegistrationTimeMs;
             var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
             foreach (var category in Categories)
@@ -137,14 +141,47 @@ public class TradingHistoryViewModel
                     }
 
                     forwardCursor = endTime + 1;
-                    _state.LatestSyncedTimeMsByCategory[category] = forwardCursor;
+                    _meta.LatestSyncedTimeMsByCategory[category] = forwardCursor;
                 }
             }
 
-            _state.Transactions = ApplyCalculatedFields(MergeTransactions(_state.Transactions, latest));
-            _viewCache.Clear();
+            var entries = latest.Select(MapRecordToEntry).ToList();
+            var orderedAsc = entries
+                .OrderBy(entry => entry.Timestamp)
+                .ThenBy(entry => entry.Id, StringComparer.Ordinal)
+                .ToList();
+
+            var calculationState = new CalculationState(_meta);
+            ApplyCalculatedFields(orderedAsc, calculationState);
+            calculationState.ApplyToMeta(_meta);
+            UpdateOldestSyncedTimes(entries);
+
+            if (orderedAsc.Count > 0)
+            {
+                _meta.CalculatedThroughTimestamp = orderedAsc.Max(entry => entry.Timestamp);
+            }
+
+            await _storageService.SaveTradesAsync(entries);
+            await _storageService.SaveMetaAsync(_meta);
+            _totalCount = await _storageService.GetCountAsync();
+            await LoadLatestPageFromDbAsync();
+            if (_loadedEntries.Count == 0 && entries.Count > 0)
+            {
+                _loadedEntries.Clear();
+                foreach (var entry in entries.OrderByDescending(item => item.Timestamp).ThenByDescending(item => item.Id, StringComparer.Ordinal))
+                {
+                    _loadedEntries.Add(entry);
+                }
+
+                if (_totalCount == 0)
+                {
+                    _totalCount = _loadedEntries.Count;
+                }
+
+                UpdatePagingCursor();
+            }
             InvalidateSummaryCache();
-            await _storageService.SaveStateAsync(_state);
+            _ = EnsureSummaryCacheAsync();
             LastLoadedAt = DateTimeOffset.Now;
         }
         catch (Exception ex)
@@ -161,19 +198,14 @@ public class TradingHistoryViewModel
     public async Task SetRegistrationDateAsync(DateTime? date)
     {
         RegistrationDate = date?.Date;
-        _state.RegistrationTimeMs = date.HasValue
+        _meta.RegistrationTimeMs = date.HasValue
             ? new DateTimeOffset(DateTime.SpecifyKind(date.Value.Date, DateTimeKind.Local)).ToUnixTimeMilliseconds()
             : null;
 
-        await _storageService.SaveStateAsync(_state);
-        _viewCache.Clear();
-        InvalidateSummaryCache();
+        await _storageService.SaveMetaAsync(_meta);
         OnChange?.Invoke();
     }
 
-    /// <summary>
-    /// Backfills older transactions for infinite scroll using stored cursors or oldest timestamps.
-    /// </summary>
     public async Task LoadOlderAsync()
     {
         if (IsLoading || IsLoadingOlder)
@@ -195,7 +227,7 @@ public class TradingHistoryViewModel
                 return;
             }
 
-            var older = new List<TradingTransactionRecord>();
+            var older = new List<TradingTransactionRaw>();
 
             foreach (var category in Categories)
             {
@@ -210,20 +242,28 @@ public class TradingHistoryViewModel
                     Category = category,
                     Limit = PageLimit,
                     Cursor = string.IsNullOrWhiteSpace(cursor) ? null : cursor,
-                    EndTime = HasCursor(cursor) ? null : GetOldestTimestamp(category)
+                    EndTime = HasCursor(cursor) ? null : GetOldestTimeForCategory(category)
                 };
 
                 var page = await _transactionService.GetTransactionsPageAsync(settings, query, CancellationToken.None);
                 older.AddRange(page.Items);
-                _state.OldestCursorByCategory[category] = string.IsNullOrWhiteSpace(page.NextCursor)
+                _meta.OldestCursorByCategory[category] = string.IsNullOrWhiteSpace(page.NextCursor)
                     ? NoMoreCursor
                     : page.NextCursor;
             }
 
-            _state.Transactions = ApplyCalculatedFields(MergeTransactions(_state.Transactions, older));
-            _viewCache.Clear();
-            InvalidateSummaryCache();
-            await _storageService.SaveStateAsync(_state);
+            var entries = older.Select(MapRecordToEntry).ToList();
+            if (entries.Count > 0)
+            {
+                _meta.RequiresRecalculation = true;
+                UpdateOldestSyncedTimes(entries);
+                await _storageService.SaveTradesAsync(entries);
+                await _storageService.SaveMetaAsync(_meta);
+                _totalCount = await _storageService.GetCountAsync();
+                InvalidateSummaryCache();
+                _ = RecalculateAsync();
+                await LoadLatestPageFromDbAsync();
+            }
         }
         catch (Exception ex)
         {
@@ -236,384 +276,189 @@ public class TradingHistoryViewModel
         }
     }
 
-    private long? GetLatestTimestamp(string category)
+    public Task RecalculateAsync()
     {
-        var latest = _state.Transactions
-            .Select(record => BybitTransactionService.ParseRaw(record))
-            .Where(item => string.Equals(item.Category, category, StringComparison.OrdinalIgnoreCase))
-            .Select(item => item.Timestamp ?? 0)
-            .DefaultIfEmpty(0)
-            .Max();
-
-        return latest > 0 ? latest + 1 : null;
+        return RecalculateAsync(null);
     }
 
-    private long? GetForwardStartTime(string category, long? registrationTime)
+    public async Task RecalculateAsync(DateTime? fromDate)
     {
-        if (_state.LatestSyncedTimeMsByCategory.TryGetValue(category, out var synced))
+        if (_isLoadingSummary)
         {
-            return synced;
+            return;
         }
 
-        return GetLatestTimestamp(category) ?? registrationTime;
-    }
-
-    private long? GetOldestTimestamp(string category)
-    {
-        var oldest = _state.Transactions
-            .Select(record => BybitTransactionService.ParseRaw(record))
-            .Where(item => string.Equals(item.Category, category, StringComparison.OrdinalIgnoreCase))
-            .Select(item => item.Timestamp ?? long.MaxValue)
-            .DefaultIfEmpty(long.MaxValue)
-            .Min();
-
-        if (oldest == long.MaxValue)
+        _isLoadingSummary = true;
+        try
         {
-            return null;
-        }
-
-        return oldest > 0 ? oldest - 1 : null;
-    }
-
-    private string? GetCursor(string category)
-    {
-        return _state.OldestCursorByCategory.TryGetValue(category, out var cursor)
-            ? cursor
-            : null;
-    }
-
-    private static bool HasCursor(string? cursor)
-    {
-        return !string.IsNullOrWhiteSpace(cursor);
-    }
-
-    private static List<TradingTransactionRecord> MergeTransactions(
-        IReadOnlyList<TradingTransactionRecord> existing,
-        IReadOnlyList<TradingTransactionRecord> latest)
-    {
-        var merged = new Dictionary<string, TradingTransactionRecord>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var item in existing)
-        {
-            if (!string.IsNullOrWhiteSpace(item.UniqueKey))
+            var entries = await _storageService.LoadAllAscAsync();
+            if (entries.Count == 0)
             {
-                merged[item.UniqueKey] = item;
+                _meta.SizeBySymbol.Clear();
+                _meta.AvgPriceBySymbol.Clear();
+                _meta.CumulativeBySettleCoin.Clear();
+                _meta.CalculatedThroughTimestamp = null;
+                _meta.RequiresRecalculation = false;
+                await _storageService.SaveMetaAsync(_meta);
+                return;
             }
-        }
 
-        foreach (var item in latest)
-        {
-            var key = string.IsNullOrWhiteSpace(item.UniqueKey)
-                ? Guid.NewGuid().ToString("N")
-                : item.UniqueKey;
-            merged[key] = item;
-        }
-
-        return merged.Values
-            .OrderByDescending(item => BybitTransactionService.ParseRaw(item).Timestamp ?? 0)
-            .ThenByDescending(item => BybitTransactionService.ParseRaw(item).TimeLabel, StringComparer.Ordinal)
-            .ToList();
-    }
-
-    private static List<TradingTransactionRecord> ApplyCalculatedFields(
-        IReadOnlyList<TradingTransactionRecord> orderedDesc)
-    {
-        var itemsDesc = orderedDesc.ToArray();
-        if (itemsDesc.Length == 0)
-        {
-            return new List<TradingTransactionRecord>();
-        }
-
-        var itemsAsc = itemsDesc
-            .Select((item, index) => (item, index))
-            .OrderBy(entry => BybitTransactionService.ParseRaw(entry.item).Timestamp ?? long.MinValue)
-            .ThenBy(entry => entry.index)
-            .ToArray();
-
-        var sizeBySymbol = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
-        var avgBySymbol = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
-        var cumulativeBySettleCoin = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
-        var calculatedByIndex = new TradingTransactionCalculated?[itemsDesc.Length];
-
-        foreach (var entry in itemsAsc)
-        {
-            var raw = BybitTransactionService.ParseRaw(entry.item);
-            var symbol = string.IsNullOrWhiteSpace(raw.Symbol) ? "_unknown" : raw.Symbol;
-            var qty = Round10(ParseDecimal(raw.Qty) ?? 0m);
-            var price = ParseDecimal(raw.TradePrice) ?? 0m;
-            var fee = ParseDecimal(raw.Fee) ?? 0m;
-            var side = (raw.Side ?? string.Empty).Trim();
-            var type = (raw.TransactionType ?? string.Empty).Trim();
-
-            if (string.Equals(type, "SETTLEMENT", StringComparison.OrdinalIgnoreCase))
+            var state = new CalculationState();
+            if (fromDate.HasValue)
             {
-                qty = 0m;
-                price = 0m;
-            }
-            else if (string.Equals(type, "DELIVERY", StringComparison.OrdinalIgnoreCase))
-            {
-                var position = 0m;
-                var delivery = 0m;
-                var strike = 0m;
-                if (entry.item.Data.Count > 0 && entry.item.Data[0].ValueKind == JsonValueKind.Object)
+                var startTimestamp = GetStartTimestamp(fromDate.Value);
+                var before = new List<TradingHistoryEntry>(entries.Count);
+                var after = new List<TradingHistoryEntry>(entries.Count);
+
+                foreach (var entry in entries)
                 {
-                    var primary = entry.item.Data[0];
-                    position = ReadDecimal(primary, "position");
-                    delivery = ReadDecimal(primary, "deliveryPrice", "tradePrice", "price", "execPrice");
-                    strike = ReadDecimal(primary, "strike");
-                }
-                var optType = '\0';
-                if (TryGetOptionDetails(raw.Symbol, out var symbolOptType, out var symbolStrike))
-                {
-                    optType = symbolOptType;
-                    if (strike == 0m)
+                    if (entry.Timestamp.HasValue && entry.Timestamp.Value > 0 && entry.Timestamp.Value < startTimestamp)
                     {
-                        strike = symbolStrike;
+                        before.Add(entry);
+                    }
+                    else
+                    {
+                        after.Add(entry);
                     }
                 }
-                var intrinsicCall = Math.Max(delivery - strike, 0m);
-                var intrinsicPut = Math.Max(strike - delivery, 0m);
 
-                if (optType == 'C')
-                {
-                    price = intrinsicCall;
-                }
-                else if (optType == 'P')
-                {
-                    price = intrinsicPut;
-                }
-
-                if (position != 0m)
-                {
-                    qty = Math.Abs(position);
-                }
+                ApplyCalculatedFields(before, state, updateEntries: false);
+                ApplyCalculatedFields(after, state);
+                await _storageService.SaveTradesAsync(after);
             }
-            else if (!string.Equals(type, "TRADE", StringComparison.OrdinalIgnoreCase))
+            else
             {
-                qty = 0m;
+                ApplyCalculatedFields(entries, state);
+                await _storageService.SaveTradesAsync(entries);
             }
 
-            var qtySigned = Round10(string.Equals(side, "SELL", StringComparison.OrdinalIgnoreCase) ? -qty : qty);
-
-            sizeBySymbol.TryGetValue(symbol, out var posBefore);
-            avgBySymbol.TryGetValue(symbol, out var avgBefore);
-            posBefore = Round10(posBefore);
-
-            var closeQty = Math.Sign(qtySigned) == -Math.Sign(posBefore)
-                ? Round10(Math.Min(Math.Abs(qtySigned), Math.Abs(posBefore)))
-                : 0m;
-            var openQty = Round10(qtySigned - Math.Sign(qtySigned) * closeQty);
-
-            var cashBefore = -avgBefore * posBefore;
-            var cashAfter = cashBefore + (-avgBefore * closeQty * Math.Sign(qtySigned)) + (-price * openQty);
-            var posAfter = Round10(posBefore + qtySigned);
-            var avgAfter = Math.Abs(posAfter) < 0.000000001m ? 0m : -cashAfter / posAfter;
-
-            var realized = 0m;
-            if (closeQty != 0m)
-            {
-                realized = posBefore > 0m
-                    ? (price - avgBefore) * closeQty
-                    : (avgBefore - price) * closeQty;
-            }
-
-            var settleCoin = string.IsNullOrWhiteSpace(raw.Currency) ? "_unknown" : raw.Currency;
-            if (string.IsNullOrWhiteSpace(settleCoin))
-            {
-                settleCoin = "_unknown";
-            }
-
-            cumulativeBySettleCoin.TryGetValue(settleCoin, out var cumulativeBefore);
-            var cumulativeAfter = realized + cumulativeBefore - fee;
-
-            sizeBySymbol[symbol] = posAfter;
-            avgBySymbol[symbol] = avgAfter;
-            cumulativeBySettleCoin[settleCoin] = cumulativeAfter;
-
-            calculatedByIndex[entry.index] = new TradingTransactionCalculated
-            {
-                SizeAfter = FormatDecimal(posAfter),
-                AvgPriceAfter = FormatDecimal(avgAfter),
-                RealizedPnl = FormatDecimal(realized),
-                CumulativePnl = $"{FormatDecimal(cumulativeAfter)} {settleCoin}".Trim()
-            };
+            state.ApplyToMeta(_meta);
+            _meta.CalculatedThroughTimestamp = entries.Max(entry => entry.Timestamp);
+            _meta.RequiresRecalculation = false;
+            await _storageService.SaveMetaAsync(_meta);
+            InvalidateSummaryCache();
+            _ = EnsureSummaryCacheAsync();
+            await LoadLatestPageFromDbAsync();
+            OnChange?.Invoke();
         }
-
-        return itemsDesc
-            .Select((item, index) => calculatedByIndex[index] is { } calculated
-                ? item with { Calculated = calculated }
-                : item)
-            .ToList();
-    }
-
-    private TradingTransaction BuildViewItem(TradingTransactionRecord record)
-    {
-        var raw = BybitTransactionService.ParseRaw(record);
-        var calculated = record.Calculated;
-        var qtyValue = ParseDecimal(raw.Qty) ?? 0m;
-        var priceValue = ParseDecimal(raw.TradePrice) ?? 0m;
-        var value = FormatDecimal(qtyValue * priceValue);
-
-        return new TradingTransaction
+        finally
         {
-            UniqueKey = record.UniqueKey,
-            TimeLabel = raw.TimeLabel,
-            Timestamp = raw.Timestamp,
-            Category = raw.Category,
-            Symbol = raw.Symbol,
-            TransactionType = raw.TransactionType,
-            TransSubType = raw.TransSubType,
-            Side = raw.Side,
-            Funding = raw.Funding,
-            OrderLinkId = raw.OrderLinkId,
-            OrderId = raw.OrderId,
-            Fee = raw.Fee,
-            Change = raw.Change,
-            CashFlow = raw.CashFlow,
-            FeeRate = raw.FeeRate,
-            BonusChange = raw.BonusChange,
-            Size = raw.Size,
-            Qty = raw.Qty,
-            CashBalance = raw.CashBalance,
-            Currency = raw.Currency,
-            TradePrice = raw.TradePrice,
-            TradeId = raw.TradeId,
-            ExtraFees = raw.ExtraFees,
-            SizeAfter = calculated?.SizeAfter ?? string.Empty,
-            AvgPriceAfter = calculated?.AvgPriceAfter ?? string.Empty,
-            RealizedPnl = calculated?.RealizedPnl ?? string.Empty,
-            CumulativePnl = calculated?.CumulativePnl ?? string.Empty,
-            Value = value
-        };
-    }
-
-    private static bool NeedsRecalculation(IReadOnlyList<TradingTransactionRecord> records)
-    {
-        foreach (var record in records)
-        {
-            if (record.Calculated is null)
-            {
-                return true;
-            }
-
-            if (string.IsNullOrWhiteSpace(record.Calculated.SizeAfter)
-                && string.IsNullOrWhiteSpace(record.Calculated.AvgPriceAfter)
-                && string.IsNullOrWhiteSpace(record.Calculated.RealizedPnl)
-                && string.IsNullOrWhiteSpace(record.Calculated.CumulativePnl))
-            {
-                return true;
-            }
+            _isLoadingSummary = false;
         }
-
-        return false;
     }
 
     public async Task EnsureRangeAsync(int startIndex, int count)
     {
+        if (_loadedEntries.Count == 0)
+        {
+            await LoadLatestPageFromDbAsync();
+        }
+
         var needed = startIndex + count;
-        if (needed <= _state.Transactions.Count)
+        if (needed <= _loadedEntries.Count)
         {
             return;
         }
 
-        if (IsLoadingOlder || IsLoading)
+        if (_isLoadingRange)
         {
             return;
         }
 
-        await LoadOlderAsync();
+        _isLoadingRange = true;
+        try
+        {
+            while (_loadedEntries.Count < needed)
+            {
+                var batch = await _storageService.LoadBeforeAsync(_loadedBeforeTimestamp, _loadedBeforeKey, PageSize);
+                if (batch.Count == 0)
+                {
+                    break;
+                }
+
+                _loadedEntries.AddRange(batch);
+                UpdatePagingCursor();
+            }
+        }
+        finally
+        {
+            _isLoadingRange = false;
+        }
     }
 
-    public IReadOnlyList<TradingTransaction> GetRange(int startIndex, int count)
+    public IReadOnlyList<TradingHistoryEntry> GetRange(int startIndex, int count)
     {
         var skip = Math.Max(0, startIndex);
         var take = Math.Max(0, count);
-        var slice = _state.Transactions.Skip(skip).Take(take);
-        var results = new List<TradingTransaction>(take);
+        var results = new List<TradingHistoryEntry>(take);
 
-        foreach (var record in slice)
+        for (var i = skip; i < Math.Min(_loadedEntries.Count, skip + take); i++)
         {
-            if (!_viewCache.TryGetValue(record.UniqueKey, out var view))
-            {
-                view = BuildViewItem(record);
-                _viewCache[record.UniqueKey] = view;
-            }
-
-            results.Add(view);
+            var entry = _loadedEntries[i];
+            results.Add(entry);
         }
 
         return results;
     }
 
-    public IReadOnlyList<TradingTransaction> GetTradesForSymbol(string symbol, string? category = null)
+    public async Task<IReadOnlyList<TradingHistoryEntry>> GetTradesForSymbolAsync(string symbol, string? category = null)
     {
         if (string.IsNullOrWhiteSpace(symbol))
         {
-            return Array.Empty<TradingTransaction>();
+            return Array.Empty<TradingHistoryEntry>();
         }
 
-        var items = new List<TradingTransaction>();
-        foreach (var record in _state.Transactions)
-        {
-            var raw = BybitTransactionService.ParseRaw(record);
-            if (!string.Equals(raw.Symbol, symbol, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-            if (!string.IsNullOrWhiteSpace(category)
-                && !string.Equals(raw.Category, category, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (!_viewCache.TryGetValue(record.UniqueKey, out var view))
-            {
-                view = BuildViewItem(record);
-                _viewCache[record.UniqueKey] = view;
-            }
-
-            items.Add(view);
-        }
-
-        items = items
+        var entries = await _storageService.LoadBySymbolAsync(symbol, category);
+        return entries
             .OrderByDescending(item => item.Timestamp ?? 0)
-            .ThenByDescending(item => item.TimeLabel, StringComparer.Ordinal)
+            .ThenByDescending(item => item.Id, StringComparer.Ordinal)
             .ToList();
+    }
 
-        var cumulativeBySettleCoin = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
-
-        for (var i = items.Count - 1; i >= 0; i--)
+    public async Task<string> GetRawJsonForSymbolAsync(string symbol, string? category = null)
+    {
+        if (string.IsNullOrWhiteSpace(symbol))
         {
-            var item = items[i];
-            if (!TryParseWithTrailingCurrency(item.RealizedPnl, out var realized))
-            {
-                realized = ParseDecimal(item.RealizedPnl) ?? 0m;
-            }
-
-            if (!TryParseWithTrailingCurrency(item.Fee, out var fee))
-            {
-                fee = ParseDecimal(item.Fee) ?? 0m;
-            }
-
-            var settleCoin = !string.IsNullOrWhiteSpace(item.Currency)
-                ? item.Currency
-                : "_unknown";
-            if (string.IsNullOrWhiteSpace(settleCoin))
-            {
-                settleCoin = "_unknown";
-            }
-
-            cumulativeBySettleCoin.TryGetValue(settleCoin, out var cumulativeBefore);
-            var cumulativeAfter = realized + cumulativeBefore - fee;
-            cumulativeBySettleCoin[settleCoin] = cumulativeAfter;
-
-            items[i] = item with
-            {
-                CumulativePnl = $"{FormatDecimal(cumulativeAfter)} {settleCoin}".Trim()
-            };
+            return string.Empty;
         }
 
-        return items;
+        var entries = await _storageService.LoadBySymbolAsync(symbol, category);
+        if (entries.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var payload = new List<JsonElement>();
+        foreach (var entry in entries)
+        {
+            if (string.IsNullOrWhiteSpace(entry.RawJson))
+            {
+                continue;
+            }
+
+            using var doc = JsonDocument.Parse(entry.RawJson);
+            var root = doc.RootElement;
+
+            if (root.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in root.EnumerateArray())
+                {
+                    payload.Add(item.Clone());
+                }
+            }
+            else if (root.ValueKind == JsonValueKind.Object)
+            {
+                payload.Add(root.Clone());
+            }
+        }
+
+        if (payload.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var options = new JsonSerializerOptions { WriteIndented = true };
+        return JsonSerializer.Serialize(payload, options);
     }
 
     public IReadOnlyList<TradingSummaryRow> GetSummaryBySymbol()
@@ -623,28 +468,148 @@ public class TradingHistoryViewModel
             return _summaryBySymbolCache;
         }
 
-        var summary = new Dictionary<string, (string Category, string Symbol, string Coin, int Trades, decimal Qty, decimal Value, decimal Fees, decimal Realized)>(StringComparer.OrdinalIgnoreCase);
+        _ = EnsureSummaryCacheAsync();
+        return Array.Empty<TradingSummaryRow>();
+    }
 
-        foreach (var record in _state.Transactions)
+    public IReadOnlyList<TradingPnlByCoinRow> GetRealizedPnlBySettleCoin()
+    {
+        if (_pnlByCoinCache is not null)
         {
-            var raw = BybitTransactionService.ParseRaw(record);
-            var symbol = string.IsNullOrWhiteSpace(raw.Symbol) ? "_unknown" : raw.Symbol;
-            var category = string.IsNullOrWhiteSpace(raw.Category) ? "_unknown" : raw.Category;
-            var settleCoin = GetSettleCoin(raw);
+            return _pnlByCoinCache;
+        }
+
+        _ = EnsureSummaryCacheAsync();
+        return Array.Empty<TradingPnlByCoinRow>();
+    }
+
+    private async Task EnsureSummaryCacheAsync()
+    {
+        if (_summaryBySymbolCache is not null || _pnlByCoinCache is not null || _isLoadingSummary)
+        {
+            return;
+        }
+
+        _isLoadingSummary = true;
+        try
+        {
+            var entries = await _storageService.LoadAllAscAsync();
+            BuildSummaryCaches(entries);
+            var dailySummaries = BuildDailySummaries(entries);
+            await _storageService.SaveDailySummariesAsync(dailySummaries);
+            OnChange?.Invoke();
+        }
+        finally
+        {
+            _isLoadingSummary = false;
+        }
+    }
+
+    private async Task LoadLatestPageFromDbAsync()
+    {
+        _loadedEntries.Clear();
+        var entries = await _storageService.LoadLatestAsync(PageSize);
+        _loadedEntries.AddRange(entries);
+        if (_totalCount == 0 && _loadedEntries.Count > 0)
+        {
+            _totalCount = _loadedEntries.Count;
+        }
+        if (_loadedEntries.Count == 0)
+        {
+            var fallback = await _storageService.LoadAnyAsync(PageSize);
+            _loadedEntries.AddRange(fallback);
+            if (_totalCount == 0 && _loadedEntries.Count > 0)
+            {
+                _totalCount = _loadedEntries.Count;
+            }
+        }
+        UpdatePagingCursor();
+    }
+
+    private void UpdatePagingCursor()
+    {
+        var last = _loadedEntries.LastOrDefault();
+        if (last is null)
+        {
+            _loadedBeforeTimestamp = null;
+            _loadedBeforeKey = null;
+            return;
+        }
+
+        _loadedBeforeTimestamp = last.Timestamp;
+        _loadedBeforeKey = last.Id;
+    }
+
+    private void UpdateRegistrationDate()
+    {
+        if (_meta.RegistrationTimeMs.HasValue)
+        {
+            RegistrationDate = DateTimeOffset.FromUnixTimeMilliseconds(_meta.RegistrationTimeMs.Value)
+                .ToLocalTime()
+                .Date;
+        }
+    }
+
+    private TradingHistoryEntry MapRecordToEntry(TradingTransactionRaw raw)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        return new TradingHistoryEntry
+        {
+            Id = raw.UniqueKey,
+            Timestamp = raw.Timestamp ?? 0,
+            Symbol = raw.Symbol,
+            Category = raw.Category,
+            TransactionType = raw.TransactionType,
+            Side = raw.Side,
+            Size = raw.Qty,
+            Price = raw.TradePrice,
+            Fee = raw.Fee,
+            Currency = raw.Currency,
+            Change = raw.Change,
+            CashFlow = raw.CashFlow,
+            OrderId = raw.OrderId,
+            OrderLinkId = raw.OrderLinkId,
+            TradeId = raw.TradeId,
+            RawJson = raw.RawJson,
+            ChangedAt = now,
+            Calculated = new TradingTransactionCalculated()
+        };
+    }
+
+
+    private void BuildSummaryCaches(IReadOnlyList<TradingHistoryEntry> entries)
+    {
+        var summary = new Dictionary<string, (string Category, string Symbol, string Coin, int Trades, decimal Qty, decimal Value, decimal Fees, decimal Realized)>(StringComparer.OrdinalIgnoreCase);
+        var totals = new Dictionary<string, (decimal Realized, decimal Fees)>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var entry in entries)
+        {
+            var symbol = string.IsNullOrWhiteSpace(entry.Symbol) ? "_unknown" : entry.Symbol;
+            var category = string.IsNullOrWhiteSpace(entry.Category) ? "_unknown" : entry.Category;
+            var settleCoin = GetSettleCoin(entry.Currency);
             var key = $"{category}|{symbol}|{settleCoin}";
 
-            if (!summary.TryGetValue(key, out var totals))
+            if (!summary.TryGetValue(key, out var value))
             {
-                totals = (category, symbol, settleCoin, 0, 0m, 0m, 0m, 0m);
+                value = (category, symbol, settleCoin, 0, 0m, 0m, 0m, 0m);
             }
 
-            totals.Trades += 1;
-            totals.Qty += ParseDecimal(raw.Qty) ?? 0m;
-            totals.Value += (ParseDecimal(raw.TradePrice) ?? 0m) * (ParseDecimal(raw.Qty) ?? 0m);
-            totals.Fees += ParseDecimal(raw.Fee) ?? 0m;
-            totals.Realized += ParseDecimal(record.Calculated?.RealizedPnl) ?? 0m;
+            value.Trades += 1;
+            value.Qty += ParseDecimal(entry.Size) ?? 0m;
+            value.Value += (ParseDecimal(entry.Price) ?? 0m) * (ParseDecimal(entry.Size) ?? 0m);
+            value.Fees += ParseDecimal(entry.Fee) ?? 0m;
+            value.Realized += ParseDecimal(entry.Calculated?.RealizedPnl) ?? 0m;
+            summary[key] = value;
 
-            summary[key] = totals;
+            if (!totals.TryGetValue(settleCoin, out var pnlTotals))
+            {
+                pnlTotals = (0m, 0m);
+            }
+
+            pnlTotals.Realized += ParseDecimal(entry.Calculated?.RealizedPnl) ?? 0m;
+            pnlTotals.Fees += ParseDecimal(entry.Fee) ?? 0m;
+            totals[settleCoin] = pnlTotals;
         }
 
         _summaryBySymbolCache = summary
@@ -665,33 +630,6 @@ public class TradingHistoryViewModel
             .ThenBy(row => row.Symbol, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        return _summaryBySymbolCache;
-    }
-
-    public IReadOnlyList<TradingPnlByCoinRow> GetRealizedPnlBySettleCoin()
-    {
-        if (_pnlByCoinCache is not null)
-        {
-            return _pnlByCoinCache;
-        }
-
-        var totals = new Dictionary<string, (decimal Realized, decimal Fees)>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var record in _state.Transactions)
-        {
-            var raw = BybitTransactionService.ParseRaw(record);
-            var settleCoin = GetSettleCoin(raw);
-
-            if (!totals.TryGetValue(settleCoin, out var values))
-            {
-                values = (0m, 0m);
-            }
-
-            values.Realized += ParseDecimal(record.Calculated?.RealizedPnl) ?? 0m;
-            values.Fees += ParseDecimal(raw.Fee) ?? 0m;
-            totals[settleCoin] = values;
-        }
-
         _pnlByCoinCache = totals
             .Select(entry => new TradingPnlByCoinRow
             {
@@ -702,67 +640,96 @@ public class TradingHistoryViewModel
             })
             .OrderBy(row => row.SettleCoin, StringComparer.OrdinalIgnoreCase)
             .ToList();
-
-        return _pnlByCoinCache;
     }
 
-    public string GetRawJsonForSymbol(string symbol, string? category = null)
+    private static List<TradingDailySummary> BuildDailySummaries(IReadOnlyList<TradingHistoryEntry> entries)
     {
-        if (string.IsNullOrWhiteSpace(symbol))
+        var byDay = new Dictionary<string, TradingDailySummary>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var entry in entries)
         {
-            return string.Empty;
+            var day = GetDayKey(entry.Timestamp);
+            if (string.IsNullOrWhiteSpace(day))
+            {
+                continue;
+            }
+
+            var symbolKey = NormalizeSymbolKey(entry.Symbol);
+            var category = entry.Category ?? string.Empty;
+            var key = $"{symbolKey}|{day}";
+
+            if (!byDay.TryGetValue(key, out var summary))
+            {
+                summary = new TradingDailySummary
+                {
+                    Key = key,
+                    Day = day,
+                    SymbolKey = symbolKey,
+                    Symbol = entry.Symbol ?? string.Empty,
+                    Category = category,
+                    TotalSize = 0m,
+                    TotalValue = 0m,
+                    TotalFee = 0m
+                };
+            }
+
+            var qty = ParseDecimal(entry.Size) ?? 0m;
+            var price = ParseDecimal(entry.Price) ?? 0m;
+            var fee = ParseDecimal(entry.Fee) ?? 0m;
+
+            summary.TotalSize += qty;
+            summary.TotalValue += qty * price;
+            summary.TotalFee += fee;
+            byDay[key] = summary;
         }
 
-        var records = _state.Transactions
-            .Select(record => (record, raw: BybitTransactionService.ParseRaw(record)))
-            .Where(entry => string.Equals(entry.raw.Symbol, symbol, StringComparison.OrdinalIgnoreCase))
-            .Where(entry => string.IsNullOrWhiteSpace(category)
-                || string.Equals(entry.raw.Category, category, StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(entry => entry.raw.Timestamp ?? 0)
-            .ThenByDescending(entry => entry.raw.TimeLabel, StringComparer.Ordinal)
-            .SelectMany(entry => entry.record.Data)
+        return byDay.Values
+            .OrderBy(item => item.Day, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.SymbolKey, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
 
-        if (records.Count == 0)
+    private static string GetDayKey(long? timestamp)
+    {
+        if (!timestamp.HasValue || timestamp.Value <= 0)
         {
             return string.Empty;
         }
 
-        var options = new JsonSerializerOptions { WriteIndented = true };
-        return JsonSerializer.Serialize(records, options);
+        var date = DateTimeOffset.FromUnixTimeMilliseconds(timestamp.Value).UtcDateTime;
+        return date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
     }
 
-    private static decimal? ParseDecimal(string? value)
+    private long? GetForwardStartTime(string category, long? registrationTime)
     {
-        if (string.IsNullOrWhiteSpace(value))
+        if (_meta.LatestSyncedTimeMsByCategory.TryGetValue(category, out var synced))
         {
-            return null;
+            return synced;
         }
 
-        return decimal.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
-            ? parsed
+        return registrationTime;
+    }
+
+    private long? GetOldestTimeForCategory(string category)
+    {
+        if (_meta.OldestSyncedTimeMsByCategory.TryGetValue(category, out var oldest))
+        {
+            return oldest > 1 ? oldest - 1 : oldest;
+        }
+
+        return _meta.RegistrationTimeMs;
+    }
+
+    private string? GetCursor(string category)
+    {
+        return _meta.OldestCursorByCategory.TryGetValue(category, out var cursor)
+            ? cursor
             : null;
     }
 
-    private static bool TryParseWithTrailingCurrency(string? value, out decimal parsed)
+    private static bool HasCursor(string? cursor)
     {
-        parsed = 0m;
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return false;
-        }
-
-        var token = value.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];
-        return decimal.TryParse(token, NumberStyles.Any, CultureInfo.InvariantCulture, out parsed);
-    }
-
-    private static string GetSettleCoin(TradingTransactionRaw raw)
-    {
-        var settleCoin = string.IsNullOrWhiteSpace(raw.Currency)
-            ? "_unknown"
-            : raw.Currency;
-
-        return string.IsNullOrWhiteSpace(settleCoin) ? "_unknown" : settleCoin;
+        return !string.IsNullOrWhiteSpace(cursor);
     }
 
     private void InvalidateSummaryCache()
@@ -771,14 +738,137 @@ public class TradingHistoryViewModel
         _pnlByCoinCache = null;
     }
 
-    private static string FormatDecimal(decimal value)
+    private static void ApplyCalculatedFields(IReadOnlyList<TradingHistoryEntry> entries, CalculationState state, bool updateEntries = true)
     {
-        return value.ToString("0.##########", CultureInfo.InvariantCulture);
+        foreach (var entry in entries)
+        {
+            var qty = Round10(ParseDecimal(entry.Size) ?? 0m);
+            var price = ParseDecimal(entry.Price) ?? 0m;
+            var fee = ParseDecimal(entry.Fee) ?? 0m;
+            var side = (entry.Side ?? string.Empty).Trim();
+            var type = (entry.TransactionType ?? string.Empty).Trim();
+
+            if (string.Equals(type, "SETTLEMENT", StringComparison.OrdinalIgnoreCase))
+            {
+                qty = 0m;
+                price = 0m;
+            }
+            else if (string.Equals(type, "DELIVERY", StringComparison.OrdinalIgnoreCase))
+            {
+                ApplyDeliveryDetails(entry, ref qty, ref price);
+            }
+            else if (!string.Equals(type, "TRADE", StringComparison.OrdinalIgnoreCase))
+            {
+                qty = 0m;
+            }
+
+            var qtySigned = Round10(string.Equals(side, "SELL", StringComparison.OrdinalIgnoreCase) ? -qty : qty);
+
+            state.SizeBySymbol.TryGetValue(entry.Symbol, out var posBefore);
+            state.AvgPriceBySymbol.TryGetValue(entry.Symbol, out var avgBefore);
+            posBefore = Round10(posBefore);
+
+            var closeQty = Math.Sign(qtySigned) == -Math.Sign(posBefore)
+                ? Round10(Math.Min(Math.Abs(qtySigned), Math.Abs(posBefore)))
+                : 0m;
+            var openQty = Round10(qtySigned - Math.Sign(qtySigned) * closeQty);
+
+            var cashBefore = -avgBefore * posBefore;
+            var cashAfter = cashBefore + (-avgBefore * closeQty * Math.Sign(qtySigned)) + (-price * openQty);
+            var posAfter = Round10(posBefore + qtySigned);
+            var avgAfter = Math.Abs(posAfter) < 0.000000001m ? 0m : -cashAfter / posAfter;
+
+            var realized = 0m;
+            if (closeQty != 0m)
+            {
+                realized = posBefore > 0m
+                    ? (price - avgBefore) * closeQty
+                    : (avgBefore - price) * closeQty;
+            }
+
+            var settleCoin = GetSettleCoin(entry.Currency);
+            state.CumulativeBySettleCoin.TryGetValue(settleCoin, out var cumulativeBefore);
+            var cumulativeAfter = realized + cumulativeBefore - fee;
+
+            state.SizeBySymbol[entry.Symbol] = posAfter;
+            state.AvgPriceBySymbol[entry.Symbol] = avgAfter;
+            state.CumulativeBySettleCoin[settleCoin] = cumulativeAfter;
+
+            if (updateEntries)
+            {
+                entry.Calculated = new TradingTransactionCalculated
+                {
+                    SizeAfter = FormatDecimal(posAfter),
+                    AvgPriceAfter = FormatDecimal(avgAfter),
+                    RealizedPnl = FormatDecimal(realized),
+                    CumulativePnl = $"{FormatDecimal(cumulativeAfter)} {settleCoin}".Trim()
+                };
+                entry.ChangedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            }
+        }
     }
 
-    private static decimal Round10(decimal value)
+    private static long GetStartTimestamp(DateTime date)
     {
-        return Math.Round(value, 10, MidpointRounding.AwayFromZero);
+        var local = DateTime.SpecifyKind(date.Date, DateTimeKind.Local);
+        return new DateTimeOffset(local).ToUnixTimeMilliseconds();
+    }
+
+    private static void ApplyDeliveryDetails(TradingHistoryEntry entry, ref decimal qty, ref decimal price)
+    {
+        if (string.IsNullOrWhiteSpace(entry.RawJson))
+        {
+            return;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(entry.RawJson);
+            var primary = doc.RootElement;
+            if (primary.ValueKind == JsonValueKind.Array)
+            {
+                primary = primary.EnumerateArray().FirstOrDefault();
+            }
+
+            if (primary.ValueKind != JsonValueKind.Object)
+            {
+                return;
+            }
+
+            var position = ReadDecimal(primary, "position");
+            var delivery = ReadDecimal(primary, "deliveryPrice", "tradePrice", "price", "execPrice");
+            var strike = ReadDecimal(primary, "strike");
+            var optType = '\0';
+
+            if (TryGetOptionDetails(entry.Symbol, out var symbolOptType, out var symbolStrike))
+            {
+                optType = symbolOptType;
+                if (strike == 0m)
+                {
+                    strike = symbolStrike;
+                }
+            }
+
+            var intrinsicCall = Math.Max(delivery - strike, 0m);
+            var intrinsicPut = Math.Max(strike - delivery, 0m);
+
+            if (optType == 'C')
+            {
+                price = intrinsicCall;
+            }
+            else if (optType == 'P')
+            {
+                price = intrinsicPut;
+            }
+
+            if (position != 0m)
+            {
+                qty = Math.Abs(position);
+            }
+        }
+        catch
+        {
+        }
     }
 
     private static decimal ReadDecimal(JsonElement element, params string[] names)
@@ -836,4 +926,100 @@ public class TradingHistoryViewModel
 
         return false;
     }
+
+    private static string NormalizeSymbolKey(string? symbol)
+    {
+        return string.IsNullOrWhiteSpace(symbol)
+            ? string.Empty
+            : symbol.Trim().ToUpperInvariant();
+    }
+
+    private static string NormalizeCategoryKey(string? category)
+    {
+        return string.IsNullOrWhiteSpace(category)
+            ? string.Empty
+            : category.Trim().ToLowerInvariant();
+    }
+
+    private static string GetSettleCoin(string? currency)
+    {
+        var settleCoin = string.IsNullOrWhiteSpace(currency)
+            ? "_unknown"
+            : currency;
+
+        return string.IsNullOrWhiteSpace(settleCoin) ? "_unknown" : settleCoin;
+    }
+
+    private static decimal? ParseDecimal(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return decimal.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
+    }
+
+    private static string FormatDecimal(decimal value)
+    {
+        return value.ToString("0.##########", CultureInfo.InvariantCulture);
+    }
+
+    private static decimal Round10(decimal value)
+    {
+        return Math.Round(value, 10, MidpointRounding.AwayFromZero);
+    }
+
+    private sealed class CalculationState
+    {
+        public Dictionary<string, decimal> SizeBySymbol { get; }
+        public Dictionary<string, decimal> AvgPriceBySymbol { get; }
+        public Dictionary<string, decimal> CumulativeBySettleCoin { get; }
+
+        public CalculationState()
+        {
+            SizeBySymbol = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+            AvgPriceBySymbol = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+            CumulativeBySettleCoin = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        public CalculationState(TradingHistoryMeta meta)
+        {
+            SizeBySymbol = new Dictionary<string, decimal>(meta.SizeBySymbol, StringComparer.OrdinalIgnoreCase);
+            AvgPriceBySymbol = new Dictionary<string, decimal>(meta.AvgPriceBySymbol, StringComparer.OrdinalIgnoreCase);
+            CumulativeBySettleCoin = new Dictionary<string, decimal>(meta.CumulativeBySettleCoin, StringComparer.OrdinalIgnoreCase);
+        }
+
+        public void ApplyToMeta(TradingHistoryMeta meta)
+        {
+            meta.SizeBySymbol = new Dictionary<string, decimal>(SizeBySymbol, StringComparer.OrdinalIgnoreCase);
+            meta.AvgPriceBySymbol = new Dictionary<string, decimal>(AvgPriceBySymbol, StringComparer.OrdinalIgnoreCase);
+            meta.CumulativeBySettleCoin = new Dictionary<string, decimal>(CumulativeBySettleCoin, StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private void UpdateOldestSyncedTimes(IEnumerable<TradingHistoryEntry> entries)
+    {
+        foreach (var entry in entries)
+        {
+            if (!entry.Timestamp.HasValue || entry.Timestamp.Value <= 0)
+            {
+                continue;
+            }
+
+            var category = entry.Category ?? string.Empty;
+            if (!_meta.OldestSyncedTimeMsByCategory.TryGetValue(category, out var existing) || entry.Timestamp.Value < existing)
+            {
+                _meta.OldestSyncedTimeMsByCategory[category] = entry.Timestamp.Value;
+            }
+        }
+    }
 }
+
+
+
+
+
+

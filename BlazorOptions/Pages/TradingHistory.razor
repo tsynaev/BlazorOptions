@@ -1,6 +1,7 @@
 @page "/trading-history"
 @implements IDisposable
 @using BlazorOptions.Shared
+@using System.Globalization
 @inject TradingHistoryViewModel ViewModel
 @inject IDialogService DialogService
 
@@ -37,6 +38,19 @@
                                        OnClick="LoadAsync">
                                 @(ViewModel.IsLoading ? "Loading..." : "Load")
                             </MudButton>
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Default"
+                                       StartIcon="@Icons.Material.Filled.Autorenew"
+                                       Disabled="ViewModel.IsLoading || ViewModel.IsLoadingOlder || ViewModel.TotalTransactionsCount == 0"
+                                       OnClick="RecalculateAsync">
+                                Recalculate
+                            </MudButton>
+                            <MudDatePicker Date="@_recalculateFromDate"
+                                           DateChanged="OnRecalculateDateChanged"
+                                           Label="Recalculate from"
+                                           DateFormat="yyyy-MM-dd"
+                                           Clearable="true"
+                                           Disabled="ViewModel.IsLoading || ViewModel.IsLoadingOlder || ViewModel.TotalTransactionsCount == 0" />
                             @if (ViewModel.LastLoadedAt.HasValue)
                             {
                                 <MudText Typo="Typo.caption">
@@ -66,7 +80,7 @@
                         }
                         else
                         {
-                            <MudDataGrid T="TradingTransaction"
+                            <MudDataGrid T="TradingHistoryEntry"
                                          @key="_gridVersion"
                                          VirtualizeServerData="ServerDataFunc"
                                          Virtualize="true"
@@ -78,7 +92,7 @@
                                     <TemplateColumn Title="Date">
                                         <CellTemplate>
                                             <MudStack Spacing="0">
-                                                <MudText Typo="Typo.body2">@context.Item.TimeLabel</MudText>
+                                                <MudText Typo="Typo.body2">@FormatTimestamp(context.Item.Timestamp)</MudText>
                                                 <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.TransactionType</MudText>
                                             </MudStack>
                                         </CellTemplate>
@@ -87,7 +101,7 @@
                                         <CellTemplate>
                                             <MudStack Spacing="0">
                                         <MudText Typo="Typo.body2">
-                                            @context.Item.Side @context.Item.TransactionType @context.Item.Qty
+                                            @context.Item.Side @context.Item.TransactionType @context.Item.Size
                                             <MudLink OnClick="@(() => OpenSymbolDialogAsync(context.Item.Symbol, context.Item.Category))">
                                                 @context.Item.Symbol
                                             </MudLink>
@@ -97,12 +111,12 @@
                             </TemplateColumn>
                                     <TemplateColumn Title="Price">
                                         <CellTemplate>
-                                @context.Item.TradePrice
+                                @context.Item.Price
                                         </CellTemplate>
                                     </TemplateColumn>
                                     <TemplateColumn Title="Value">
                                         <CellTemplate>
-                                @($"{context.Item.Value} {context.Item.Currency}")
+                                @($"{FormatValue(context.Item.Size, context.Item.Price)} {context.Item.Currency}")
                                         </CellTemplate>
                                     </TemplateColumn>
                                     <TemplateColumn Title="Fee">
@@ -110,10 +124,10 @@
                                 @($"{context.Item.Fee} {context.Item.Currency}")
                                         </CellTemplate>
                                     </TemplateColumn>
-                                    <PropertyColumn Property="x => x.SizeAfter" Title="Size after" />
-                                    <PropertyColumn Property="x => x.AvgPriceAfter" Title="Avg price after" />
-                                    <PropertyColumn Property="x => x.RealizedPnl" Title="Realized PnL" />
-                                    <PropertyColumn Property="x => x.CumulativePnl" Title="Cumulative PnL" />
+                                    <PropertyColumn Property="x => x.Calculated.SizeAfter" Title="Size after" />
+                                    <PropertyColumn Property="x => x.Calculated.AvgPriceAfter" Title="Avg price after" />
+                                    <PropertyColumn Property="x => x.Calculated.RealizedPnl" Title="Realized PnL" />
+                                    <PropertyColumn Property="x => x.Calculated.CumulativePnl" Title="Cumulative PnL" />
                                 </Columns>
                                 <RowLoadingContent>
                                     <tr class="mud-table-row">
@@ -233,13 +247,13 @@
         return ViewModel.SetRegistrationDateAsync(date);
     }
     
-    private async Task<GridData<TradingTransaction>> ServerDataFunc(
-        GridStateVirtualize<TradingTransaction> state,
+    private async Task<GridData<TradingHistoryEntry>> ServerDataFunc(
+        GridStateVirtualize<TradingHistoryEntry> state,
         CancellationToken cancellationToken)
     {
         await ViewModel.EnsureRangeAsync(state.StartIndex, state.Count);
         var items = ViewModel.GetRange(state.StartIndex, state.Count);
-        return new GridData<TradingTransaction> { Items = items, TotalItems = ViewModel.TotalTransactionsCount };
+        return new GridData<TradingHistoryEntry> { Items = items, TotalItems = ViewModel.TotalTransactionsCount };
     }
 
     private async Task OpenSymbolDialogAsync(string symbol, string? category = null)
@@ -253,8 +267,8 @@
         {
             { nameof(TradingSymbolDialog.Symbol), symbol },
             { nameof(TradingSymbolDialog.Category), category ?? string.Empty },
-            { nameof(TradingSymbolDialog.Trades), ViewModel.GetTradesForSymbol(symbol, category) },
-            { nameof(TradingSymbolDialog.RawJson), ViewModel.GetRawJsonForSymbol(symbol, category) }
+            { nameof(TradingSymbolDialog.Trades), await ViewModel.GetTradesForSymbolAsync(symbol, category) },
+            { nameof(TradingSymbolDialog.RawJson), await ViewModel.GetRawJsonForSymbolAsync(symbol, category) }
         };
 
         var options = new DialogOptions
@@ -277,7 +291,54 @@
         _gridVersion++;
     }
 
+    private async Task RecalculateAsync()
+    {
+        await ViewModel.RecalculateAsync(_recalculateFromDate);
+        _gridVersion++;
+    }
+
+    private Task OnRecalculateDateChanged(DateTime? date)
+    {
+        _recalculateFromDate = date;
+        return Task.CompletedTask;
+    }
+
     private int _gridVersion;
+    private DateTime? _recalculateFromDate;
+    
+    private static string FormatTimestamp(long? timestamp)
+    {
+        if (!timestamp.HasValue || timestamp.Value <= 0)
+        {
+            return "N/A";
+        }
+
+        try
+        {
+            return DateTimeOffset.FromUnixTimeMilliseconds(timestamp.Value)
+                .ToLocalTime()
+                .ToString("g");
+        }
+        catch
+        {
+            return "N/A";
+        }
+    }
+
+    private static string FormatValue(string? qty, string? price)
+    {
+        if (!decimal.TryParse(qty, NumberStyles.Any, CultureInfo.InvariantCulture, out var qtyValue))
+        {
+            qtyValue = 0m;
+        }
+
+        if (!decimal.TryParse(price, NumberStyles.Any, CultureInfo.InvariantCulture, out var priceValue))
+        {
+            priceValue = 0m;
+        }
+
+        return (qtyValue * priceValue).ToString("0.##########", CultureInfo.InvariantCulture);
+    }
 
     private readonly TableGroupDefinition<TradingSummaryRow> _summaryGroupDefinition =
         new(item => item.GroupKey)

@@ -16,7 +16,7 @@ public record BybitTransactionQuery
     public long? EndTime { get; init; }
 }
 
-public record BybitTransactionPage(IReadOnlyList<TradingTransactionRecord> Items, string? NextCursor);
+public record BybitTransactionPage(IReadOnlyList<TradingTransactionRaw> Items, string? NextCursor);
 
 public class BybitTransactionService : BybitApiService
 {
@@ -82,7 +82,7 @@ public class BybitTransactionService : BybitApiService
 
         if (!root.TryGetProperty("result", out var resultElement))
         {
-            return new BybitTransactionPage(Array.Empty<TradingTransactionRecord>(), null);
+            return new BybitTransactionPage(Array.Empty<TradingTransactionRaw>(), null);
         }
 
         string? nextCursor = null;
@@ -95,7 +95,7 @@ public class BybitTransactionService : BybitApiService
         if (!resultElement.TryGetProperty("list", out var listElement)
             || listElement.ValueKind != JsonValueKind.Array)
         {
-            return new BybitTransactionPage(Array.Empty<TradingTransactionRecord>(), nextCursor);
+            return new BybitTransactionPage(Array.Empty<TradingTransactionRaw>(), nextCursor);
         }
 
         var grouped = new Dictionary<string, List<JsonElement>>(StringComparer.OrdinalIgnoreCase);
@@ -114,31 +114,15 @@ public class BybitTransactionService : BybitApiService
             bucket.Add(entry.Clone());
         }
 
-        var items = new List<TradingTransactionRecord>(order.Count);
+        var items = new List<TradingTransactionRaw>(order.Count);
         foreach (var key in order)
         {
             var entries = grouped[key];
             var parsed = MapTransaction(entries, categoryFallback);
-            items.Add(new TradingTransactionRecord
-            {
-                UniqueKey = parsed.UniqueKey,
-                Data = entries,
-                Calculated = new TradingTransactionCalculated()
-            });
+            items.Add(parsed);
         }
 
         return new BybitTransactionPage(items, nextCursor);
-    }
-
-    public static TradingTransactionRaw ParseRaw(TradingTransactionRecord record)
-    {
-        if (record.Data.Count == 0)
-        {
-            return new TradingTransactionRaw();
-        }
-
-        var category = ReadString(record.Data[0], "category");
-        return MapTransaction(record.Data, category);
     }
 
     public static TradingTransactionRaw ParseRaw(JsonElement entry)
@@ -170,8 +154,6 @@ public class BybitTransactionService : BybitApiService
     internal static TradingTransactionRaw MapTransaction(JsonElement entry, string categoryFallback)
     {
         var timestamp = ReadTimestamp(entry, "transactionTime");
-        var timeLabel = FormatTimestamp(timestamp)
-            ?? ReadString(entry, "transactionTime");
         _ = ReadTimestamp(entry, "transactionTime");
         var transactionId = ReadString(entry, "tradeId");
         var rawId = ReadString(entry, "id");
@@ -228,7 +210,6 @@ public class BybitTransactionService : BybitApiService
             TradeId = tradeId,
             ExtraFees = extraFees,
             Timestamp = timestamp,
-            TimeLabel = string.IsNullOrWhiteSpace(timeLabel) ? "N/A" : timeLabel,
         };
     }
 
@@ -305,9 +286,7 @@ public class BybitTransactionService : BybitApiService
         var tradeId = ReadString(primary, "tradeId");
         var extraFees = ReadString(primary, "extraFees");
         var timestamp = ReadTimestamp(primary, "transactionTime");
-        var timeLabel = FormatTimestamp(timestamp)
-            ?? ReadString(primary, "transactionTime");
-        var execTimeLabel = timeLabel ?? "N/A";
+        _ = ReadTimestamp(primary, "transactionTime");
         var tradePrice = ReadString(primary, "tradePrice");
         var tradePriceValue = TryParseDecimal(tradePrice) ?? 0m;
 
@@ -389,7 +368,6 @@ public class BybitTransactionService : BybitApiService
             TradeId = tradeId,
             ExtraFees = extraFees,
             Timestamp = timestamp,
-            TimeLabel = string.IsNullOrWhiteSpace(timeLabel) ? "N/A" : timeLabel,
         };
     }
 
@@ -405,25 +383,6 @@ public class BybitTransactionService : BybitApiService
 
         return string.Equals(category, "spot", StringComparison.OrdinalIgnoreCase)
                && string.Equals(type, "TRADE", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string? FormatTimestamp(long? timestamp)
-    {
-        if (!timestamp.HasValue)
-        {
-            return null;
-        }
-
-        try
-        {
-            return DateTimeOffset.FromUnixTimeMilliseconds(timestamp.Value)
-                .ToLocalTime()
-                .ToString("g", CultureInfo.CurrentCulture);
-        }
-        catch
-        {
-            return null;
-        }
     }
 
     private static string ReadString(JsonElement element, params string[] names)
