@@ -4,6 +4,23 @@
 <MudDialog>
     <DialogContent>
         <MudStack Spacing="2">
+            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                <MudDatePicker Date="@_sinceDate"
+                               DateChanged="OnSinceDateChanged"
+                               Label="Since date"
+                               DateFormat="yyyy-MM-dd"
+                               Clearable="true" />
+                <MudTimePicker Time="@_sinceTime"
+                               TimeChanged="OnSinceTimeChanged"
+                               Label="Since time"
+                               Clearable="true" />
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Default"
+                           Disabled="@(!_sinceDate.HasValue && !_sinceTime.HasValue)"
+                           OnClick="ClearSince">
+                    Clear
+                </MudButton>
+            </MudStack>
             <MudSwitch T="bool" @bind-Value="_showRaw" Color="Color.Primary" Label="Raw" />
 
             @if (_showRaw)
@@ -23,14 +40,14 @@
                                   Style="font-family: Consolas, 'Courier New', monospace;" />
                 }
             }
-            else if (Trades.Count == 0)
+            else if (_filteredTrades.Count == 0)
             {
                 <MudText Typo="Typo.body2">No trades found for this symbol.</MudText>
             }
             else
             {
                 <MudDataGrid T="TradingHistoryEntry"
-                             Items="Trades"
+                             Items="_filteredTrades"
                              Dense="true"
                              Hover="true"
                              FixedHeader="true"
@@ -85,6 +102,7 @@
     [Parameter] public string Category { get; set; } = string.Empty;
     [Parameter] public IReadOnlyList<TradingHistoryEntry> Trades { get; set; } = Array.Empty<TradingHistoryEntry>();
     [Parameter] public string RawJson { get; set; } = string.Empty;
+    [Parameter] public DateTime? SinceDateTime { get; set; }
 
     private string Title => string.IsNullOrWhiteSpace(Symbol)
         ? "Symbol trades"
@@ -92,6 +110,19 @@
             ? $"Trades for {Symbol}"
             : $"Trades for {Symbol} ({Category})";
     private bool _showRaw;
+    private DateTime? _sinceDate;
+    private TimeSpan? _sinceTime;
+    private IReadOnlyList<TradingHistoryEntry> _filteredTrades = Array.Empty<TradingHistoryEntry>();
+
+    protected override void OnParametersSet()
+    {
+        if (SinceDateTime.HasValue)
+        {
+            _sinceDate = SinceDateTime.Value.Date;
+            _sinceTime = SinceDateTime.Value.TimeOfDay;
+        }
+        ApplyFilter();
+    }
 
     private static string FormatTimestamp(long? timestamp)
     {
@@ -130,5 +161,54 @@
     private void Close()
     {
         MudDialog?.Close();
+    }
+
+    private void OnSinceDateChanged(DateTime? value)
+    {
+        _sinceDate = value?.Date;
+        ApplyFilter();
+    }
+
+    private void OnSinceTimeChanged(TimeSpan? value)
+    {
+        _sinceTime = value;
+        ApplyFilter();
+    }
+
+    private void ClearSince()
+    {
+        _sinceDate = null;
+        _sinceTime = null;
+        ApplyFilter();
+    }
+
+    private void ApplyFilter()
+    {
+        var since = BuildSinceTimestamp();
+        if (!since.HasValue)
+        {
+            _filteredTrades = Trades;
+            return;
+        }
+
+        var cutoffMs = since.Value.ToUnixTimeMilliseconds();
+        var filtered = Trades
+            .Where(item => item.Timestamp.HasValue && item.Timestamp.Value >= cutoffMs)
+            .ToList();
+
+        _filteredTrades = TradingHistoryViewModel.RecalculateForSymbol(filtered);
+    }
+
+    private DateTimeOffset? BuildSinceTimestamp()
+    {
+        if (!_sinceDate.HasValue && !_sinceTime.HasValue)
+        {
+            return null;
+        }
+
+        var date = _sinceDate ?? DateTime.Today;
+        var time = _sinceTime ?? TimeSpan.Zero;
+        var local = DateTime.SpecifyKind(date.Date + time, DateTimeKind.Local);
+        return new DateTimeOffset(local);
     }
 }

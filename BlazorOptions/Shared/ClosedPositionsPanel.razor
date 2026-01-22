@@ -1,5 +1,6 @@
 @using BlazorOptions.ViewModels
 @using Microsoft.AspNetCore.Components.Web
+@using MudBlazor
 @using System.Linq
 
 <MudCard Class="closed-positions-card">
@@ -22,12 +23,13 @@
             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                 <MudTextField T="string"
                               @bind-Value="ViewModel.AddSymbolInput"
-                              Label="Add symbol"
-                              Placeholder="ETH-30DEC25-3400-C"
+                              Label="Add symbols"
+                              Placeholder="Paste symbols, one per line"
                               Variant="Variant.Outlined"
                               Margin="Margin.Dense"
                               Immediate="true"
                               OnKeyDown="ViewModel.OnAddSymbolKeyDown"
+                              Lines="4"
                               Disabled="@(!ViewModel.HasActivePosition)"
                               Class="closed-positions-symbol-input" />
                 <MudButton Variant="Variant.Filled"
@@ -40,7 +42,7 @@
         </MudStack>
     </MudCardHeader>
     <MudCardContent>
-        <MudTable Items="@ViewModel.ClosedPositions" Dense="true" Hover="true" Class="closed-positions-table">
+        <MudTable Items="@ViewModel.ClosedPositions.OrderBy(item => item.Symbol)" Dense="true" Hover="true" Class="closed-positions-table">
             <HeaderContent>
                 <MudTh>Since</MudTh>
                 <MudTh>Symbol</MudTh>
@@ -56,17 +58,28 @@
                     var summary = ViewModel.GetSummary(context);
                 }
                 <MudTd DataLabel="Since">
-                    <MudDatePicker Date="@context.SinceDate"
-                                   DateChanged="async value => await ViewModel.SetSinceDateAsync(context, value)"
-                                   DateFormat="yyyy-MM-dd"
-                                   Clearable="true"
-                                   Disabled="@(!ViewModel.HasActivePosition)"
-                                   Variant="Variant.Outlined"
-                                   Margin="Margin.Dense"
-                                   Class="closed-positions-since-picker" />
+                    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                        <MudDatePicker Date="@context.SinceDate"
+                                       DateChanged="async value => await ViewModel.SetSinceDatePartAsync(context, value)"
+                                       DateFormat="yyyy-MM-dd"
+                                       Clearable="true"
+                                       Disabled="@(!ViewModel.HasActivePosition)"
+                                       Variant="Variant.Outlined"
+                                       Margin="Margin.Dense"
+                                       Class="closed-positions-since-date" />
+                        <MudTimePicker Time="@context.SinceDate?.TimeOfDay"
+                                       TimeChanged="async value => await ViewModel.SetSinceTimePartAsync(context, value)"
+                                       Clearable="true"
+                                       Disabled="@(!ViewModel.HasActivePosition)"
+                                       Variant="Variant.Outlined"
+                                       Margin="Margin.Dense"
+                                       Class="closed-positions-since-time" />
+                    </MudStack>
                 </MudTd>
                 <MudTd DataLabel="Symbol">
-                    <MudText Typo="Typo.body2">@summary.Symbol</MudText>
+                    <MudLink OnClick="@(() => OpenSymbolDialogAsync(summary.Symbol, context.SinceDate))">
+                        @summary.Symbol
+                    </MudLink>
                 </MudTd>
                 <MudTd DataLabel="Size">
                     <MudText Typo="Typo.body2">@summary.Size.ToString("0.##")</MudText>
@@ -100,6 +113,7 @@
     [Parameter, EditorRequired] public PositionModel Position { get; set; } = default!;
 
     [Inject] private ClosedPositionsViewModelFactory ViewModelFactory { get; set; } = default!;
+    [Inject] private IDialogService DialogService { get; set; } = default!;
 
     private ClosedPositionsViewModel ViewModel { get; set; } = default!;
     private Guid? _lastPositionId;
@@ -118,6 +132,31 @@
     {
         return date.HasValue ? date.Value.ToString("yyyy-MM-dd") : "-";
     }
+
+    private async Task OpenSymbolDialogAsync(string symbol, DateTime? sinceDate)
+    {
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return;
+        }
+
+        var parameters = new DialogParameters
+        {
+            { nameof(TradingSymbolDialog.Symbol), symbol },
+            { nameof(TradingSymbolDialog.Category), string.Empty },
+            { nameof(TradingSymbolDialog.Trades), await ViewModel.GetTradesForSymbolAsync(symbol) },
+            { nameof(TradingSymbolDialog.RawJson), await ViewModel.GetRawJsonForSymbolAsync(symbol) },
+            { nameof(TradingSymbolDialog.SinceDateTime), sinceDate }
+        };
+
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.ExtraLarge,
+            FullWidth = true
+        };
+
+        await DialogService.ShowAsync<TradingSymbolDialog>($"Trades for {symbol}", parameters, options);
+    }
 }
 
 <style>
@@ -133,7 +172,13 @@
         min-width: 220px;
     }
 
-    .closed-positions-since-picker {
-        min-width: 140px;
+    .closed-positions-since-date {
+        width: 120px;
+        min-width: 120px;
+    }
+
+    .closed-positions-since-time {
+        width: 110px;
+        min-width: 110px;
     }
 </style>

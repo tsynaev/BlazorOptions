@@ -60,7 +60,7 @@ public static class ClosedPositionCalculator
             .ThenBy(entry => entry.Raw.UniqueKey, StringComparer.Ordinal)
             .ToList();
 
-        var sinceDate = position.SinceDate?.Date;
+        var sinceDate = position.SinceDate;
         if (sinceDate.HasValue)
         {
             trades = trades
@@ -182,7 +182,7 @@ public static class ClosedPositionCalculator
         var avgClose = closeQty > 0m ? closeValue / closeQty : 0m;
         var computedSinceDate = firstTimestamp == long.MaxValue
             ? (DateTime?)null
-            : DateTimeOffset.FromUnixTimeMilliseconds(firstTimestamp).ToLocalTime().Date;
+            : DateTimeOffset.FromUnixTimeMilliseconds(firstTimestamp).ToLocalTime().DateTime;
 
         return new ClosedPositionSummary(
             normalizedSymbol,
@@ -274,8 +274,8 @@ public static class ClosedPositionCalculator
             return false;
         }
 
-        var tradeDate = DateTimeOffset.FromUnixTimeMilliseconds(timestamp.Value).ToLocalTime().Date;
-        return tradeDate >= sinceDate.Date;
+        var tradeDate = DateTimeOffset.FromUnixTimeMilliseconds(timestamp.Value).ToLocalTime().DateTime;
+        return tradeDate >= sinceDate;
     }
 
     private static TradeEntry MapTradeEntry(TradingHistoryEntry entry)

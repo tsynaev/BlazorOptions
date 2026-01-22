@@ -412,7 +412,25 @@ public class TradingHistoryViewModel
         }
 
         var entries = await _storageService.LoadBySymbolAsync(symbol, category);
-        return entries
+        return RecalculateForSymbol(entries);
+    }
+
+    public static IReadOnlyList<TradingHistoryEntry> RecalculateForSymbol(IReadOnlyList<TradingHistoryEntry> entries)
+    {
+        if (entries.Count == 0)
+        {
+            return Array.Empty<TradingHistoryEntry>();
+        }
+
+        var orderedAsc = entries
+            .OrderBy(entry => entry.Timestamp ?? 0)
+            .ThenBy(entry => entry.Id, StringComparer.Ordinal)
+            .ToList();
+
+        var state = new CalculationState();
+        ApplyCalculatedFields(orderedAsc, state);
+
+        return orderedAsc
             .OrderByDescending(item => item.Timestamp ?? 0)
             .ThenByDescending(item => item.Id, StringComparer.Ordinal)
             .ToList();
