@@ -38,7 +38,7 @@
                 <MudTextField Label="User name" @bind-Value="ViewModel.UserName" Disabled="ViewModel.IsAuthBusy" />
                 <MudTextField Label="Password" InputType="InputType.Password" @bind-Value="ViewModel.Password" Disabled="ViewModel.IsAuthBusy" />
 
-                <MudStack Direction="Row" Spacing="2">
+                <MudStack Row="true" Spacing="2">
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="ViewModel.IsAuthBusy" OnClick="HandleRegisterAsync">
                         Register
                     </MudButton>

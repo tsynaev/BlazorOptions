@@ -1,0 +1,139 @@
+@using BlazorOptions.ViewModels
+@using Microsoft.AspNetCore.Components.Web
+@using System.Linq
+
+<MudCard Class="closed-positions-card">
+    <MudCardHeader>
+        <MudStack Spacing="1" Class="flex-grow-1">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudCheckBox T="bool"
+                             Value="@ViewModel.IncludeInChart"
+                             ValueChanged="async value => await ViewModel.SetIncludeInChartAsync(value)"
+                             Disabled="@(!ViewModel.HasActivePosition)" />
+                <MudText Typo="Typo.h6">Closed positions</MudText>
+                <MudText Typo="Typo.caption" Class="closed-positions-summary">
+                    Net: @ViewModel.TotalNet.ToString("0.##")
+                </MudText>
+                <MudText Typo="Typo.caption" Class="closed-positions-summary">
+                    PnL: @ViewModel.TotalClosePnl.ToString("0.##") | Fee: @ViewModel.TotalFee.ToString("0.##")
+                </MudText>
+                <MudSpacer />
+            </MudStack>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                <MudTextField T="string"
+                              @bind-Value="ViewModel.AddSymbolInput"
+                              Label="Add symbol"
+                              Placeholder="ETH-30DEC25-3400-C"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              Immediate="true"
+                              OnKeyDown="ViewModel.OnAddSymbolKeyDown"
+                              Disabled="@(!ViewModel.HasActivePosition)"
+                              Class="closed-positions-symbol-input" />
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           Disabled="@(!ViewModel.HasActivePosition)"
+                           OnClick="async () => await ViewModel.AddSymbolAsync()">
+                    Add
+                </MudButton>
+            </MudStack>
+        </MudStack>
+    </MudCardHeader>
+    <MudCardContent>
+        <MudTable Items="@ViewModel.ClosedPositions" Dense="true" Hover="true" Class="closed-positions-table">
+            <HeaderContent>
+                <MudTh>Since</MudTh>
+                <MudTh>Symbol</MudTh>
+                <MudTh>Size</MudTh>
+                <MudTh>Avg. Entry Price</MudTh>
+                <MudTh>Avg. Close Price</MudTh>
+                <MudTh>Close P&amp;L</MudTh>
+                <MudTh>Fee</MudTh>
+                <MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                @{
+                    var summary = ViewModel.GetSummary(context);
+                }
+                <MudTd DataLabel="Since">
+                    <MudDatePicker Date="@context.SinceDate"
+                                   DateChanged="async value => await ViewModel.SetSinceDateAsync(context, value)"
+                                   DateFormat="yyyy-MM-dd"
+                                   Clearable="true"
+                                   Disabled="@(!ViewModel.HasActivePosition)"
+                                   Variant="Variant.Outlined"
+                                   Margin="Margin.Dense"
+                                   Class="closed-positions-since-picker" />
+                </MudTd>
+                <MudTd DataLabel="Symbol">
+                    <MudText Typo="Typo.body2">@summary.Symbol</MudText>
+                </MudTd>
+                <MudTd DataLabel="Size">
+                    <MudText Typo="Typo.body2">@summary.Size.ToString("0.##")</MudText>
+                </MudTd>
+                <MudTd DataLabel="Avg. Entry Price">
+                    <MudText Typo="Typo.body2">@summary.AvgEntryPrice.ToString("0.##")</MudText>
+                </MudTd>
+                <MudTd DataLabel="Avg. Close Price">
+                    <MudText Typo="Typo.body2">@summary.AvgClosePrice.ToString("0.##")</MudText>
+                </MudTd>
+                <MudTd DataLabel="Close P&amp;L">
+                    <MudText Typo="Typo.body2" Color="@(summary.ClosePnl >= 0 ? Color.Success : Color.Error)">
+                        @summary.ClosePnl.ToString("0.##")
+                    </MudText>
+                </MudTd>
+                <MudTd DataLabel="Fee">
+                    <MudText Typo="Typo.body2">@summary.Fee.ToString("0.##")</MudText>
+                </MudTd>
+                <MudTd DataLabel="Actions" Style="text-align:right;">
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                   Color="Color.Error"
+                                   Disabled="@(!ViewModel.HasActivePosition)"
+                                   OnClick="async () => await ViewModel.RemoveClosedPositionAsync(context)" />
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudCardContent>
+</MudCard>
+
+@code {
+    [Parameter, EditorRequired] public PositionModel Position { get; set; } = default!;
+
+    [Inject] private ClosedPositionsViewModelFactory ViewModelFactory { get; set; } = default!;
+
+    private ClosedPositionsViewModel ViewModel { get; set; } = default!;
+    private Guid? _lastPositionId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (ViewModel is null || _lastPositionId != Position.Id)
+        {
+            ViewModel = ViewModelFactory.Create(Position);
+            _lastPositionId = Position.Id;
+            await ViewModel.InitializeAsync();
+        }
+    }
+
+    private static string FormatDate(DateTime? date)
+    {
+        return date.HasValue ? date.Value.ToString("yyyy-MM-dd") : "-";
+    }
+}
+
+<style>
+    .closed-positions-card .mud-card-header-content {
+        width: 100%;
+    }
+
+    .closed-positions-summary {
+        opacity: 0.8;
+    }
+
+    .closed-positions-symbol-input {
+        min-width: 220px;
+    }
+
+    .closed-positions-since-picker {
+        min-width: 140px;
+    }
+</style>

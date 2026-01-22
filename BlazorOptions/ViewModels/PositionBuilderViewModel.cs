@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
@@ -13,10 +13,10 @@ public class PositionBuilderViewModel : IAsyncDisposable
 {
     private readonly OptionsService _optionsService;
     private readonly PositionStorageService _storageService;
+    private readonly TradingHistoryStorageService _tradingHistoryStorageService;
     private readonly ExchangeSettingsService _exchangeSettingsService;
     private readonly ExchangeTickerService _exchangeTickerService;
     private readonly OptionsChainService _optionsChainService;
-    private readonly BybitPositionService _bybitPositionService;
     private readonly ActivePositionsService _activePositionsService;
     private readonly PositionSyncService _positionSyncService;
     private CancellationTokenSource? _tickerCts;
@@ -32,6 +32,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
     private static readonly Regex QuickAddNumericDateRegex = new(@"\b\d{4}\b", RegexOptions.Compiled);
     private bool _isInitialized;
     private bool _suppressSync;
+    private IReadOnlyList<TradingHistoryEntry> _tradingHistoryEntries = Array.Empty<TradingHistoryEntry>();
 
     private static readonly ObservableCollection<LegModel> EmptyLegs = new();
     private static readonly ObservableCollection<LegsCollectionModel> EmptyCollections = new();
@@ -47,7 +48,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         "#00F5D4",
         "#B5179E"
     };
-    private static readonly string[] BybitPositionCategories = { "option", "linear", "inverse" };
+
     private static readonly string[] PositionExpirationFormats = { "ddMMMyy", "ddMMMyyyy" };
 
     public double? SelectedPrice { get; private set; }
@@ -73,19 +74,19 @@ public class PositionBuilderViewModel : IAsyncDisposable
     public PositionBuilderViewModel(
         OptionsService optionsService,
         PositionStorageService storageService,
+        TradingHistoryStorageService tradingHistoryStorageService,
         ExchangeSettingsService exchangeSettingsService,
         ExchangeTickerService exchangeTickerService,
         OptionsChainService optionsChainService,
-        BybitPositionService bybitPositionService,
         ActivePositionsService activePositionsService,
         PositionSyncService positionSyncService)
     {
         _optionsService = optionsService;
         _storageService = storageService;
+        _tradingHistoryStorageService = tradingHistoryStorageService;
         _exchangeSettingsService = exchangeSettingsService;
         _exchangeTickerService = exchangeTickerService;
         _optionsChainService = optionsChainService;
-        _bybitPositionService = bybitPositionService;
         _activePositionsService = activePositionsService;
         _positionSyncService = positionSyncService;
         _exchangeTickerService.PriceUpdated += HandlePriceUpdated;
@@ -117,6 +118,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         _isInitialized = true;
         var storedPositions = await _storageService.LoadPositionsAsync();
         var deletedPositionIds = await _storageService.LoadDeletedPositionsAsync();
+        _tradingHistoryEntries = Array.Empty<TradingHistoryEntry>();
         await _activePositionsService.InitializeAsync();
 
         if (storedPositions.Count == 0)
@@ -579,6 +581,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         var allLegs = collections.SelectMany(collection => collection.Legs).ToList();
         var visibleCollections = collections.Where(collection => collection.IsVisible).ToList();
         var rangeLegs = visibleCollections.SelectMany(collection => collection.Legs).ToList();
+        var closedPositionsTotal = GetClosedPositionsTotal(position);
 
         if (rangeLegs.Count == 0)
         {
@@ -608,6 +611,29 @@ public class PositionBuilderViewModel : IAsyncDisposable
             var tempExpiryPnl = collectionLegs.Any()
                 ? _optionsService.CalculateTotalProfit(collectionLegs, displayPrice)
                 : (double?)null;
+
+            if (Math.Abs(closedPositionsTotal) > 0.0001)
+            {
+                for (var i = 0; i < profits.Length; i++)
+                {
+                    profits[i] += closedPositionsTotal;
+                }
+
+                for (var i = 0; i < theoreticalProfits.Length; i++)
+                {
+                    theoreticalProfits[i] += closedPositionsTotal;
+                }
+
+                if (tempPnl.HasValue)
+                {
+                    tempPnl = tempPnl.Value + closedPositionsTotal;
+                }
+
+                if (tempExpiryPnl.HasValue)
+                {
+                    tempExpiryPnl = tempExpiryPnl.Value + closedPositionsTotal;
+                }
+            }
 
             if (collection.IsVisible)
             {
@@ -676,6 +702,60 @@ public class PositionBuilderViewModel : IAsyncDisposable
         var positionId = position?.Id ?? Guid.Empty;
 
         ChartConfig = new EChartOptions(positionId, xs, labels, displayPrice, chartCollections, minProfit - padding, maxProfit + padding);
+    }
+
+    public async Task<IReadOnlyList<TradingHistoryEntry>> RefreshTradingHistoryAsync(IEnumerable<ClosedPositionModel>? closedPositions = null)
+    {
+        if (closedPositions is null)
+        {
+            _tradingHistoryEntries = Array.Empty<TradingHistoryEntry>();
+            return _tradingHistoryEntries;
+        }
+
+        var models = closedPositions
+            .Where(position => position is not null && !string.IsNullOrWhiteSpace(position.Symbol))
+            .ToList();
+
+        if (models.Count == 0)
+        {
+            _tradingHistoryEntries = Array.Empty<TradingHistoryEntry>();
+            return _tradingHistoryEntries;
+        }
+
+        var entries = new List<TradingHistoryEntry>();
+        var addedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var model in models)
+        {
+            var symbol = model.Symbol.Trim();
+            if (string.IsNullOrWhiteSpace(symbol))
+            {
+                continue;
+            }
+
+            var symbolEntries = await _tradingHistoryStorageService.LoadBySymbolAsync(symbol);
+            foreach (var entry in symbolEntries)
+            {
+                var key = entry.Id;
+                if (string.IsNullOrWhiteSpace(key) || addedKeys.Add(key))
+                {
+                    entries.Add(entry);
+                }
+            }
+        }
+
+        _tradingHistoryEntries = entries;
+        return _tradingHistoryEntries;
+    }
+
+    private double GetClosedPositionsTotal(PositionModel? position)
+    {
+        if (position is null || !position.IncludeClosedPositions || position.ClosedPositions is null)
+        {
+            return 0;
+        }
+
+        return position.ClosedPositionsNetTotal;
     }
 
     public double? GetLegMarkIv(LegModel leg, string? baseAsset = null)
@@ -979,6 +1059,11 @@ public class PositionBuilderViewModel : IAsyncDisposable
         if (position.Collections.Count == 0)
         {
             position.Collections.Add(CreateCollection(position, GetNextCollectionName(position)));
+        }
+
+        if (position.ClosedPositions is null)
+        {
+            position.ClosedPositions = new ObservableCollection<ClosedPositionModel>();
         }
     }
 
@@ -1952,6 +2037,9 @@ public class PositionBuilderViewModel : IAsyncDisposable
     }
 
 }
+
+
+
 
 
 

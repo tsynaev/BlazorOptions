@@ -1,4 +1,5 @@
-using BlazorOptions.ViewModels;
+﻿using BlazorOptions.ViewModels;
+using System.Text.Json;
 using Microsoft.JSInterop;
 
 namespace BlazorOptions.Services;
@@ -111,7 +112,7 @@ public class TradingHistoryStorageService
         await InitializeAsync();
         return await _jsRuntime.InvokeAsync<TradingHistoryEntry[]>("tradingHistoryDb.fetchAllAsc");
     }
-
+ 
     private static string NormalizeSymbolKey(string? symbol)
     {
         return string.IsNullOrWhiteSpace(symbol)
@@ -149,5 +150,7 @@ public class TradingHistoryStorageService
         await _jsRuntime.InvokeVoidAsync("eval", ensureScript);
         await _jsRuntime.InvokeAsync<bool>("__ensureTradingHistoryDb");
     }
+
+ 
 }
 

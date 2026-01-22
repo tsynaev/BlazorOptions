@@ -127,6 +127,10 @@
         {
             <LegsPanel Collection="@collection" @key="collection.Id" />
         }
+        @if (ViewModel.SelectedPosition is not null)
+        {
+            <ClosedPositionsPanel Position="@ViewModel.SelectedPosition" />
+        }
     </MudStack>
 </MudStack>
 

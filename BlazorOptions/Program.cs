@@ -40,6 +40,7 @@ builder.Services.AddTransient<AccountSettingsViewModel>();
 builder.Services.AddTransient<BybitSettingsViewModel>();
 builder.Services.AddScoped<PositionBuilderViewModel>();
 builder.Services.AddScoped<LegsCollectionViewModelFactory>();
+builder.Services.AddScoped<ClosedPositionsViewModelFactory>();
 builder.Services.AddTransient<ActivePositionsPanelViewModel>();
 builder.Services.AddTransient<OptionChainDialogViewModel>();
 builder.Services.AddTransient<PortfolioSettingsDialogViewModel>();
