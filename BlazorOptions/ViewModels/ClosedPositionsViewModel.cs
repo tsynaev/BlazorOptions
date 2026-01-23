@@ -33,6 +33,48 @@ public sealed class ClosedPositionsViewModel
 
     public string AddSymbolInput { get; set; } = string.Empty;
 
+    public void SetAddSymbolInput(IEnumerable<string> symbols)
+    {
+        var existing = SplitSymbols(AddSymbolInput ?? string.Empty);
+        var combined = new List<string>(existing.Count + 8);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var symbol in existing)
+        {
+            if (seen.Add(symbol))
+            {
+                combined.Add(symbol);
+            }
+        }
+
+        if (symbols is not null)
+        {
+            foreach (var symbol in symbols)
+            {
+                if (string.IsNullOrWhiteSpace(symbol))
+                {
+                    continue;
+                }
+
+                var trimmed = symbol.Trim();
+                if (trimmed.Length == 0)
+                {
+                    continue;
+                }
+
+                if (seen.Add(trimmed))
+                {
+                    combined.Add(trimmed);
+                }
+            }
+        }
+
+        AddSymbolInput = combined.Count == 0
+            ? string.Empty
+            : string.Join(Environment.NewLine, combined);
+
+        _positionBuilder.NotifyStateChanged();
+    }
 
     public bool IncludeInChart
     {

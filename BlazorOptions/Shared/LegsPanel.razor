@@ -20,11 +20,17 @@
                                        Color="Color.Default"
                                        OnClick="async () => await ViewModel.DuplicateCollectionAsync()"/>
                     </MudTooltip>
-                    <MudButton Variant="Variant.Outlined"
-                               Color="Color.Default"
-                               StartIcon="@Icons.Material.Filled.CloudDownload"
-                               OnClick="async () => await ViewModel.LoadBybitPositionsAsync()">
-                    </MudButton>
+                    <MudTooltip Text="Copy symbols to closed positions">
+                        <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
+                                       Color="Color.Default"
+                                       Disabled="@(ViewModel.Legs.Count == 0)"
+                                       OnClick="async () => await ViewModel.CopySymbolsToClosedPositionsAsync()"/>
+                    </MudTooltip>
+                    <MudTooltip Text="Load exchange positions">
+                        <MudIconButton Icon="@Icons.Material.Filled.CloudDownload"
+                                       Color="Color.Default"
+                                       OnClick="async () => await ViewModel.LoadBybitPositionsAsync()"/>
+                    </MudTooltip>
                     <MudTooltip Text="Add leg">
                         <MudIconButton Icon="@Icons.Material.Filled.AddCircle"
                                        Color="Color.Primary"

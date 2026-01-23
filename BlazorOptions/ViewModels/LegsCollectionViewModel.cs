@@ -193,6 +193,31 @@ public sealed class LegsCollectionViewModel : IDisposable
         await Position.DuplicateCollectionAsync(Collection);
     }
 
+    public Task CopySymbolsToClosedPositionsAsync()
+    {
+        if (Position?.ClosedPositions is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        var symbols = Collection.Legs
+            .Select(leg => leg.Symbol)
+            .Where(symbol => !string.IsNullOrWhiteSpace(symbol))
+            .Select(symbol => symbol!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(symbol => symbol, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (symbols.Count == 0)
+        {
+            _notifyUserService.NotifyUser("No leg symbols available to copy.");
+            return Task.CompletedTask;
+        }
+
+        Position.ClosedPositions.SetAddSymbolInput(symbols);
+        return Task.CompletedTask;
+    }
+
     public async Task LoadBybitPositionsAsync()
     {
         if (Position is null)
