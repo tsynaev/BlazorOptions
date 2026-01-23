@@ -554,6 +554,7 @@ window.payoffChart = {
         chart.off('click');
         chart.getZr().off('click');
         chart.getZr().off('mousedown');
+        chart.getZr().off('mousemove');
         chart.getZr().off('mouseup');
         chart.getZr().off('globalout');
         if (element.__payoffDomClick) {
@@ -561,8 +562,79 @@ window.payoffChart = {
             element.__payoffDomClick = null;
         }
 
+        const getGridRect = () => {
+            try {
+                const grid = chart.getModel().getComponent('grid', 0);
+                return grid?.coordinateSystem?.getRect?.();
+            } catch {
+                return null;
+            }
+        };
+
+        const clampRange = (minValue, maxValue, hardMin, hardMax) => {
+            if (!Number.isFinite(minValue) || !Number.isFinite(maxValue)) {
+                return { start: hardMin, end: hardMax };
+            }
+
+            const safeMin = Number(hardMin);
+            const safeMax = Number(hardMax);
+            if (!Number.isFinite(safeMin) || !Number.isFinite(safeMax) || safeMax <= safeMin) {
+                return { start: minValue, end: maxValue };
+            }
+
+            const span = Math.max(maxValue - minValue, 0.0001);
+            if (span >= safeMax - safeMin) {
+                return { start: safeMin, end: safeMax };
+            }
+
+            let center = (minValue + maxValue) / 2;
+            let start = center - span / 2;
+            let end = center + span / 2;
+
+            if (start < safeMin) {
+                start = safeMin;
+                end = safeMin + span;
+            }
+
+            if (end > safeMax) {
+                end = safeMax;
+                start = safeMax - span;
+            }
+
+            return { start, end };
+        };
+
+        const getZoomRange = (axis) => {
+            const zoomState = chart.getOption().dataZoom || [];
+            const zoomEntry = axis === 'x'
+                ? zoomState.find(z => z.xAxisIndex !== undefined)
+                : zoomState.find(z => z.yAxisIndex !== undefined);
+
+            const defaultRange = axis === 'x'
+                ? {
+                    start: numericPrices.length ? numericPrices[0] : 0,
+                    end: numericPrices.length ? numericPrices[numericPrices.length - 1] : 0
+                }
+                : { start: paddedYMin, end: paddedYMax };
+
+            return toRange(zoomEntry, defaultRange);
+        };
+
+        const applyAxisZoom = (axis, range) => {
+            const zoomIndex = axis === 'x' ? 0 : 1;
+            chart.dispatchAction({
+                type: 'dataZoom',
+                dataZoomIndex: zoomIndex,
+                startValue: range.start,
+                endValue: range.end
+            });
+        };
+
         if (dotNetHelper) {
             const invokeSelection = (price) => {
+                if (element.__payoffAxisDragState?.isDragging) {
+                    return;
+                }
                 const lastZoomAt = element.__payoffLastZoomAt ?? 0;
                 if (Date.now() - lastZoomAt < 150) {
                     return;
@@ -636,11 +708,136 @@ window.payoffChart = {
             });
 
             chart.getZr().on('click', (event) => {
+                if (element.__payoffAxisDragState?.isDragging) {
+                    return;
+                }
                 const price = pickPriceFromPixels(event.offsetX, event.offsetY ?? 0);
                 invokeSelection(price);
             });
 
         }
+
+        const axisDragPaddingX = 80;
+        const axisDragPaddingY = 60;
+        const axisZoomSpeed = 1.6;
+
+        chart.getZr().on('mousedown', (event) => {
+            if (!event) return;
+            const rect = getGridRect();
+            if (!rect) return;
+
+            const x = event.offsetX;
+            const y = event.offsetY;
+            const withinYBounds = y >= rect.y && y <= rect.y + rect.height;
+            const withinXBounds = x >= rect.x && x <= rect.x + rect.width;
+
+            const onYAxis = withinYBounds && x >= rect.x - axisDragPaddingX && x <= rect.x;
+            const onXAxis = withinXBounds && y >= rect.y + rect.height && y <= rect.y + rect.height + axisDragPaddingY;
+
+            if (!onYAxis && !onXAxis) {
+                return;
+            }
+
+            const axis = onYAxis ? 'y' : 'x';
+            const currentRange = getZoomRange(axis);
+            if (!currentRange) return;
+
+            element.__payoffAxisDragState = {
+                axis,
+                startX: x,
+                startY: y,
+                rect,
+                startRange: currentRange,
+                isDragging: true
+            };
+        });
+
+        const setCursor = (value) => {
+            if (!chart || chart.isDisposed?.()) {
+                return;
+            }
+            const zr = chart.getZr?.();
+            if (zr?.setCursorStyle) {
+                zr.setCursorStyle(value || 'default');
+                return;
+            }
+            const dom = chart.getDom?.();
+            if (!dom) return;
+            const cursorValue = value || '';
+            if (dom.style.cursor !== cursorValue) {
+                dom.style.cursor = cursorValue;
+            }
+        };
+
+        chart.getZr().on('mousemove', (event) => {
+            const rect = getGridRect();
+            if (rect && event) {
+                const x = event.offsetX;
+                const y = event.offsetY;
+                const withinYBounds = y >= rect.y && y <= rect.y + rect.height;
+                const withinXBounds = x >= rect.x && x <= rect.x + rect.width;
+
+                const onYAxis = withinYBounds && x >= rect.x - axisDragPaddingX && x <= rect.x;
+                const onXAxis = withinXBounds && y >= rect.y + rect.height && y <= rect.y + rect.height + axisDragPaddingY;
+
+                if (onYAxis) {
+                    setCursor('ns-resize');
+                } else if (onXAxis) {
+                    setCursor('ew-resize');
+                } else {
+                    setCursor('');
+                }
+            } else {
+                setCursor('');
+            }
+
+            const dragState = element.__payoffAxisDragState;
+            if (!dragState || !dragState.isDragging) {
+                return;
+            }
+            const activeRect = dragState.rect || rect || getGridRect();
+            if (!activeRect) return;
+
+            const delta = dragState.axis === 'y'
+                ? event.offsetY - dragState.startY
+                : event.offsetX - dragState.startX;
+            const axisLength = dragState.axis === 'y' ? activeRect.height : activeRect.width;
+            if (!Number.isFinite(axisLength) || axisLength <= 0) return;
+
+            const scale = Math.exp((delta / axisLength) * axisZoomSpeed);
+            const start = dragState.startRange?.start;
+            const end = dragState.startRange?.end;
+            if (!Number.isFinite(start) || !Number.isFinite(end)) return;
+
+            const span = Math.max(end - start, 0.0001) * scale;
+            const center = (start + end) / 2;
+            const proposed = {
+                start: center - span / 2,
+                end: center + span / 2
+            };
+
+            const hardBounds = dragState.axis === 'y'
+                ? { min: paddedYMin, max: paddedYMax }
+                : {
+                    min: numericPrices.length ? numericPrices[0] : 0,
+                    max: numericPrices.length ? numericPrices[numericPrices.length - 1] : 0
+                };
+
+            const clamped = clampRange(proposed.start, proposed.end, hardBounds.min, hardBounds.max);
+            applyAxisZoom(dragState.axis, clamped);
+        });
+
+        const clearAxisDrag = () => {
+            if (element.__payoffAxisDragState) {
+                element.__payoffAxisDragState.isDragging = false;
+            }
+        };
+
+        chart.getZr().on('mouseup', clearAxisDrag);
+        chart.getZr().on('globalout', () => {
+            setCursor('');
+            clearAxisDrag();
+        });
 
         if (!chart.isDisposed?.()) {
             chart.resize();
