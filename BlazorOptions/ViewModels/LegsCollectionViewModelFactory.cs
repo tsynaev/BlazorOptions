@@ -22,12 +22,12 @@ public sealed class LegsCollectionViewModelFactory
         _notifyUserService = notifyUserService;
     }
 
-    public LegsCollectionViewModel Create(PositionBuilderViewModel positionBuilder, PositionModel position, LegsCollectionModel collection)
+    public LegsCollectionViewModel Create(PositionViewModel position, LegsCollectionModel collection)
     {
-        var vm = new LegsCollectionViewModel(positionBuilder, _dialogService, _optionsChainService, _legViewModelFactory, _notifyUserService)
+        var vm = new LegsCollectionViewModel(_dialogService, _optionsChainService, _legViewModelFactory, _notifyUserService)
         {
             Position = position,
-            BaseAsset = position.BaseAsset,
+            BaseAsset = position.Position.BaseAsset,
             Collection = collection
         };
 

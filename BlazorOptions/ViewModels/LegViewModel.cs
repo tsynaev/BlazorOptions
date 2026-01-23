@@ -9,7 +9,6 @@ public sealed class LegViewModel : IDisposable
     private readonly OptionsChainService _optionsChainService;
     private readonly SemaphoreSlim _subscriptionLock = new(1, 1);
     private IDisposable? _subscriptionRegistration;
-    private string? _symbol;
     private double? _currentPrice;
     private bool _isLive;
     private double? _lastBid;
@@ -27,9 +26,6 @@ public sealed class LegViewModel : IDisposable
         _collectionViewModel = collectionViewModel;
         _optionsService = optionsService;
         _optionsChainService = optionsChainService;
-
-        _collectionViewModel.ActivePositionUpdated += HandleActivePositionUpdated;
-
     }
 
     public LegModel Leg
@@ -52,9 +48,9 @@ public sealed class LegViewModel : IDisposable
 
     public BidAsk BidAsk => ResolveBidAsk();
 
-    public double? MarkPrice => _isLive ? (_lastMarkPrice ?? _collectionViewModel.GetLegMarkPrice(Leg)) : null;
+    public double? MarkPrice => _isLive ? (_lastMarkPrice ?? ResolveFallbackMarkPrice()) : null;
 
-    public double? ChainIv => _isLive ? (_lastChainIv ?? _collectionViewModel.GetLegMarkIv(Leg)) : null;
+    public double? ChainIv => _isLive ? (_lastChainIv ?? ResolveFallbackIv()) : null;
 
     public double TempPnl => ResolveTempPnl();
 
@@ -90,6 +86,7 @@ public sealed class LegViewModel : IDisposable
             {
                 _subscriptionRegistration?.Dispose();
                 _subscriptionRegistration = null;
+
                 ClearTickerCache();
             }
             else
@@ -173,34 +170,62 @@ public sealed class LegViewModel : IDisposable
         _ = RefreshSubscriptionAsync();
     }
 
-    public void Dispose()
-    {
-        _collectionViewModel.ActivePositionUpdated -= HandleActivePositionUpdated;
-        _subscriptionRegistration?.Dispose();
-    }
-
-    private void HandleActivePositionUpdated(BybitPosition position)
+    public bool Update(BybitPosition position)
     {
         if (position is null || string.IsNullOrWhiteSpace(position.Symbol))
         {
-            return;
+            return false;
         }
 
-        if (string.Equals(position.Symbol, _symbol, StringComparison.OrdinalIgnoreCase))
+        if (!Leg.IsReadOnly)
+        {
+            return false;
+        }
+
+        var symbol = Leg.Symbol;
+        if (!string.Equals(symbol, position.Symbol, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var updated = false;
+        var signedSize = DetermineSignedSize(position);
+
+        if (Math.Abs(Leg.Size - signedSize) > 0.0001)
+        {
+            Leg.Size = signedSize;
+            updated = true;
+        }
+
+        if (!Leg.Price.HasValue || Math.Abs(Leg.Price.Value - position.AvgPrice) > 0.0001)
+        {
+            Leg.Price = position.AvgPrice;
+            updated = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(Leg.Symbol))
+        {
+            Leg.Symbol = position.Symbol;
+            UpdateSymbol();
+            updated = true;
+        }
+
+        if (updated)
         {
             Changed?.Invoke();
         }
+
+        return updated;
+    }
+
+    public void Dispose()
+    {
+        _subscriptionRegistration?.Dispose();
     }
 
     private void UpdateSymbol()
     {
-        if (_leg is null)
-        {
-            _symbol = null;
-            return;
-        }
-
-        _symbol = _collectionViewModel.GetLegSymbol(Leg);
+        _ = _leg;
     }
 
     private async Task RefreshSubscriptionAsync()
@@ -210,25 +235,24 @@ public sealed class LegViewModel : IDisposable
             return;
         }
 
-        var symbol = _collectionViewModel.GetLegSymbol(Leg);
+        if (!_isLive)
+        {
+            return;
+        }
+
         await _subscriptionLock.WaitAsync();
         try
         {
-            if (string.Equals(symbol, _symbol, StringComparison.OrdinalIgnoreCase) && _subscriptionRegistration is not null)
-            {
-                return;
-            }
 
             _subscriptionRegistration?.Dispose();
             _subscriptionRegistration = null;
-            _symbol = symbol;
 
-            if (string.IsNullOrWhiteSpace(symbol))
+            if (string.IsNullOrWhiteSpace(Leg.Symbol))
             {
                 return;
             }
 
-            var subscription = new OptionsChainService.OptionChainSubscription(symbol);
+            var subscription = new OptionsChainService.OptionChainSubscription(Leg.Symbol);
             _subscriptionRegistration = await _optionsChainService.SubscribeAsync(subscription, HandleTicker);
         }
         finally
@@ -271,13 +295,18 @@ public sealed class LegViewModel : IDisposable
 
         if (_lastBid.HasValue || _lastAsk.HasValue)
         {
-            var fallback = _collectionViewModel.GetLegBidAsk(Leg);
-            var bid = _lastBid ?? fallback.Bid;
-            var ask = _lastAsk ?? fallback.Ask;
-            return new BidAsk(bid, ask);
+            return new BidAsk(_lastBid, _lastAsk);
         }
 
-        return _collectionViewModel.GetLegBidAsk(Leg);
+        var ticker = GetFallbackTicker();
+        if (ticker is null)
+        {
+            return default;
+        }
+
+        var bid = ticker.BidPrice > 0 ? ticker.BidPrice : (double?)null;
+        var ask = ticker.AskPrice > 0 ? ticker.AskPrice : (double?)null;
+        return new BidAsk(bid, ask);
     }
 
     private void ClearTickerCache()
@@ -392,7 +421,7 @@ public sealed class LegViewModel : IDisposable
             return marketPrice;
         }
 
-        var baseAsset = _collectionViewModel.Position?.BaseAsset;
+        var baseAsset = _collectionViewModel.Position?.Position.BaseAsset;
         if (!string.IsNullOrWhiteSpace(Leg.Symbol))
         {
             if (string.IsNullOrWhiteSpace(baseAsset))
@@ -425,5 +454,55 @@ public sealed class LegViewModel : IDisposable
         }
 
         return markPrice ?? bidAsk.Bid ?? bidAsk.Ask;
+    }
+
+    private OptionChainTicker? GetFallbackTicker()
+    {
+        return _optionsChainService.FindTickerForLeg(Leg);
+    }
+
+    private double? ResolveFallbackMarkPrice()
+    {
+        var ticker = GetFallbackTicker();
+        if (ticker is null)
+        {
+            return null;
+        }
+
+        return ticker.MarkPrice > 0 ? ticker.MarkPrice : null;
+    }
+
+    private double? ResolveFallbackIv()
+    {
+        var ticker = GetFallbackTicker();
+        if (ticker is null)
+        {
+            return null;
+        }
+
+        return NormalizeIv(ticker.MarkIv)
+            ?? NormalizeIv(ticker.BidIv)
+            ?? NormalizeIv(ticker.AskIv);
+    }
+
+    private static double DetermineSignedSize(BybitPosition position)
+    {
+        var magnitude = Math.Abs(position.Size);
+        if (magnitude < 0.0001)
+        {
+            return 0;
+        }
+
+        if (!string.IsNullOrWhiteSpace(position.Side))
+        {
+            var normalized = position.Side.Trim();
+            if (string.Equals(normalized, "Sell", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, "Short", StringComparison.OrdinalIgnoreCase))
+            {
+                return -magnitude;
+            }
+        }
+
+        return magnitude;
     }
 }

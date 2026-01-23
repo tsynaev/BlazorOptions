@@ -13,7 +13,7 @@ public sealed class LegViewModelFactory
         _optionsChainService = optionsChainService;
     }
 
-    public LegViewModel Create(PositionBuilderViewModel positionBuilder, LegsCollectionViewModel collectionViewModel, LegModel leg)
+    public LegViewModel Create(LegsCollectionViewModel collectionViewModel, LegModel leg)
     {
         var vm = new LegViewModel(collectionViewModel, _optionsService, _optionsChainService);
         vm.Leg = leg;

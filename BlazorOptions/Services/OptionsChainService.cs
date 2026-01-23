@@ -106,9 +106,15 @@ public class OptionsChainService
         }
     }
 
-    public OptionChainTicker? FindTickerForLeg(LegModel leg, string? baseAsset)
+    public OptionChainTicker? FindTickerForLeg(LegModel leg, string? baseAsset = null)
     {
         var snapshot = GetSnapshot();
+
+        if (!string.IsNullOrWhiteSpace(leg.Symbol))
+        {
+            return snapshot.FirstOrDefault(ticker =>
+                string.Equals(ticker.Symbol, leg.Symbol, StringComparison.OrdinalIgnoreCase));
+        }
 
         if (string.IsNullOrWhiteSpace(baseAsset) || !leg.ExpirationDate.HasValue || !leg.Strike.HasValue)
         {
@@ -125,7 +131,7 @@ public class OptionsChainService
             && Math.Abs(ticker.Strike - strike) < 0.01);
     }
 
-    public void TrackLegs(IEnumerable<LegModel> legs, string? baseAsset)
+    public void TrackLegs(IEnumerable<LegModel> legs, string? baseAsset = null)
     {
         var symbols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 

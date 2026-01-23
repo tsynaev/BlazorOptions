@@ -25,6 +25,7 @@ public sealed class PositionViewModel : IDisposable
     private readonly ClosedPositionsViewModelFactory _closedPositionsFactory;
     private readonly INotifyUserService _notifyUserService;
     private readonly ExchangeTickerService _exchangeTickerService;
+    private readonly ActivePositionsService _activePositionsService;
     private double? _currentPrice;
     private DateTime _valuationDate = DateTime.UtcNow;
     private double? _selectedPrice;
@@ -39,6 +40,7 @@ public sealed class PositionViewModel : IDisposable
         ClosedPositionsViewModelFactory closedPositionsFactory,
         INotifyUserService notifyUserService,
         ExchangeTickerService exchangeTickerService,
+        ActivePositionsService activePositionsService,
         PositionModel position)
     {
         _positionBuilder = positionBuilder;
@@ -46,6 +48,7 @@ public sealed class PositionViewModel : IDisposable
         _closedPositionsFactory = closedPositionsFactory;
         _notifyUserService = notifyUserService;
         _exchangeTickerService = exchangeTickerService;
+        _activePositionsService = activePositionsService;
         Position = position;
         if (position.Collections.Count == 0)
         {
@@ -65,6 +68,8 @@ public sealed class PositionViewModel : IDisposable
         ClosedPositions = _closedPositionsFactory.Create(_positionBuilder, position);
         UpdateDerivedState();
         _ = EnsureLiveSubscriptionAsync();
+        _activePositionsService.PositionUpdated += HandleActivePositionUpdated;
+        _activePositionsService.PositionsUpdated += HandleActivePositionsSnapshot;
     }
 
     public PositionModel Position { get; }
@@ -128,22 +133,6 @@ public sealed class PositionViewModel : IDisposable
         return true;
     }
 
-    public async Task UpdateCollectionVisibilityAsync(LegsCollectionModel collection, bool isVisible)
-    {
-        collection.IsVisible = isVisible;
-        await HandleCollectionUpdatedAsync(updateChart: true, refreshTicker: false);
-    }
-
-    public async Task UpdateLegsAsync(LegsCollectionModel collection, IEnumerable<LegModel> legs)
-    {
-        collection.Legs.Clear();
-        foreach (var leg in legs)
-        {
-            collection.Legs.Add(leg);
-        }
-
-        await HandleCollectionUpdatedAsync();
-    }
 
     public static LegsCollectionModel CreateCollection(PositionModel position, string name, IEnumerable<LegModel>? legs = null)
     {
@@ -189,7 +178,7 @@ public sealed class PositionViewModel : IDisposable
 
     private LegsCollectionViewModel CreateCollectionViewModel(LegsCollectionModel collection)
     {
-        var viewModel = _collectionFactory.Create(_positionBuilder, Position, collection);
+        var viewModel = _collectionFactory.Create(this, collection);
         viewModel.Updated += HandleCollectionUpdatedAsync;
         viewModel.CurrentPrice = _currentPrice;
         viewModel.ValuationDate = _valuationDate;
@@ -220,6 +209,8 @@ public sealed class PositionViewModel : IDisposable
     public void Dispose()
     {
         _ = StopTickerAsync();
+        _activePositionsService.PositionUpdated -= HandleActivePositionUpdated;
+        _activePositionsService.PositionsUpdated -= HandleActivePositionsSnapshot;
         foreach (var collection in Collections)
         {
             if (collection is null)
@@ -229,6 +220,54 @@ public sealed class PositionViewModel : IDisposable
 
             collection.Updated -= HandleCollectionUpdatedAsync;
             collection.Dispose();
+        }
+    }
+
+    private Task HandleActivePositionsSnapshot(IReadOnlyList<BybitPosition> positions)
+    {
+        foreach (var position in positions)
+        {
+            ApplyActivePositionUpdate(position);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void HandleActivePositionUpdated(BybitPosition position)
+    {
+        ApplyActivePositionUpdate(position);
+    }
+
+    private void ApplyActivePositionUpdate(BybitPosition position)
+    {
+        if (position is null || string.IsNullOrWhiteSpace(position.Symbol))
+        {
+            return;
+        }
+
+        var updated = false;
+        var collections = Collections;
+        if (collections is null)
+        {
+            return;
+        }
+
+        foreach (var collection in collections)
+        {
+            foreach (var legViewModel in collection.Legs)
+            {
+                if (legViewModel.Update(position))
+                {
+                    updated = true;
+                }
+            }
+        }
+
+
+        if (updated)
+        {
+            _positionBuilder.UpdateChart();
+            _positionBuilder.NotifyStateChanged();
         }
     }
 
