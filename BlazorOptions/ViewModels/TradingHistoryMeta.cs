@@ -7,11 +7,7 @@ public sealed class TradingHistoryMeta
 {
     public long? RegistrationTimeMs { get; set; }
 
-    public Dictionary<string, string?> OldestCursorByCategory { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-
     public Dictionary<string, long> LatestSyncedTimeMsByCategory { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-
-    public Dictionary<string, long> OldestSyncedTimeMsByCategory { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public Dictionary<string, decimal> SizeBySymbol { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 

@@ -6,11 +6,13 @@ public class MainLayoutViewModel : IDisposable
 {
     private readonly AuthSessionService _sessionService;
     private readonly AuthApiService _authApiService;
+    private readonly TradingHistoryViewModel _tradingHistoryViewModel;
 
-    public MainLayoutViewModel(AuthSessionService sessionService, AuthApiService authApiService)
+    public MainLayoutViewModel(AuthSessionService sessionService, AuthApiService authApiService, TradingHistoryViewModel tradingHistoryViewModel)
     {
         _sessionService = sessionService;
         _authApiService = authApiService;
+        _tradingHistoryViewModel = tradingHistoryViewModel;
         _sessionService.OnChange += HandleSessionChanged;
     }
 
@@ -24,6 +26,7 @@ public class MainLayoutViewModel : IDisposable
     {
         await _sessionService.InitializeAsync();
         await _authApiService.ValidateSessionAsync();
+        await _tradingHistoryViewModel.InitializeForBackgroundAsync();
     }
 
     public void Dispose()

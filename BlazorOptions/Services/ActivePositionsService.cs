@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using BlazorOptions.ViewModels;
+using Microsoft.Extensions.Options;
 
 namespace BlazorOptions.Services;
 
@@ -17,7 +18,7 @@ public sealed class ActivePositionsService : IAsyncDisposable
 
     private readonly LocalStorageService _localStorageService;
     private readonly BybitPositionService _bybitPositionService;
-    private readonly ExchangeSettingsService _exchangeSettingsService;
+    private readonly IOptions<BybitSettings> _bybitSettingsOptions;
     private readonly JsonSerializerOptions _serializerOptions = new(JsonSerializerDefaults.Web);
     private readonly SemaphoreSlim _sync = new(1, 1);
     private readonly SemaphoreSlim _snapshotLock = new(1, 1);
@@ -35,11 +36,11 @@ public sealed class ActivePositionsService : IAsyncDisposable
     public ActivePositionsService(
         LocalStorageService localStorageService,
         BybitPositionService bybitPositionService,
-        ExchangeSettingsService exchangeSettingsService)
+        IOptions<BybitSettings> bybitSettingsOptions)
     {
         _localStorageService = localStorageService;
         _bybitPositionService = bybitPositionService;
-        _exchangeSettingsService = exchangeSettingsService;
+        _bybitSettingsOptions = bybitSettingsOptions;
     }
 
 
@@ -59,7 +60,7 @@ public sealed class ActivePositionsService : IAsyncDisposable
         _isInitialized = true;
         await LoadFromStorageAsync();
 
-        if (!await HasApiCredentialsAsync())
+        if (!HasApiCredentials())
         {
             _snapshotTask = Task.CompletedTask;
             return;
@@ -98,7 +99,7 @@ public sealed class ActivePositionsService : IAsyncDisposable
     {
         try
         {
-            if (!await HasApiCredentialsAsync())
+            if (!HasApiCredentials())
             {
                 LastError = "Bybit API credentials are missing.";
                 return;
@@ -224,7 +225,7 @@ public sealed class ActivePositionsService : IAsyncDisposable
     private async Task ConnectAsync(CancellationToken cancellationToken)
     {
         await CloseSocketAsync();
-        var settings = await _exchangeSettingsService.LoadBybitSettingsAsync();
+        var settings = _bybitSettingsOptions.Value;
 
         if (string.IsNullOrWhiteSpace(settings.ApiKey) || string.IsNullOrWhiteSpace(settings.ApiSecret))
         {
@@ -471,9 +472,9 @@ public sealed class ActivePositionsService : IAsyncDisposable
         return builder.ToString();
     }
 
-    private async Task<bool> HasApiCredentialsAsync()
+    private bool HasApiCredentials()
     {
-        var settings = await _exchangeSettingsService.LoadBybitSettingsAsync();
+        var settings = _bybitSettingsOptions.Value;
         return !string.IsNullOrWhiteSpace(settings.ApiKey) && !string.IsNullOrWhiteSpace(settings.ApiSecret);
     }
 

@@ -1,6 +1,7 @@
 using BlazorOptions;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
+using Microsoft.Extensions.Options;
 using MudBlazor.Services;
 using BlazorOptions.ViewModels;
 using BlazorOptions.Services;
@@ -26,7 +27,6 @@ builder.Services.AddScoped<AuthApiService>();
 builder.Services.AddScoped<PositionStorageService>();
 builder.Services.AddScoped<PositionSyncOutboxService>();
 builder.Services.AddScoped<PositionSyncService>();
-builder.Services.AddScoped<ExchangeSettingsService>();
 builder.Services.AddScoped<BybitPositionService>();
 builder.Services.AddScoped<ActivePositionsService>();
 builder.Services.AddScoped<BybitTransactionService>();
@@ -34,23 +34,7 @@ builder.Services.AddScoped<TradingHistoryStorageService>();
 builder.Services.AddScoped<ExchangeTickerService>();
 builder.Services.AddScoped<IExchangeTickerClient, BybitTickerClient>();
 builder.Services.AddScoped<OptionsChainService>();
-builder.Services.AddOptions<BybitSettings>()
-    .Configure<IServiceProvider>((options, serviceProvider) =>
-    {
-        using var scope = serviceProvider.CreateScope();
-        var storage = scope.ServiceProvider.GetRequiredService<LocalStorageService>();
-        var stored = storage.GetItem(BybitSettingsStorage.StorageKey);
-        var settings = BybitSettingsStorage.TryDeserialize(stored);
-        if (settings is null)
-        {
-            return;
-        }
-
-        options.ApiKey = settings.ApiKey;
-        options.ApiSecret = settings.ApiSecret;
-        options.WebSocketUrl = settings.WebSocketUrl;
-        options.LivePriceUpdateIntervalMilliseconds = settings.LivePriceUpdateIntervalMilliseconds;
-    });
+builder.Services.AddScoped<IOptions<BybitSettings>, LocalStorageBybitSettingsOptions>();
 builder.Services.AddSingleton<ThemeService>();
 builder.Services.AddScoped<MainLayoutViewModel>();
 builder.Services.AddTransient<AccountSettingsViewModel>();

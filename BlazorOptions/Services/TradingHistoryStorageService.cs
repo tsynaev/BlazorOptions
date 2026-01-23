@@ -36,8 +36,48 @@ public class TradingHistoryStorageService
     public async Task<TradingHistoryMeta> LoadMetaAsync()
     {
         await InitializeAsync();
-        var meta = await _jsRuntime.InvokeAsync<TradingHistoryMeta?>("tradingHistoryDb.getMeta");
-        return meta ?? new TradingHistoryMeta();
+        var element = await _jsRuntime.InvokeAsync<JsonElement>("tradingHistoryDb.getMeta");
+        if (element.ValueKind == JsonValueKind.Null || element.ValueKind == JsonValueKind.Undefined)
+        {
+            return new TradingHistoryMeta();
+        }
+
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            if (!element.TryGetProperty("value", out var valueElement))
+            {
+                element.TryGetProperty("Value", out valueElement);
+            }
+
+            if (valueElement.ValueKind != JsonValueKind.Undefined)
+            {
+                return DeserializeMetaElement(valueElement);
+            }
+        }
+
+        return DeserializeMetaElement(element);
+    }
+
+    private static TradingHistoryMeta DeserializeMetaElement(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.String)
+        {
+            var payload = element.GetString();
+            if (!string.IsNullOrWhiteSpace(payload))
+            {
+                return JsonSerializer.Deserialize<TradingHistoryMeta>(payload, CreateSerializerOptions()) ?? new TradingHistoryMeta();
+            }
+        }
+
+        return element.Deserialize<TradingHistoryMeta>(CreateSerializerOptions()) ?? new TradingHistoryMeta();
+    }
+
+    private static JsonSerializerOptions CreateSerializerOptions()
+    {
+        return new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        };
     }
 
     public async Task SaveMetaAsync(TradingHistoryMeta meta)

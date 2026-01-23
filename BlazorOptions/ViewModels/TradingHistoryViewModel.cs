@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text.Json;
 using BlazorOptions.Services;
+using Microsoft.Extensions.Options;
 
 namespace BlazorOptions.ViewModels;
 
@@ -11,14 +12,15 @@ public class TradingHistoryViewModel
     private const int PageSize = 100;
     private static readonly TimeSpan WindowSize = TimeSpan.FromDays(7);
     private const string NoMoreCursor = "__END__";
-    private readonly ExchangeSettingsService _settingsService;
     private readonly BybitTransactionService _transactionService;
     private readonly TradingHistoryStorageService _storageService;
+    private readonly IOptions<BybitSettings> _bybitSettingsOptions;
     private TradingHistoryMeta _meta = new();
     private IReadOnlyList<TradingSummaryRow>? _summaryBySymbolCache;
     private IReadOnlyList<TradingPnlByCoinRow>? _pnlByCoinCache;
     private readonly List<TradingHistoryEntry> _loadedEntries = new();
     private bool _isInitialized;
+    private bool _isBackgroundInitialized;
     private bool _isLoadingRange;
     private bool _isLoadingSummary;
     private long? _loadedBeforeTimestamp;
@@ -26,13 +28,13 @@ public class TradingHistoryViewModel
     private int _totalCount;
 
     public TradingHistoryViewModel(
-        ExchangeSettingsService settingsService,
         BybitTransactionService transactionService,
-        TradingHistoryStorageService storageService)
+        TradingHistoryStorageService storageService,
+        IOptions<BybitSettings> bybitSettingsOptions)
     {
-        _settingsService = settingsService;
         _transactionService = transactionService;
         _storageService = storageService;
+        _bybitSettingsOptions = bybitSettingsOptions;
     }
 
     public event Action? OnChange;
@@ -43,8 +45,7 @@ public class TradingHistoryViewModel
 
     public DateTime? RegistrationDate { get; private set; }
 
-    public bool IsRegistrationDateRequired =>
-        !_meta.RegistrationTimeMs.HasValue && !HasLatestSyncedTimes();
+    public bool IsRegistrationDateRequired => !_meta.RegistrationTimeMs.HasValue;
 
     public bool IsLoading { get; private set; }
 
@@ -72,6 +73,22 @@ public class TradingHistoryViewModel
         OnChange?.Invoke();
     }
 
+    public async Task InitializeForBackgroundAsync()
+    {
+        if (_isInitialized || _isBackgroundInitialized)
+        {
+            return;
+        }
+
+        _isBackgroundInitialized = true;
+        await _storageService.InitializeAsync();
+        _meta = await _storageService.LoadMetaAsync();
+        _totalCount = await _storageService.GetCountAsync();
+        UpdateRegistrationDate();
+
+        _ = StartBackgroundLoadIfPossibleAsync();
+    }
+
     public async Task LoadLatestAsync()
     {
         if (IsLoading || IsLoadingOlder)
@@ -85,7 +102,7 @@ public class TradingHistoryViewModel
 
         try
         {
-            var settings = await _settingsService.LoadBybitSettingsAsync();
+            var settings = _bybitSettingsOptions.Value;
 
             if (string.IsNullOrWhiteSpace(settings.ApiKey) || string.IsNullOrWhiteSpace(settings.ApiSecret))
             {
@@ -93,21 +110,33 @@ public class TradingHistoryViewModel
                 return;
             }
 
-            var latest = new List<TradingTransactionRaw>();
             var registrationTime = _meta.RegistrationTimeMs;
             var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            var hasStart = false;
+         
 
             foreach (var category in Categories)
             {
-                var startTime = GetForwardStartTime(category, registrationTime);
-                if (!startTime.HasValue)
-                {
-                    continue;
-                }
-                hasStart = true;
 
-                var forwardCursor = startTime.Value;
+                var latest = new List<TradingTransactionRaw>();
+                long startTime = 0;
+
+                if (!_meta.LatestSyncedTimeMsByCategory.TryGetValue(category, out startTime))
+                {
+                    if (registrationTime.HasValue)
+                    {
+                        startTime = registrationTime.Value;
+                    }
+                    else
+                    {
+                        ErrorMessage = "Select your registration date before loading transactions.";
+                        return;
+                    }
+                }
+
+
+                var lastStartTime = startTime;
+                var forwardCursor = startTime;
+                var categoryHadTrades = false;
 
                 while (forwardCursor < nowMs)
                 {
@@ -127,7 +156,20 @@ public class TradingHistoryViewModel
                         };
 
                         var page = await _transactionService.GetTransactionsPageAsync(settings, query, CancellationToken.None);
-                        latest.AddRange(page.Items);
+                        if (page.Items.Count > 0)
+                        {
+                            categoryHadTrades = true;
+
+                            foreach (var item in page.Items)
+                            {
+                                if (item.Timestamp.HasValue && item.Timestamp.Value > lastStartTime)
+                                {
+                                    lastStartTime = item.Timestamp.Value + 1;
+                                }
+                            }
+
+                            latest.AddRange(page.Items);
+                        }
 
                         if (string.IsNullOrWhiteSpace(page.NextCursor))
                         {
@@ -137,52 +179,38 @@ public class TradingHistoryViewModel
                         cursor = page.NextCursor;
                     }
 
+                    if (!categoryHadTrades) lastStartTime = forwardCursor;
+
                     forwardCursor = endTime + 1;
-                    _meta.LatestSyncedTimeMsByCategory[category] = forwardCursor;
+                    _meta.LatestSyncedTimeMsByCategory[category] = lastStartTime;
                 }
+
+                var entries = latest.Select(MapRecordToEntry).ToList();
+                var orderedAsc = entries
+                    .OrderBy(entry => entry.Timestamp)
+                    .ThenBy(entry => entry.Id, StringComparer.Ordinal)
+                    .ToList();
+
+                var calculationState = new CalculationState(_meta);
+                ApplyCalculatedFields(orderedAsc, calculationState);
+                calculationState.ApplyToMeta(_meta);
+
+                if (orderedAsc.Count > 0)
+                {
+                    var maxTime = orderedAsc.Max(entry => entry.Timestamp);
+
+                    if (maxTime > _meta.CalculatedThroughTimestamp) _meta.CalculatedThroughTimestamp = maxTime;
+                }
+
+                await _storageService.SaveTradesAsync(entries);
+                await _storageService.SaveMetaAsync(_meta);
+
             }
 
-            if (!hasStart)
-            {
-                ErrorMessage = "Select your registration date before loading transactions.";
-                return;
-            }
-
-            var entries = latest.Select(MapRecordToEntry).ToList();
-            var orderedAsc = entries
-                .OrderBy(entry => entry.Timestamp)
-                .ThenBy(entry => entry.Id, StringComparer.Ordinal)
-                .ToList();
-
-            var calculationState = new CalculationState(_meta);
-            ApplyCalculatedFields(orderedAsc, calculationState);
-            calculationState.ApplyToMeta(_meta);
-            UpdateOldestSyncedTimes(entries);
-
-            if (orderedAsc.Count > 0)
-            {
-                _meta.CalculatedThroughTimestamp = orderedAsc.Max(entry => entry.Timestamp);
-            }
-
-            await _storageService.SaveTradesAsync(entries);
-            await _storageService.SaveMetaAsync(_meta);
+    
             _totalCount = await _storageService.GetCountAsync();
             await LoadLatestPageFromDbAsync();
-            if (_loadedEntries.Count == 0 && entries.Count > 0)
-            {
-                _loadedEntries.Clear();
-                foreach (var entry in entries.OrderByDescending(item => item.Timestamp).ThenByDescending(item => item.Id, StringComparer.Ordinal))
-                {
-                    _loadedEntries.Add(entry);
-                }
 
-                if (_totalCount == 0)
-                {
-                    _totalCount = _loadedEntries.Count;
-                }
-
-                UpdatePagingCursor();
-            }
             InvalidateSummaryCache();
             _ = EnsureSummaryCacheAsync();
             LastLoadedAt = DateTimeOffset.Now;
@@ -209,75 +237,6 @@ public class TradingHistoryViewModel
         OnChange?.Invoke();
     }
 
-    public async Task LoadOlderAsync()
-    {
-        if (IsLoading || IsLoadingOlder)
-        {
-            return;
-        }
-
-        ErrorMessage = null;
-        IsLoadingOlder = true;
-        OnChange?.Invoke();
-
-        try
-        {
-            var settings = await _settingsService.LoadBybitSettingsAsync();
-
-            if (string.IsNullOrWhiteSpace(settings.ApiKey) || string.IsNullOrWhiteSpace(settings.ApiSecret))
-            {
-                ErrorMessage = "Bybit API credentials are missing. Add them in the Bybit settings page.";
-                return;
-            }
-
-            var older = new List<TradingTransactionRaw>();
-
-            foreach (var category in Categories)
-            {
-                var cursor = GetCursor(category);
-                if (cursor == NoMoreCursor)
-                {
-                    continue;
-                }
-
-                var query = new BybitTransactionQuery
-                {
-                    Category = category,
-                    Limit = PageLimit,
-                    Cursor = string.IsNullOrWhiteSpace(cursor) ? null : cursor,
-                    EndTime = HasCursor(cursor) ? null : GetOldestTimeForCategory(category)
-                };
-
-                var page = await _transactionService.GetTransactionsPageAsync(settings, query, CancellationToken.None);
-                older.AddRange(page.Items);
-                _meta.OldestCursorByCategory[category] = string.IsNullOrWhiteSpace(page.NextCursor)
-                    ? NoMoreCursor
-                    : page.NextCursor;
-            }
-
-            var entries = older.Select(MapRecordToEntry).ToList();
-            if (entries.Count > 0)
-            {
-                _meta.RequiresRecalculation = true;
-                UpdateOldestSyncedTimes(entries);
-                await _storageService.SaveTradesAsync(entries);
-                await _storageService.SaveMetaAsync(_meta);
-                _totalCount = await _storageService.GetCountAsync();
-                InvalidateSummaryCache();
-                _ = RecalculateAsync();
-                await LoadLatestPageFromDbAsync();
-            }
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = ex.Message;
-        }
-        finally
-        {
-            IsLoadingOlder = false;
-            OnChange?.Invoke();
-        }
-    }
 
     public Task RecalculateAsync()
     {
@@ -571,6 +530,29 @@ public class TradingHistoryViewModel
         }
     }
 
+
+    private async Task StartBackgroundLoadIfPossibleAsync()
+    {
+        if (_totalCount <= 0 || IsLoading || IsLoadingOlder)
+        {
+            return;
+        }
+
+        try
+        {
+            var settings = _bybitSettingsOptions.Value;
+            if (string.IsNullOrWhiteSpace(settings.ApiKey) || string.IsNullOrWhiteSpace(settings.ApiSecret))
+            {
+                return;
+            }
+
+            await LoadLatestAsync();
+        }
+        catch
+        {
+        }
+    }
+
     private TradingHistoryEntry MapRecordToEntry(TradingTransactionRaw raw)
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -721,55 +703,7 @@ public class TradingHistoryViewModel
         return date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
     }
 
-    private long? GetForwardStartTime(string category, long? registrationTime)
-    {
-        if (_meta.LatestSyncedTimeMsByCategory.TryGetValue(category, out var synced))
-        {
-            return synced;
-        }
 
-        if (registrationTime.HasValue)
-        {
-            return registrationTime.Value;
-        }
-
-        return null;
-    }
-
-    private bool HasLatestSyncedTimes()
-    {
-        foreach (var value in _meta.LatestSyncedTimeMsByCategory.Values)
-        {
-            if (value > 0)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private long? GetOldestTimeForCategory(string category)
-    {
-        if (_meta.OldestSyncedTimeMsByCategory.TryGetValue(category, out var oldest))
-        {
-            return oldest > 1 ? oldest - 1 : oldest;
-        }
-
-        return _meta.RegistrationTimeMs;
-    }
-
-    private string? GetCursor(string category)
-    {
-        return _meta.OldestCursorByCategory.TryGetValue(category, out var cursor)
-            ? cursor
-            : null;
-    }
-
-    private static bool HasCursor(string? cursor)
-    {
-        return !string.IsNullOrWhiteSpace(cursor);
-    }
 
     private void InvalidateSummaryCache()
     {
@@ -1039,22 +973,6 @@ public class TradingHistoryViewModel
         }
     }
 
-    private void UpdateOldestSyncedTimes(IEnumerable<TradingHistoryEntry> entries)
-    {
-        foreach (var entry in entries)
-        {
-            if (!entry.Timestamp.HasValue || entry.Timestamp.Value <= 0)
-            {
-                continue;
-            }
-
-            var category = entry.Category ?? string.Empty;
-            if (!_meta.OldestSyncedTimeMsByCategory.TryGetValue(category, out var existing) || entry.Timestamp.Value < existing)
-            {
-                _meta.OldestSyncedTimeMsByCategory[category] = entry.Timestamp.Value;
-            }
-        }
-    }
 }
 
 

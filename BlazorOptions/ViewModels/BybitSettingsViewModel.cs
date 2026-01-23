@@ -1,14 +1,17 @@
 using BlazorOptions.Services;
+using Microsoft.Extensions.Options;
 
 namespace BlazorOptions.ViewModels;
 
 public class BybitSettingsViewModel
 {
-    private readonly ExchangeSettingsService _settingsService;
+    private readonly IOptions<BybitSettings> _bybitSettingsOptions;
+    private readonly LocalStorageService _localStorageService;
 
-    public BybitSettingsViewModel(ExchangeSettingsService settingsService)
+    public BybitSettingsViewModel(IOptions<BybitSettings> bybitSettingsOptions, LocalStorageService localStorageService)
     {
-        _settingsService = settingsService;
+        _bybitSettingsOptions = bybitSettingsOptions;
+        _localStorageService = localStorageService;
     }
 
     public string ApiKey { get; set; } = string.Empty;
@@ -21,14 +24,15 @@ public class BybitSettingsViewModel
 
     public event Action? OnChange;
 
-    public async Task LoadAsync()
+    public Task LoadAsync()
     {
-        var settings = await _settingsService.LoadBybitSettingsAsync();
+        var settings = _bybitSettingsOptions.Value;
         ApiKey = settings.ApiKey;
         ApiSecret = settings.ApiSecret;
         WebSocketUrl = settings.WebSocketUrl;
         LivePriceUpdateIntervalMilliseconds = Math.Max(100, settings.LivePriceUpdateIntervalMilliseconds);
         OnChange?.Invoke();
+        return Task.CompletedTask;
     }
 
     public async Task SaveAsync()
@@ -41,7 +45,8 @@ public class BybitSettingsViewModel
             LivePriceUpdateIntervalMilliseconds = Math.Max(100, LivePriceUpdateIntervalMilliseconds)
         };
 
-        await _settingsService.SaveBybitSettingsAsync(settings);
+        var payload = BybitSettingsStorage.Serialize(settings);
+        await _localStorageService.SetItemAsync(BybitSettingsStorage.StorageKey, payload);
         OnChange?.Invoke();
     }
 }

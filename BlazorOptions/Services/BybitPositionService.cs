@@ -4,22 +4,24 @@ using System.Linq;
 using System.Globalization;
 using System.Text.Json;
 using System.Threading;
+using BlazorOptions.ViewModels;
+using Microsoft.Extensions.Options;
 
 namespace BlazorOptions.Services;
 
 public class BybitPositionService : BybitApiService
 {
     private const string RequestPath = "/v5/position/list";
-    private readonly ExchangeSettingsService _exchangeSettingsService;
+    private readonly IOptions<BybitSettings> _bybitSettingsOptions;
 
     private const string DefaultSettleCoin = "USDT";
 
     private List<string> _settleCoins = new() { DefaultSettleCoin };
 
-    public BybitPositionService(HttpClient httpClient, ExchangeSettingsService exchangeSettingsService)
+    public BybitPositionService(HttpClient httpClient, IOptions<BybitSettings> bybitSettingsOptions)
         : base(httpClient)
     {
-        _exchangeSettingsService = exchangeSettingsService;
+        _bybitSettingsOptions = bybitSettingsOptions;
     }
 
     public async Task<IReadOnlyList<BybitPosition>> GetPositionsAsync(CancellationToken cancellationToken = default)
@@ -40,7 +42,7 @@ public class BybitPositionService : BybitApiService
 
     public async Task<IReadOnlyList<BybitPosition>> GetPositionsAsync(string category, string? settleCoin, CancellationToken cancellationToken = default)
     {
-        var settings = await _exchangeSettingsService.LoadBybitSettingsAsync();
+        var settings = _bybitSettingsOptions.Value;
         var queryParameters = BuildQueryParameters(category, settleCoin);
         var queryString = BuildQueryString(queryParameters.ToDictionary(p => p.Key, p => (string?)p.Value, StringComparer.Ordinal));
         var payload = await SendSignedRequestAsync(
