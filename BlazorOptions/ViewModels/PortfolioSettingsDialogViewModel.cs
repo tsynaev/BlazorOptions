@@ -15,7 +15,7 @@ public sealed class PortfolioSettingsDialogViewModel
 
     public string Color { get; private set; } = "#1976D2";
 
-    public bool CanRemove => _positionBuilder.SelectedPosition?.Collections.Count > 1;
+    public bool CanRemove => _positionBuilder.SelectedPosition?.Collections?.Count > 1;
 
     public void Load(Guid collectionId)
     {
@@ -25,15 +25,16 @@ public sealed class PortfolioSettingsDialogViewModel
         }
 
         CollectionId = collectionId;
-        var collection = _positionBuilder.Collections.FirstOrDefault(item => item.Id == collectionId);
+        var collection = _positionBuilder.SelectedPosition?.Collections
+            .FirstOrDefault(item => item.Collection.Id == collectionId);
         if (collection is null)
         {
             Name = string.Empty;
             return;
         }
 
-        Name = collection.Name;
-        Color = collection.Color;
+        Name = collection.Collection.Name;
+        Color = collection.Collection.Color;
     }
 
     public void SetName(string name)
@@ -48,7 +49,8 @@ public sealed class PortfolioSettingsDialogViewModel
 
     public async Task SaveAsync()
     {
-        var collection = _positionBuilder.Collections.FirstOrDefault(item => item.Id == CollectionId);
+        var collection = _positionBuilder.SelectedPosition?.Collections
+            .FirstOrDefault(item => item.Collection.Id == CollectionId);
         if (collection is null)
         {
             return;
@@ -56,12 +58,12 @@ public sealed class PortfolioSettingsDialogViewModel
 
         if (!string.IsNullOrWhiteSpace(Name))
         {
-            collection.Name = Name.Trim();
+            collection.Collection.Name = Name.Trim();
         }
 
         if (!string.IsNullOrWhiteSpace(Color))
         {
-            collection.Color = Color;
+            collection.Collection.Color = Color;
         }
 
         await _positionBuilder.PersistPositionsAsync();
@@ -71,6 +73,14 @@ public sealed class PortfolioSettingsDialogViewModel
 
     public Task<bool> RemoveAsync()
     {
-        return _positionBuilder.RemoveCollectionAsync(CollectionId);
+        var collection = _positionBuilder.SelectedPosition?.Collections
+            .FirstOrDefault(item => item.Collection.Id == CollectionId);
+        if (collection is null)
+        {
+            return Task.FromResult(false);
+        }
+
+        return _positionBuilder.SelectedPosition?.RemoveCollectionAsync(collection.Collection)
+               ?? Task.FromResult(false);
     }
 }

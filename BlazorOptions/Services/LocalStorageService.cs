@@ -16,6 +16,16 @@ public class LocalStorageService
         return _jsRuntime.InvokeAsync<string?>("localStorage.getItem", key);
     }
 
+    public string? GetItem(string key)
+    {
+        if (_jsRuntime is IJSInProcessRuntime syncRuntime)
+        {
+            return syncRuntime.Invoke<string?>("localStorage.getItem", key);
+        }
+
+        return null;
+    }
+
     public ValueTask SetItemAsync(string key, string value)
     {
         return _jsRuntime.InvokeVoidAsync("localStorage.setItem", key, value);

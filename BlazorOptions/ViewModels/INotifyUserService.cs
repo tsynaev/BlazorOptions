@@ -1,6 +1,6 @@
 namespace BlazorOptions.ViewModels;
 
-public interface IQuickAddContext
+public interface INotifyUserService
 {
 
     void NotifyUser(string message);

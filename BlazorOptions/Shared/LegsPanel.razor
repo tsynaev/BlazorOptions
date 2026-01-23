@@ -1,84 +1,70 @@
 @using BlazorOptions.ViewModels
 @using Microsoft.AspNetCore.Components.Web
 
-<MudCard>
-    <MudCardHeader>
-        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="flex-grow-1">
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                <MudCheckBox T="bool"
-                             Value="@ViewModel.IsVisible"
-                             ValueChanged="async visible => await ViewModel.SetVisibilityAsync(visible)" />
-                <MudPaper Class="portfolio-color-swatch" Style="@($"background-color:{ViewModel.Color};")" Elevation="0" />
-                <MudText Typo="Typo.h6">@ViewModel.Name</MudText>
+@if (ViewModel is not null)
+{
+    <MudCard>
+        <MudCardHeader>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="flex-grow-1">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                    <MudCheckBox T="bool"
+                                 Value="@ViewModel.IsVisible"
+                                 ValueChanged="async visible => await ViewModel.SetVisibilityAsync(visible)"/>
+                    <MudPaper Class="portfolio-color-swatch" Style="@($"background-color:{ViewModel.Color};")" Elevation="0"/>
+                    <MudText Typo="Typo.h6">@ViewModel.Name</MudText>
+                </MudStack>
+                <MudSpacer/>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                    <MudTooltip Text="Duplicate portfolio">
+                        <MudIconButton Icon="@Icons.Material.Filled.FileCopy"
+                                       Color="Color.Default"
+                                       OnClick="async () => await ViewModel.DuplicateCollectionAsync()"/>
+                    </MudTooltip>
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Default"
+                               StartIcon="@Icons.Material.Filled.CloudDownload"
+                               OnClick="async () => await ViewModel.LoadBybitPositionsAsync()">
+                    </MudButton>
+                    <MudTooltip Text="Add leg">
+                        <MudIconButton Icon="@Icons.Material.Filled.AddCircle"
+                                       Color="Color.Primary"
+                                       OnClick="async () => await ViewModel.AddLegAsync()"/>
+                    </MudTooltip>
+                    <MudTooltip Text="Portfolio settings">
+                        <MudIconButton Icon="@Icons.Material.Filled.MoreVert"
+                                       Color="Color.Default"
+                                       OnClick="async () => await ViewModel.OpenSettingsAsync()"/>
+                    </MudTooltip>
+                </MudStack>
             </MudStack>
-            <MudSpacer />
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                <MudTooltip Text="Duplicate portfolio">
-                    <MudIconButton Icon="@Icons.Material.Filled.FileCopy"
-                                   Color="Color.Default"
-                                   Disabled="@(!ViewModel.HasActivePosition)"
-                                   OnClick="async () => await ViewModel.DuplicateCollectionAsync()" />
-                </MudTooltip>
-                <MudButton Variant="Variant.Outlined"
-                           Color="Color.Default"
-                           StartIcon="@Icons.Material.Filled.CloudDownload"
-                           Disabled="@(!ViewModel.HasActivePosition)"
-                           OnClick="async () => await ViewModel.LoadBybitPositionsAsync()">
-                </MudButton>
-                <MudTooltip Text="Add leg">
-                    <MudIconButton Icon="@Icons.Material.Filled.AddCircle"
-                                   Color="Color.Primary"
-                                   Disabled="@(!ViewModel.HasActivePosition)"
-                                   OnClick="async () => await ViewModel.AddLegAsync()" />
-                </MudTooltip>
-                <MudTooltip Text="Portfolio settings">
-                    <MudIconButton Icon="@Icons.Material.Filled.MoreVert"
-                                   Color="Color.Default"
-                                   Disabled="@(!ViewModel.HasActivePosition)"
-                                   OnClick="async () => await ViewModel.OpenSettingsAsync()" />
-                </MudTooltip>
-            </MudStack>
-        </MudStack>
 
-    </MudCardHeader>
-    <MudCardContent>
-        <MudTable Items="@ViewModel.Legs" Dense="true" Hover="true" Class="leg-table">
-            <HeaderContent>
-                <MudTh>Include</MudTh>
-                <MudTh>Type</MudTh>
-                <MudTh>Strike</MudTh>
-                <MudTh>Expiration</MudTh>
-                <MudTh>Size</MudTh>
-                <MudTh>Price</MudTh>
-                <MudTh>Temp P/L</MudTh>
-                <MudTh Class="iv-column">IV</MudTh>
-                <MudTh></MudTh>
-            </HeaderContent>
-            <RowTemplate>
-                <LegRow Leg="context" ViewModel="ViewModel" />
-            </RowTemplate>
-        </MudTable>
-        <MudCardActions>
-           <QuickAddPanel ViewModel="ViewModel.QuickAdd" />
-        </MudCardActions>
-    </MudCardContent>
-</MudCard>
+        </MudCardHeader>
+        <MudCardContent>
+            <MudTable Items="@ViewModel.Legs" Dense="true" Hover="true" Class="leg-table">
+                <HeaderContent>
+                    <MudTh>Include</MudTh>
+                    <MudTh>Type</MudTh>
+                    <MudTh>Strike</MudTh>
+                    <MudTh>Expiration</MudTh>
+                    <MudTh>Size</MudTh>
+                    <MudTh>Price</MudTh>
+                    <MudTh>Temp P/L</MudTh>
+                    <MudTh Class="iv-column">IV</MudTh>
+                    <MudTh></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <LegRow ViewModel="context" />
+                </RowTemplate>
+            </MudTable>
+            <MudCardActions>
+                <QuickAddPanel ViewModel="ViewModel.QuickAdd"/>
+            </MudCardActions>
+        </MudCardContent>
+    </MudCard>
+}
 
 @code {
-    [Parameter, EditorRequired] public LegsCollectionModel Collection { get; set; } = default!;
-
-    [Inject] private LegsCollectionViewModelFactory ViewModelFactory { get; set; } = default!;
-
-    private LegsCollectionViewModel ViewModel { get; set; } = default!;
-
-    protected override void OnParametersSet()
-    {
-        if (ViewModel is null || !ReferenceEquals(ViewModel.Collection, Collection))
-        {
-            ViewModel = ViewModelFactory.Create();
-            ViewModel.Collection = Collection;
-        }
-    }
+    [Parameter, EditorRequired] public LegsCollectionViewModel ViewModel { get; set; }
 }
 
 <style>

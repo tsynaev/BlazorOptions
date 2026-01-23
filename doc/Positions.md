@@ -12,6 +12,23 @@ The Positions feature lets you build, manage, and visualize option strategies an
 - Toggle leg inclusion and collection visibility to control what is shown in charts.
 - Live price tracking and automatic leg price refresh from option chain data.
 - Payoff chart updates for visible collections and selected valuation date.
+- Closed positions panel with per-symbol summaries (size, avg entry/close, close P&L, fee) and a "since" date filter (date + time).
+- Closed positions totals (P&L + fee) can be included in charts when enabled.
+- Trades dialog for a symbol shows cumulative P&L starting from the chosen "since" date.
+
+## View-model structure
+- `PositionBuilderViewModel` owns the positions list, chart config, sync, and storage.
+- `PositionViewModel` owns per-position state: selected/live price, live status, valuation date, and manages the ticker subscription.
+- `LegsCollectionViewModel` owns a collection and creates `LegViewModel` + `QuickAddViewModel`.
+- `LegViewModel` subscribes to option tickers directly and calculates temp P&L.
+- `ClosedPositionsViewModel` manages closed positions, summaries, and trading-history refresh.
+
+## Live price and subscriptions
+- Exchange ticker subscription is per-position and managed by `PositionViewModel`.
+- `ExchangeTickerService` handles Bybit-only subscription, throttles updates internally, and resolves settings from local storage via options.
+- Turning live off disposes the exchange ticker subscription; turning live on re-subscribes.
+- When live is off, option ticker subscriptions are stopped and bid/ask display is hidden.
+- Option chain updates use `OptionsChainService.SubscribeAsync` (no global events); multiple handlers supported.
 
 ## Persistence and sync
 - Client persists the current positions locally for offline use.

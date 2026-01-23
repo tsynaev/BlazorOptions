@@ -2,8 +2,8 @@ namespace BlazorOptions.ViewModels;
 
 public record BybitSettings
 {
-    public string ApiKey { get; init; } = string.Empty;
-    public string ApiSecret { get; init; } = string.Empty;
-    public string WebSocketUrl { get; init; } = "wss://stream.bybit.com/v5/public/linear";
-    public int LivePriceUpdateIntervalMilliseconds { get; init; } = 1000;
+    public string ApiKey { get; set; } = string.Empty;
+    public string ApiSecret { get; set; } = string.Empty;
+    public string WebSocketUrl { get; set; } = "wss://stream.bybit.com/v5/public/linear";
+    public int LivePriceUpdateIntervalMilliseconds { get; set; } = 1000;
 }

@@ -1,14 +1,13 @@
 @using BlazorOptions.ViewModels
-@using BlazorOptions.Services
 @implements IDisposable
 
 <MudTd DataLabel="Include">
     <MudCheckBox T="bool"
-                 Value="@Leg.IsIncluded"
-                 ValueChanged="async checkedValue => await ViewModel.UpdateLegIncludedAsync(Leg, checkedValue)" />
+                 Value="@ViewModel.Leg.IsIncluded"
+                 ValueChanged="async checkedValue => await ViewModel.UpdateLegIncludedAsync(checkedValue)" />
 </MudTd>
 <MudTd DataLabel="Type">
-    <MudSelect T="LegType" Value="@Leg.Type" ValueChanged="async type => await ViewModel.UpdateLegTypeAsync(Leg, type)" Dense="true" Disabled="@Leg.IsReadOnly">
+    <MudSelect T="LegType" Value="@ViewModel.Leg.Type" ValueChanged="async type => await ViewModel.UpdateLegTypeAsync(type)" Dense="true" Disabled="@ViewModel.Leg.IsReadOnly">
         @foreach (var type in ViewModel.LegTypes)
         {
             <MudSelectItem Value="@type">@type</MudSelectItem>
@@ -16,39 +15,39 @@
     </MudSelect>
 </MudTd>
 <MudTd DataLabel="Strike">
-    <MudNumericField T="double?" Value="@Leg.Strike" ValueChanged="async value => await ViewModel.UpdateLegStrikeAsync(Leg, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="USDT" Disabled="@Leg.IsReadOnly" />
+    <MudNumericField T="double?" Value="@ViewModel.Leg.Strike" ValueChanged="async value => await ViewModel.UpdateLegStrikeAsync(value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="USDT" Disabled="@ViewModel.Leg.IsReadOnly" />
 </MudTd>
 <MudTd DataLabel="Expiration">
-    <MudDatePicker Date="Leg.ExpirationDate"
-                   DateChanged="date => ViewModel.UpdateLegExpirationAsync(Leg, date)"
+    <MudDatePicker Date="ViewModel.Leg.ExpirationDate"
+                   DateChanged="async date => await ViewModel.UpdateLegExpirationAsync(date)"
                    DateFormat="yyyy-MM-dd"
                    Class="full-width"
-                   Disabled="@Leg.IsReadOnly" />
+                   Disabled="@ViewModel.Leg.IsReadOnly" />
 </MudTd>
 <MudTd DataLabel="Size">
-    <MudNumericField T="double" Value="@Leg.Size" ValueChanged="async value => await ViewModel.UpdateLegSizeAsync(Leg, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@Leg.IsReadOnly" />
+    <MudNumericField T="double" Value="@ViewModel.Leg.Size" ValueChanged="async value => await ViewModel.UpdateLegSizeAsync(value)" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@ViewModel.Leg.IsReadOnly" />
 </MudTd>
 <MudTd DataLabel="Price">
     <MudStack Spacing="0">
         @{
-            var placeholderPrice = Leg.Price.HasValue ? null : ViewModel.GetLegMarketPrice(Leg);
+            var placeholderPrice = ViewModel.PlaceholderPrice;
             var placeholder = placeholderPrice.HasValue ? placeholderPrice.Value.ToString("0.##") : null;
         }
         <MudNumericField T="double?"
-                         Value="@Leg.Price"
-                         ValueChanged="async value => await ViewModel.UpdateLegPriceAsync(Leg, value)"
+                         Value="@ViewModel.Leg.Price"
+                         ValueChanged="async value => await ViewModel.UpdateLegPriceAsync(value)"
                          Variant="Variant.Outlined"
                          Margin="Margin.Dense"
                          Adornment="Adornment.End"
                          AdornmentText="USDT"
                          Placeholder="@placeholder"
-                         Disabled="@Leg.IsReadOnly"
+                         Disabled="@ViewModel.Leg.IsReadOnly"
                          Class="price-input" />
         @{
-            var bidAsk = ViewModel.GetLegBidAsk(Leg);
-            var markPrice = ViewModel.GetLegMarkPrice(Leg);
+            var bidAsk = ViewModel.BidAsk;
+            var markPrice = ViewModel.MarkPrice;
         }
-        @if (bidAsk.Bid.HasValue || bidAsk.Ask.HasValue)
+        @if (ViewModel.IsLive && (bidAsk.Bid.HasValue || bidAsk.Ask.HasValue))
         {
             <MudText Typo="Typo.caption" Class="price-chain">
                 <span class="price-bid">@FormatPrice(bidAsk.Bid)<span class="price-diff">@FormatDiff(bidAsk.Bid, markPrice)</span></span>
@@ -61,10 +60,10 @@
     </MudStack>
 </MudTd>
 <MudTd DataLabel="Temp P/L">
-    @{
-        var tempPnl = ViewModel.GetLegTemporaryPnl(Leg);
-        var tempPnlPercent = ViewModel.GetLegTemporaryPnlPercent(Leg);
-    }
+        @{
+            var tempPnl = ViewModel.TempPnl;
+            var tempPnlPercent = ViewModel.TempPnlPercent;
+        }
     <MudStack Spacing="0">
         <MudText Typo="Typo.body2" Color="@(tempPnl >= 0 ? Color.Success : Color.Error)">
             @tempPnl.ToString("0.##")
@@ -78,11 +77,11 @@
     </MudStack>
 </MudTd>
 <MudTd DataLabel="IV" Class="iv-column">
-    @{
-        var chainIv = ViewModel.GetLegMarkIv(Leg);
-    }
+        @{
+            var chainIv = ViewModel.ChainIv;
+        }
     <MudStack Spacing="0">
-        <MudNumericField T="double?" Value="@Leg.ImpliedVolatility" ValueChanged="async value => await ViewModel.UpdateLegIvAsync(Leg, value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="%" Disabled="@Leg.IsReadOnly" Class="iv-input" />
+        <MudNumericField T="double?" Value="@ViewModel.Leg.ImpliedVolatility" ValueChanged="async value => await ViewModel.UpdateLegIvAsync(value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="%" Disabled="@ViewModel.Leg.IsReadOnly" Class="iv-input" />
         @if (chainIv.HasValue)
         {
             <MudText Typo="Typo.caption" Class="iv-chain">Chain: @chainIv.Value.ToString("0.##")%</MudText>
@@ -90,56 +89,32 @@
     </MudStack>
 </MudTd>
 <MudTd DataLabel="Actions" Style="text-align:right;">
-    <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="async () => await ViewModel.RemoveLegAsync(Leg)" />
+    <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="async () => await ViewModel.RemoveLegAsync()" />
 </MudTd>
 
 @code {
-    [Parameter, EditorRequired] public LegModel Leg { get; set; } = default!;
-    [Parameter, EditorRequired] public LegsCollectionViewModel ViewModel { get; set; } = default!;
-
-    private string? _symbol;
+    [Parameter, EditorRequired] public LegViewModel ViewModel { get; set; } = default!;
 
     protected override void OnInitialized()
     {
-        ViewModel.LegTickerUpdated += HandleLegTickerUpdated;
-        ViewModel.ActivePositionUpdated += HandleActivePositionUpdated;
-    }
-
-    protected override void OnParametersSet()
-    {
-        _symbol = ViewModel.GetLegSymbol(Leg);
-    }
-
-    private void HandleLegTickerUpdated(OptionChainTicker ticker)
-    {
-        if (ticker is null || string.IsNullOrWhiteSpace(ticker.Symbol))
-        {
-            return;
-        }
-
-        if (string.Equals(ticker.Symbol, _symbol, StringComparison.OrdinalIgnoreCase))
-        {
-           _ = InvokeAsync(StateHasChanged);
-        }
-    }
-
-    private void HandleActivePositionUpdated(BybitPosition position)
-    {
-        if (position is null || string.IsNullOrWhiteSpace(position.Symbol))
-        {
-            return;
-        }
-
-        if (string.Equals(position.Symbol, _symbol, StringComparison.OrdinalIgnoreCase))
-        {
-            _ = InvokeAsync(StateHasChanged);
-        }
+        ViewModel.Changed += HandleViewModelChanged;
+        ViewModel.Removed += HandleViewModelRemoved;
     }
 
     public void Dispose()
     {
-        ViewModel.LegTickerUpdated -= HandleLegTickerUpdated;
-        ViewModel.ActivePositionUpdated -= HandleActivePositionUpdated;
+        ViewModel.Changed -= HandleViewModelChanged;
+        ViewModel.Removed -= HandleViewModelRemoved;
+    }
+
+    private void HandleViewModelChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private Task HandleViewModelRemoved()
+    {
+        return InvokeAsync(StateHasChanged);
     }
 
     private static string FormatPrice(double? price)

@@ -15,6 +15,7 @@ public class OptionChainDialogViewModel : IDisposable
     private double? _atmStrike;
     private double? _underlyingPrice;
     private readonly HashSet<string> _ivModeLegIds = new();
+    private readonly Dictionary<string, IDisposable> _tickerSubscriptions = new(StringComparer.OrdinalIgnoreCase);
     private int _strikeWindowSize = 10;
 
     public OptionChainDialogViewModel(OptionsChainService optionsChainService, LocalStorageService localStorageService)
@@ -49,8 +50,6 @@ public class OptionChainDialogViewModel : IDisposable
         _baseAsset = position?.BaseAsset;
         _underlyingPrice = underlyingPrice;
         Legs.Clear();
-
-        _optionsChainService.ChainUpdated += HandleChainUpdated;
 
         await LoadStrikeWindowAsync();
 
@@ -323,6 +322,7 @@ public class OptionChainDialogViewModel : IDisposable
         AvailableStrikes = strikes;
         _atmStrike = DetermineAtmStrike(relevantTickers, strikes, _underlyingPrice);
         DisplayStrikes = BuildStrikeWindow(strikes, _atmStrike, _strikeWindowSize);
+        _ = UpdateTickerSubscriptionsAsync();
     }
 
     private IEnumerable<OptionChainTicker> GetFilteredTickers()
@@ -445,14 +445,6 @@ public class OptionChainDialogViewModel : IDisposable
         return strikes[strikes.Count / 2];
     }
 
-    private void HandleChainUpdated()
-    {
-        _chainTickers = _optionsChainService.GetSnapshot().ToList();
-        UpdateExpirations();
-        UpdateStrikes();
-        OnChange?.Invoke();
-    }
-
     private static LegModel CloneLeg(LegModel leg)
     {
         return new LegModel
@@ -471,7 +463,12 @@ public class OptionChainDialogViewModel : IDisposable
 
     public void Dispose()
     {
-        _optionsChainService.ChainUpdated -= HandleChainUpdated;
+        foreach (var subscription in _tickerSubscriptions.Values)
+        {
+            subscription.Dispose();
+        }
+
+        _tickerSubscriptions.Clear();
     }
 
     private async Task LoadStrikeWindowAsync()
@@ -516,6 +513,63 @@ public class OptionChainDialogViewModel : IDisposable
         }
 
         return value.Value <= 3 ? value.Value * 100 : value.Value;
+    }
+
+    private async Task UpdateTickerSubscriptionsAsync()
+    {
+        var symbols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var leg in Legs)
+        {
+            var symbol = GetTickerForLeg(leg)?.Symbol;
+            if (!string.IsNullOrWhiteSpace(symbol))
+            {
+                symbols.Add(symbol);
+            }
+        }
+
+        if (_selectedExpiration.HasValue && DisplayStrikes.Count > 0)
+        {
+            foreach (var strike in DisplayStrikes)
+            {
+                var call = GetStrikeTicker(strike, LegType.Call);
+                if (call is not null && !string.IsNullOrWhiteSpace(call.Symbol))
+                {
+                    symbols.Add(call.Symbol);
+                }
+
+                var put = GetStrikeTicker(strike, LegType.Put);
+                if (put is not null && !string.IsNullOrWhiteSpace(put.Symbol))
+                {
+                    symbols.Add(put.Symbol);
+                }
+            }
+        }
+
+        var toRemove = _tickerSubscriptions.Keys.Where(symbol => !symbols.Contains(symbol)).ToList();
+        foreach (var symbol in toRemove)
+        {
+            _tickerSubscriptions[symbol].Dispose();
+            _tickerSubscriptions.Remove(symbol);
+        }
+
+        foreach (var symbol in symbols)
+        {
+            if (_tickerSubscriptions.ContainsKey(symbol))
+            {
+                continue;
+            }
+
+            var subscription = new OptionsChainService.OptionChainSubscription(symbol);
+            var registration = await _optionsChainService.SubscribeAsync(subscription, HandleTickerUpdated);
+            _tickerSubscriptions[symbol] = registration;
+        }
+    }
+
+    private void HandleTickerUpdated(OptionChainTicker ticker)
+    {
+        _chainTickers = _optionsChainService.GetSnapshot().ToList();
+        OnChange?.Invoke();
     }
 }
 

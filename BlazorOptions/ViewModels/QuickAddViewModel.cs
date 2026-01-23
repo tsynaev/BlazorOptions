@@ -7,7 +7,7 @@ namespace BlazorOptions.ViewModels;
 
 public sealed class QuickAddViewModel
 {
-    private readonly IQuickAddContext _context;
+    private readonly INotifyUserService _context;
     private readonly OptionsChainService _optionsChainService;
     private static readonly Regex QuickAddAtRegex = new(@"@\s*(?<value>\d+(?:\.\d+)?)\s*(?<percent>%?)", RegexOptions.Compiled);
     private static readonly Regex QuickAddDateWithYearRegex = new(@"(?i)\b\d{1,2}[A-Z]{3}\d{2,4}\b", RegexOptions.Compiled);
@@ -24,7 +24,7 @@ public sealed class QuickAddViewModel
 
     public event Func<LegModel,Task>? LegCreated;
 
-    public QuickAddViewModel(IQuickAddContext context, OptionsChainService optionsChainService)
+    public QuickAddViewModel(INotifyUserService context, OptionsChainService optionsChainService)
     {
         _context = context;
         _optionsChainService = optionsChainService;

@@ -7,27 +7,39 @@ namespace BlazorOptions.ViewModels;
 public readonly record struct BidAsk(double? Bid, double? Ask);
 
 
-public sealed class LegsCollectionViewModel
+public sealed class LegsCollectionViewModel : IDisposable
 {
     private readonly PositionBuilderViewModel _positionBuilder;
     private readonly ILegsCollectionDialogService _dialogService;
+    private readonly LegViewModelFactory _legViewModelFactory;
+    private readonly INotifyUserService _notifyUserService;
     private string? _baseAsset;
-    private LegsCollectionModel _collection;
+    private double? _currentPrice;
+    private bool _isLive;
+    private DateTime _valuationDate;
+    private LegsCollectionModel _collection = default!;
+    private readonly Dictionary<string, LegViewModel> _legViewModels = new(StringComparer.Ordinal);
+    private readonly ObservableCollection<LegViewModel> _legs = new();
 
     public LegsCollectionViewModel(
         PositionBuilderViewModel positionBuilder,
         ILegsCollectionDialogService dialogService,
-        OptionsChainService optionsChainService)
+        OptionsChainService optionsChainService,
+        LegViewModelFactory legViewModelFactory,
+        INotifyUserService notifyUserService)
     {
         _positionBuilder = positionBuilder;
         _dialogService = dialogService;
+        _legViewModelFactory = legViewModelFactory;
+        _notifyUserService = notifyUserService;
 
-
-
-        QuickAdd = new QuickAddViewModel(positionBuilder, optionsChainService);
+        QuickAdd = new QuickAddViewModel(_notifyUserService, optionsChainService);
         QuickAdd.LegCreated += HandleQuickAddLegCreated;
 
     }
+
+    public PositionModel Position { get; set; } = default!;
+    public PositionBuilderViewModel PositionBuilder => _positionBuilder;
 
     public string? BaseAsset
     {
@@ -38,6 +50,60 @@ public sealed class LegsCollectionViewModel
         }
     }
 
+    public double? CurrentPrice
+    {
+        get => _currentPrice;
+        set
+        {
+            if (_currentPrice == value)
+            {
+                return;
+            }
+
+            _currentPrice = value;
+            foreach (var leg in _legs)
+            {
+                leg.CurrentPrice = value;
+            }
+        }
+    }
+
+    public bool IsLive
+    {
+        get => _isLive;
+        set
+        {
+            if (_isLive == value)
+            {
+                return;
+            }
+
+            _isLive = value;
+            foreach (var leg in _legs)
+            {
+                leg.IsLive = value;
+            }
+        }
+    }
+
+    public DateTime ValuationDate
+    {
+        get => _valuationDate;
+        set
+        {
+            if (_valuationDate == value)
+            {
+                return;
+            }
+
+            _valuationDate = value;
+            foreach (var leg in _legs)
+            {
+                leg.ValuationDate = value;
+            }
+        }
+    }
+
     public LegsCollectionModel Collection
     {
         get => _collection;
@@ -45,12 +111,11 @@ public sealed class LegsCollectionViewModel
         {
             _collection = value;
             QuickAdd.Collection = value;
+            SyncLegViewModels();
         } 
     }
 
-    public ObservableCollection<LegModel> Legs => Collection.Legs;
-
-    public IEnumerable<LegType> LegTypes => Enum.GetValues<LegType>();
+    public ObservableCollection<LegViewModel> Legs => _legs;
 
     public QuickAddViewModel QuickAdd { get; }
 
@@ -70,8 +135,6 @@ public sealed class LegsCollectionViewModel
         set => _ = SetColorAsync(value);
     }
 
-    public bool HasActivePosition => _positionBuilder.SelectedPosition is not null;
-
     public bool IsVisible
     {
         get => Collection.IsVisible;
@@ -80,87 +143,154 @@ public sealed class LegsCollectionViewModel
 
     public async Task AddLegAsync()
     {
-        if (!EnsureActiveCollection())
+        if (!EnsureActivePosition(out var positionViewModel))
         {
             return;
         }
 
-        if (_positionBuilder.SelectedPosition is null)
+        if (Position is null)
         {
             return;
         }
 
         var legs = await _dialogService.ShowOptionChainDialogAsync(
-            _positionBuilder.SelectedPosition,
+            Position,
             Collection,
-            _positionBuilder.SelectedPrice ?? _positionBuilder.LivePrice);
+            CurrentPrice);
         if (legs is null)
         {
             return;
         }
 
-        await _positionBuilder.UpdateLegsAsync(legs);
-        await RaiseUpdatedAsync();
+        await positionViewModel!.UpdateLegsAsync(Collection, legs);
+        SyncLegViewModels();
     }
 
     public Task AddQuickLegAsync()
     {
+        if (!EnsureActivePosition(out _))
+        {
+            return Task.CompletedTask;
+        }
+
         SyncQuickAddPrice();
         return QuickAdd.AddQuickLegAsync();
     }
 
     public Task OnQuickLegKeyDown(KeyboardEventArgs args)
     {
+        if (!EnsureActivePosition(out _))
+        {
+            return Task.CompletedTask;
+        }
+
         SyncQuickAddPrice();
         return QuickAdd.OnQuickLegKeyDown(args);
     }
 
     public async Task DuplicateCollectionAsync()
     {
-        if (!EnsureActiveCollection())
+        if (!EnsureActivePosition(out var positionViewModel))
         {
             return;
         }
 
-        await _positionBuilder.DuplicateCollectionAsync();
+        await positionViewModel!.DuplicateCollectionAsync(Collection);
     }
 
     public async Task LoadBybitPositionsAsync()
     {
-        if (!EnsureActiveCollection())
+        if (!EnsureActivePosition(out var positionViewModel))
         {
             return;
         }
-        if (_positionBuilder.SelectedPosition is null)
+
+        if (Position is null)
         {
             return;
         }
 
         var positions = await _dialogService.ShowBybitPositionsDialogAsync(
-            _positionBuilder.SelectedPosition.BaseAsset,
-            _positionBuilder.SelectedPosition.QuoteAsset,
+            Position.BaseAsset,
+            Position.QuoteAsset,
             Collection.Legs.ToList());
         if (positions is null)
         {
             return;
         }
 
-        await _positionBuilder.AddBybitPositionsToCollectionAsync(_positionBuilder.SelectedPosition, Collection, positions);
+        await AddBybitPositionsToCollectionAsync(positions);
     }
 
-    public async Task SetVisibilityAsync(bool isVisible)
+    public async Task AddBybitPositionsToCollectionAsync(IReadOnlyList<BybitPosition> positions)
     {
-        if (!EnsureActiveCollection())
+        if (!EnsureActivePosition(out _))
         {
             return;
         }
 
-        await _positionBuilder.UpdateCollectionVisibilityAsync(Collection.Id, isVisible);
+        if (positions.Count == 0)
+        {
+            return;
+        }
+
+        var baseAsset = Position?.BaseAsset?.Trim();
+        if (string.IsNullOrWhiteSpace(baseAsset))
+        {
+            _notifyUserService.NotifyUser("Specify a base asset before loading Bybit positions.");
+            return;
+        }
+
+        var added = 0;
+
+        foreach (var bybitPosition in positions)
+        {
+            if (Math.Abs(bybitPosition.Size) < 0.0001)
+            {
+                continue;
+            }
+
+            var leg = _positionBuilder.CreateLegFromBybitPosition(bybitPosition, baseAsset, bybitPosition.Category);
+            if (leg is null)
+            {
+                continue;
+            }
+
+            var existing = PositionBuilderViewModel.FindMatchingLeg(Collection.Legs, leg);
+            if (existing is null)
+            {
+                Collection.Legs.Add(leg);
+                added++;
+            }
+            else
+            {
+                existing.Price = leg.Price;
+                existing.Size = leg.Size;
+            }
+        }
+
+        if (added == 0)
+        {
+            return;
+        }
+
+        SyncLegViewModels();
+        await RaiseUpdatedAsync();
+    }
+
+    public async Task SetVisibilityAsync(bool isVisible)
+    {
+        if (!EnsureActivePosition(out var positionViewModel))
+        {
+            return;
+        }
+
+        await positionViewModel!.UpdateCollectionVisibilityAsync(Collection, isVisible);
     }
 
     public async Task SetColorAsync(string color)
     {
-        if (!EnsureActiveCollection())
+        if (!EnsureActivePosition(out _))
         {
             return;
         }
@@ -176,7 +306,7 @@ public sealed class LegsCollectionViewModel
 
     public async Task SetNameAsync(string name)
     {
-        if (!EnsureActiveCollection())
+        if (!EnsureActivePosition(out _))
         {
             return;
         }
@@ -192,7 +322,7 @@ public sealed class LegsCollectionViewModel
 
     public async Task RemoveCollectionAsync()
     {
-        if (_positionBuilder.SelectedPosition is null)
+        if (!EnsureActivePosition(out var positionViewModel))
         {
             return;
         }
@@ -204,7 +334,7 @@ public sealed class LegsCollectionViewModel
             return;
         }
 
-        await _positionBuilder.RemoveCollectionAsync(Collection.Id);
+        await positionViewModel!.RemoveCollectionAsync(Collection);
     }
 
     public async Task OpenSettingsAsync()
@@ -214,7 +344,7 @@ public sealed class LegsCollectionViewModel
 
     public async Task RemoveLegAsync(LegModel leg)
     {
-        if (!EnsureActiveCollection())
+        if (!EnsureActivePosition(out _))
         {
             return;
         }
@@ -225,13 +355,14 @@ public sealed class LegsCollectionViewModel
         }
 
         Collection.Legs.Remove(leg);
+        RemoveLegViewModel(leg);
         await RaiseUpdatedAsync();
         await RaiseLegRemovedAsync(leg);
     }
 
     public async Task UpdateLegIncludedAsync(LegModel leg, bool include)
     {
-        if (!EnsureActiveCollection())
+        if (!EnsureActivePosition(out _))
         {
             return;
         }
@@ -243,7 +374,7 @@ public sealed class LegsCollectionViewModel
 
     public async Task UpdateLegTypeAsync(LegModel leg, LegType type)
     {
-        if (!EnsureActiveCollection() || leg.IsReadOnly)
+        if (!EnsureActivePosition(out _) || leg.IsReadOnly)
         {
             return;
         }
@@ -255,7 +386,7 @@ public sealed class LegsCollectionViewModel
 
     public async Task UpdateLegStrikeAsync(LegModel leg, double? strike)
     {
-        if (!EnsureActiveCollection() || leg.IsReadOnly)
+        if (!EnsureActivePosition(out _) || leg.IsReadOnly)
         {
             return;
         }
@@ -267,7 +398,7 @@ public sealed class LegsCollectionViewModel
 
     public async Task UpdateLegExpirationAsync(LegModel leg, DateTime? date)
     {
-        if (!EnsureActiveCollection() || leg.IsReadOnly)
+        if (!EnsureActivePosition(out _) || leg.IsReadOnly)
         {
             return;
         }
@@ -283,7 +414,7 @@ public sealed class LegsCollectionViewModel
 
     public async Task UpdateLegSizeAsync(LegModel leg, double size)
     {
-        if (!EnsureActiveCollection() || leg.IsReadOnly)
+        if (!EnsureActivePosition(out _) || leg.IsReadOnly)
         {
             return;
         }
@@ -295,7 +426,7 @@ public sealed class LegsCollectionViewModel
 
     public async Task UpdateLegPriceAsync(LegModel leg, double? price)
     {
-        if (!EnsureActiveCollection() || leg.IsReadOnly)
+        if (!EnsureActivePosition(out _) || leg.IsReadOnly)
         {
             return;
         }
@@ -307,7 +438,7 @@ public sealed class LegsCollectionViewModel
 
     public async Task UpdateLegIvAsync(LegModel leg, double? iv)
     {
-        if (!EnsureActiveCollection() || leg.IsReadOnly)
+        if (!EnsureActivePosition(out _) || leg.IsReadOnly)
         {
             return;
         }
@@ -319,48 +450,28 @@ public sealed class LegsCollectionViewModel
 
     public double? GetLegMarkIv(LegModel leg)
     {
-        return _positionBuilder.GetLegMarkIv(leg);
+        return _positionBuilder.GetLegMarkIv(leg, Position?.BaseAsset);
     }
 
     public double? GetLegLastPrice(LegModel leg)
     {
-        return _positionBuilder.GetLegLastPrice(leg);
+        return _positionBuilder.GetLegLastPrice(leg, Position?.BaseAsset);
     }
 
     public BidAsk GetLegBidAsk(LegModel leg)
     {
-        return _positionBuilder.GetLegBidAsk(leg);
+        return _positionBuilder.GetLegBidAsk(leg, Position?.BaseAsset);
     }
 
     public double? GetLegMarkPrice(LegModel leg)
     {
-        return _positionBuilder.GetLegMarkPrice(leg);
+        return _positionBuilder.GetLegMarkPrice(leg, Position?.BaseAsset);
     }
 
-    public double? GetLegMarketPrice(LegModel leg)
-    {
-        return _positionBuilder.GetLegMarketPrice(leg);
-    }
-
-    public double GetLegTemporaryPnl(LegModel leg)
-    {
-        return _positionBuilder.GetLegTemporaryPnl(leg);
-    }
-
-    public double? GetLegTemporaryPnlPercent(LegModel leg)
-    {
-        return _positionBuilder.GetLegTemporaryPnlPercent(leg);
-    }
-
+ 
     public string? GetLegSymbol(LegModel leg)
     {
-        return _positionBuilder.GetLegSymbol(leg);
-    }
-
-    public event Action<OptionChainTicker>? LegTickerUpdated
-    {
-        add => _positionBuilder.LegTickerUpdated += value;
-        remove => _positionBuilder.LegTickerUpdated -= value;
+        return _positionBuilder.GetLegSymbol(leg, Position?.BaseAsset);
     }
 
     public event Action<BybitPosition>? ActivePositionUpdated
@@ -369,9 +480,16 @@ public sealed class LegsCollectionViewModel
         remove => _positionBuilder.ActivePositionUpdated -= value;
     }
 
-    private bool EnsureActiveCollection()
+    private bool EnsureActivePosition(out PositionViewModel? positionViewModel)
     {
-        return _positionBuilder.TrySetActiveCollection(Collection.Id);
+        positionViewModel = _positionBuilder.SelectedPosition;
+        if (positionViewModel is null || positionViewModel.Position.Id != Position.Id)
+        {
+            positionViewModel = null;
+            return false;
+        }
+
+        return true;
     }
 
     private Task RaiseUpdatedAsync()
@@ -399,19 +517,113 @@ public sealed class LegsCollectionViewModel
     private async Task HandleQuickAddLegCreated(LegModel leg)
     {
         _ = leg;
-        await _positionBuilder.PersistPositionsAsync();
-        _positionBuilder.UpdateTemporaryPnls();
-        _positionBuilder.UpdateChart();
-        _positionBuilder.RefreshLegTickerSubscription();
-        _positionBuilder.NotifyStateChanged();
         await RaiseUpdatedAsync();
         await RaiseLegAddedAsync(leg);
     }
 
     private void SyncQuickAddPrice()
     {
-        QuickAdd.Price = _positionBuilder.SelectedPrice ?? _positionBuilder.LivePrice;
-        QuickAdd.BaseAsset = _positionBuilder.SelectedPosition?.BaseAsset;
+        QuickAdd.Price = CurrentPrice;
+        QuickAdd.BaseAsset = Position?.BaseAsset;
+    }
+
+    public void Dispose()
+    {
+        QuickAdd.LegCreated -= HandleQuickAddLegCreated;
+        foreach (var viewModel in _legViewModels.Values)
+        {
+            DetachLegViewModel(viewModel);
+            viewModel.Dispose();
+        }
+        _legViewModels.Clear();
+        _legs.Clear();
+    }
+
+    private void RemoveLegViewModel(LegModel leg)
+    {
+        var key = leg.Id ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            key = leg.GetHashCode().ToString();
+        }
+
+        if (_legViewModels.TryGetValue(key, out var viewModel))
+        {
+            DetachLegViewModel(viewModel);
+            viewModel.Dispose();
+            _legViewModels.Remove(key);
+            _legs.Remove(viewModel);
+        }
+    }
+
+    private void SyncLegViewModels()
+    {
+        var ordered = new List<LegViewModel>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var leg in Collection.Legs)
+        {
+            var key = leg.Id ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                key = leg.GetHashCode().ToString();
+            }
+
+            if (!_legViewModels.TryGetValue(key, out var viewModel))
+            {
+                viewModel = _legViewModelFactory.Create(_positionBuilder, this, leg);
+                _legViewModels[key] = viewModel;
+                AttachLegViewModel(viewModel);
+            }
+            else
+            {
+                viewModel.UpdateLeg(leg);
+            }
+
+            viewModel.CurrentPrice = _currentPrice;
+            viewModel.IsLive = _isLive;
+            viewModel.ValuationDate = _valuationDate;
+            ordered.Add(viewModel);
+            seen.Add(key);
+        }
+
+        var toRemove = _legViewModels.Keys
+            .Where(key => !seen.Contains(key))
+            .ToList();
+        foreach (var key in toRemove)
+        {
+            var viewModel = _legViewModels[key];
+            DetachLegViewModel(viewModel);
+            viewModel.Dispose();
+            _legViewModels.Remove(key);
+        }
+
+        _legs.Clear();
+        foreach (var viewModel in ordered)
+        {
+            _legs.Add(viewModel);
+        }
+    }
+
+    private void AttachLegViewModel(LegViewModel viewModel)
+    {
+        viewModel.Changed += HandleLegViewModelChanged;
+        viewModel.Removed += HandleLegViewModelRemoved;
+    }
+
+    private void DetachLegViewModel(LegViewModel viewModel)
+    {
+        viewModel.Changed -= HandleLegViewModelChanged;
+        viewModel.Removed -= HandleLegViewModelRemoved;
+    }
+
+    private Task HandleLegViewModelRemoved()
+    {
+        return Task.CompletedTask;
+    }
+
+    private void HandleLegViewModelChanged()
+    {
     }
 }
 

@@ -11,32 +11,94 @@ public class BybitTickerClient : IExchangeTickerClient
     private ClientWebSocket? _socket;
     private CancellationTokenSource? _connectionCts;
     private Task? _receiveTask;
+    private readonly SemaphoreSlim _connectionLock = new(1, 1);
+    private readonly HashSet<string> _subscribedSymbols = new(StringComparer.OrdinalIgnoreCase);
+    private Uri? _activeUrl;
 
     public string Exchange => "Bybit";
 
     public event EventHandler<ExchangePriceUpdate>? PriceUpdated;
 
-    public async Task ConnectAsync(ExchangeTickerSubscription subscription, CancellationToken cancellationToken)
+    public async Task EnsureConnectedAsync(Uri webSocketUrl, CancellationToken cancellationToken)
     {
-        await DisconnectAsync();
+        await _connectionLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (_socket is not null && _socket.State == WebSocketState.Open && _activeUrl == webSocketUrl)
+            {
+                return;
+            }
 
-        _connectionCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var token = _connectionCts.Token;
+            await DisconnectAsync();
 
-        _socket = new ClientWebSocket();
+            _activeUrl = webSocketUrl;
+            _connectionCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var token = _connectionCts.Token;
 
-        await _socket.ConnectAsync(subscription.WebSocketUrl, token);
+            _socket = new ClientWebSocket();
+            await _socket.ConnectAsync(webSocketUrl, token);
+            _receiveTask = ReceiveLoopAsync(token);
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    public async Task SubscribeAsync(string symbol, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return;
+        }
+
+        var normalized = symbol.Trim();
+        if (!_subscribedSymbols.Add(normalized))
+        {
+            return;
+        }
+
+        if (_socket is null || _socket.State != WebSocketState.Open)
+        {
+            return;
+        }
 
         var subscribePayload = JsonSerializer.Serialize(new
         {
             op = "subscribe",
-            args = new[] { $"tickers.{subscription.Symbol}" }
+            args = new[] { $"tickers.{normalized}" }
         });
 
         var subscribeBytes = Encoding.UTF8.GetBytes(subscribePayload);
-        await _socket.SendAsync(subscribeBytes, WebSocketMessageType.Text, true, token);
+        await _socket.SendAsync(subscribeBytes, WebSocketMessageType.Text, true, cancellationToken);
+    }
 
-        _receiveTask = ReceiveLoopAsync(subscription, token);
+    public async Task UnsubscribeAsync(string symbol, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return;
+        }
+
+        var normalized = symbol.Trim();
+        if (!_subscribedSymbols.Remove(normalized))
+        {
+            return;
+        }
+
+        if (_socket is null || _socket.State != WebSocketState.Open)
+        {
+            return;
+        }
+
+        var unsubscribePayload = JsonSerializer.Serialize(new
+        {
+            op = "unsubscribe",
+            args = new[] { $"tickers.{normalized}" }
+        });
+
+        var unsubscribeBytes = Encoding.UTF8.GetBytes(unsubscribePayload);
+        await _socket.SendAsync(unsubscribeBytes, WebSocketMessageType.Text, true, cancellationToken);
     }
 
     public async Task DisconnectAsync()
@@ -66,6 +128,9 @@ public class BybitTickerClient : IExchangeTickerClient
             _socket = null;
         }
 
+        _subscribedSymbols.Clear();
+        _activeUrl = null;
+
         if (_receiveTask is not null)
         {
             try
@@ -83,7 +148,7 @@ public class BybitTickerClient : IExchangeTickerClient
         }
     }
 
-    private async Task ReceiveLoopAsync(ExchangeTickerSubscription subscription, CancellationToken cancellationToken)
+    private async Task ReceiveLoopAsync(CancellationToken cancellationToken)
     {
         if (_socket is null)
         {
@@ -117,11 +182,11 @@ public class BybitTickerClient : IExchangeTickerClient
             }
 
             var payload = Encoding.UTF8.GetString(builder.WrittenSpan);
-            TryHandleTickerPayload(subscription, payload);
+            TryHandleTickerPayload(payload);
         }
     }
 
-    private void TryHandleTickerPayload(ExchangeTickerSubscription subscription, string payload)
+    private void TryHandleTickerPayload(string payload)
     {
         try
         {
@@ -139,14 +204,21 @@ public class BybitTickerClient : IExchangeTickerClient
                 return;
             }
 
+            var topicSymbol = topic.Substring("tickers.".Length);
+            if (string.IsNullOrWhiteSpace(topicSymbol))
+            {
+                return;
+            }
+
             if (!root.TryGetProperty("data", out var dataElement))
             {
                 return;
             }
 
-            if (TryExtractPrice(dataElement, out var price))
+            if (TryExtractPrice(dataElement, out var price, out var symbol))
             {
-                PriceUpdated?.Invoke(this, new ExchangePriceUpdate(subscription.Exchange, subscription.Symbol, price, DateTime.UtcNow));
+                var resolvedSymbol = string.IsNullOrWhiteSpace(symbol) ? topicSymbol : symbol;
+                PriceUpdated?.Invoke(this, new ExchangePriceUpdate(Exchange, resolvedSymbol, price, DateTime.UtcNow));
             }
         }
         catch
@@ -155,15 +227,16 @@ public class BybitTickerClient : IExchangeTickerClient
         }
     }
 
-    private static bool TryExtractPrice(JsonElement dataElement, out decimal price)
+    private static bool TryExtractPrice(JsonElement dataElement, out decimal price, out string? symbol)
     {
         price = 0m;
+        symbol = null;
 
         if (dataElement.ValueKind == JsonValueKind.Array)
         {
             foreach (var entry in dataElement.EnumerateArray())
             {
-                if (TryExtractPriceFromEntry(entry, out price))
+                if (TryExtractPriceFromEntry(entry, out price, out symbol))
                 {
                     return true;
                 }
@@ -172,12 +245,18 @@ public class BybitTickerClient : IExchangeTickerClient
             return false;
         }
 
-        return dataElement.ValueKind == JsonValueKind.Object && TryExtractPriceFromEntry(dataElement, out price);
+        return dataElement.ValueKind == JsonValueKind.Object && TryExtractPriceFromEntry(dataElement, out price, out symbol);
     }
 
-    private static bool TryExtractPriceFromEntry(JsonElement entry, out decimal price)
+    private static bool TryExtractPriceFromEntry(JsonElement entry, out decimal price, out string? symbol)
     {
         price = 0m;
+        symbol = null;
+
+        if (TryReadString(entry, "symbol", out var parsedSymbol))
+        {
+            symbol = parsedSymbol;
+        }
 
         if (TryReadDecimal(entry, "indexPrice", out price))
         {
@@ -190,6 +269,24 @@ public class BybitTickerClient : IExchangeTickerClient
         }
 
         return false;
+    }
+
+    private static bool TryReadString(JsonElement entry, string propertyName, out string? value)
+    {
+        value = null;
+        if (!entry.TryGetProperty(propertyName, out var property))
+        {
+            return false;
+        }
+
+        value = property.ValueKind switch
+        {
+            JsonValueKind.String => property.GetString(),
+            _ => property.GetRawText()
+        };
+
+        value = value?.Trim();
+        return !string.IsNullOrWhiteSpace(value);
     }
 
     private static bool TryReadDecimal(JsonElement entry, string propertyName, out decimal value)

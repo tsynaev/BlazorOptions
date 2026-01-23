@@ -20,8 +20,10 @@ public class OptionsChainService
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private readonly SemaphoreSlim _socketLock = new(1, 1);
     private readonly object _cacheLock = new();
+    private readonly object _subscriberLock = new();
     private List<OptionChainTicker> _cachedTickers = new();
     private HashSet<string> _trackedSymbols = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, List<Action<OptionChainTicker>>> _subscriberHandlers = new(StringComparer.OrdinalIgnoreCase);
     private ClientWebSocket? _socket;
     private CancellationTokenSource? _socketCts;
     private Task? _socketTask;
@@ -41,8 +43,23 @@ public class OptionsChainService
 
     public bool IsRefreshing { get; private set; }
 
-    public event Action? ChainUpdated;
-    public event Action<OptionChainTicker>? TickerUpdated;
+    public sealed record OptionChainSubscription(string Symbol);
+
+    private sealed class SubscriptionRegistration : IDisposable
+    {
+        private Action? _dispose;
+
+        public SubscriptionRegistration(Action dispose)
+        {
+            _dispose = dispose;
+        }
+
+        public void Dispose()
+        {
+            var dispose = Interlocked.Exchange(ref _dispose, null);
+            dispose?.Invoke();
+        }
+    }
 
     public IReadOnlyList<OptionChainTicker> GetSnapshot()
     {
@@ -80,7 +97,6 @@ public class OptionsChainService
                 }
 
                 LastUpdatedUtc = DateTime.UtcNow;
-                ChainUpdated?.Invoke();
             }
         }
         finally
@@ -128,6 +144,36 @@ public class OptionsChainService
         }
 
         _ = EnsureWebSocketSubscriptionsAsync(symbols);
+    }
+
+    public async ValueTask<IDisposable> SubscribeAsync(OptionChainSubscription subscription, Action<OptionChainTicker> when)
+    {
+        if (subscription is null || string.IsNullOrWhiteSpace(subscription.Symbol) || when is null)
+        {
+            return new SubscriptionRegistration(() => { });
+        }
+
+        var symbol = subscription.Symbol.Trim();
+        var shouldSubscribe = false;
+
+        lock (_subscriberLock)
+        {
+            if (!_subscriberHandlers.TryGetValue(symbol, out var handlers))
+            {
+                handlers = new List<Action<OptionChainTicker>>();
+                _subscriberHandlers[symbol] = handlers;
+                shouldSubscribe = true;
+            }
+
+            handlers.Add(when);
+        }
+
+        if (shouldSubscribe)
+        {
+            await EnsureWebSocketSubscriptionsAsync(new[] { symbol });
+        }
+
+        return new SubscriptionRegistration(() => _ = UnsubscribeAsync(symbol, when));
     }
 
     private async Task<List<OptionChainTicker>> FetchTickersAsync(string? baseAsset, CancellationToken cancellationToken)
@@ -558,7 +604,7 @@ public class OptionsChainService
                     var updatedTicker = UpdateTickerFromPayload(entry, topicSymbol);
                     if (updatedTicker is not null)
                     {
-                        TickerUpdated?.Invoke(updatedTicker);
+                        DispatchSubscriberHandlers(updatedTicker);
                     }
                 }
 
@@ -570,7 +616,7 @@ public class OptionsChainService
                 var updatedTicker = UpdateTickerFromPayload(dataElement, topicSymbol);
                 if (updatedTicker is not null)
                 {
-                    TickerUpdated?.Invoke(updatedTicker);
+                    DispatchSubscriberHandlers(updatedTicker);
                 }
             }
         }
@@ -770,6 +816,100 @@ public class OptionsChainService
         }
 
         return null;
+    }
+
+    private void DispatchSubscriberHandlers(OptionChainTicker ticker)
+    {
+        List<Action<OptionChainTicker>>? handlers;
+        lock (_subscriberLock)
+        {
+            if (!_subscriberHandlers.TryGetValue(ticker.Symbol, out var list) || list.Count == 0)
+            {
+                return;
+            }
+
+            handlers = list.ToList();
+        }
+
+        foreach (var handler in handlers)
+        {
+            try
+            {
+                handler(ticker);
+            }
+            catch
+            {
+                // ignore subscriber errors
+            }
+        }
+    }
+
+    private async Task UnsubscribeAsync(string symbol, Action<OptionChainTicker> handler)
+    {
+        var shouldUnsubscribe = false;
+        lock (_subscriberLock)
+        {
+            if (_subscriberHandlers.TryGetValue(symbol, out var handlers))
+            {
+                handlers.Remove(handler);
+                if (handlers.Count == 0)
+                {
+                    _subscriberHandlers.Remove(symbol);
+                    shouldUnsubscribe = true;
+                }
+            }
+        }
+
+        if (!shouldUnsubscribe)
+        {
+            return;
+        }
+
+        if (IsSymbolTracked(symbol))
+        {
+            return;
+        }
+
+        await _socketLock.WaitAsync();
+        try
+        {
+            if (_socket is null || _socket.State != WebSocketState.Open)
+            {
+                _subscribedSymbols.Remove(symbol);
+                return;
+            }
+
+            if (!_subscribedSymbols.Contains(symbol))
+            {
+                return;
+            }
+
+            var unsubscribePayload = JsonSerializer.Serialize(new
+            {
+                op = "unsubscribe",
+                args = new[] { $"tickers.{symbol}" }
+            });
+
+            var unsubscribeBytes = Encoding.UTF8.GetBytes(unsubscribePayload);
+            await _socket.SendAsync(unsubscribeBytes, WebSocketMessageType.Text, true, _socketCts?.Token ?? CancellationToken.None);
+            _subscribedSymbols.Remove(symbol);
+        }
+        catch
+        {
+            // ignore websocket unsubscribe errors
+        }
+        finally
+        {
+            _socketLock.Release();
+        }
+    }
+
+    private bool IsSymbolTracked(string symbol)
+    {
+        lock (_cacheLock)
+        {
+            return _trackedSymbols.Contains(symbol);
+        }
     }
 }
 

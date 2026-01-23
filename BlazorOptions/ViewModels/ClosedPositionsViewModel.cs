@@ -27,11 +27,12 @@ public sealed class ClosedPositionsViewModel
 
     public ObservableCollection<ClosedPositionModel> ClosedPositions => _position.ClosedPositions;
 
+    public Guid PositionId => _position.Id;
+
     public IReadOnlyList<ClosedPositionSummary> Summaries => _summaries;
 
     public string AddSymbolInput { get; set; } = string.Empty;
 
-    public bool HasActivePosition => _positionBuilder.SelectedPosition?.Id == _position.Id;
 
     public bool IncludeInChart
     {
@@ -81,10 +82,6 @@ public sealed class ClosedPositionsViewModel
 
     public async Task AddSymbolAsync()
     {
-        if (!EnsureActivePosition())
-        {
-            return;
-        }
 
         var input = AddSymbolInput ?? string.Empty;
         var symbols = SplitSymbols(input);
@@ -124,10 +121,6 @@ public sealed class ClosedPositionsViewModel
 
     public async Task RemoveClosedPositionAsync(ClosedPositionModel closedPosition)
     {
-        if (!EnsureActivePosition())
-        {
-            return;
-        }
 
         if (ClosedPositions.Contains(closedPosition))
         {
@@ -138,10 +131,6 @@ public sealed class ClosedPositionsViewModel
 
     public async Task SetSinceDateAsync(ClosedPositionModel closedPosition, DateTime? sinceDate)
     {
-        if (!EnsureActivePosition())
-        {
-            return;
-        }
 
         if (closedPosition.SinceDate == sinceDate)
         {
@@ -154,10 +143,6 @@ public sealed class ClosedPositionsViewModel
 
     public Task SetSinceDatePartAsync(ClosedPositionModel closedPosition, DateTime? datePart)
     {
-        if (!EnsureActivePosition())
-        {
-            return Task.CompletedTask;
-        }
 
         var timePart = closedPosition.SinceDate?.TimeOfDay ?? TimeSpan.Zero;
         var combined = datePart.HasValue ? datePart.Value.Date + timePart : (DateTime?)null;
@@ -166,10 +151,6 @@ public sealed class ClosedPositionsViewModel
 
     public Task SetSinceTimePartAsync(ClosedPositionModel closedPosition, TimeSpan? timePart)
     {
-        if (!EnsureActivePosition())
-        {
-            return Task.CompletedTask;
-        }
 
         var datePart = closedPosition.SinceDate?.Date;
         if (!datePart.HasValue && timePart.HasValue)
@@ -183,19 +164,10 @@ public sealed class ClosedPositionsViewModel
 
     public Task SetIncludeInChartAsync(bool include)
     {
-        if (!EnsureActivePosition())
-        {
-            return Task.CompletedTask;
-        }
-
         _position.IncludeClosedPositions = include;
         return PersistAndRefreshAsync();
     }
 
-    private bool EnsureActivePosition()
-    {
-        return _positionBuilder.SelectedPosition?.Id == _position.Id;
-    }
 
     public async Task<IReadOnlyList<TradingHistoryEntry>> GetTradesForSymbolAsync(string symbol)
     {
@@ -270,11 +242,8 @@ public sealed class ClosedPositionsViewModel
 
     private void NotifyChartRefresh()
     {
-        if (_positionBuilder.SelectedPosition?.Id == _position.Id)
-        {
-            _positionBuilder.UpdateChart();
-            _positionBuilder.NotifyStateChanged();
-        }
+        _positionBuilder.UpdateChart();
+        _positionBuilder.NotifyStateChanged();
     }
 
     private static IReadOnlyList<string> SplitSymbols(string input)

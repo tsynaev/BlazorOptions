@@ -34,13 +34,31 @@ builder.Services.AddScoped<TradingHistoryStorageService>();
 builder.Services.AddScoped<ExchangeTickerService>();
 builder.Services.AddScoped<IExchangeTickerClient, BybitTickerClient>();
 builder.Services.AddScoped<OptionsChainService>();
+builder.Services.AddOptions<BybitSettings>()
+    .Configure<IServiceProvider>((options, serviceProvider) =>
+    {
+        using var scope = serviceProvider.CreateScope();
+        var storage = scope.ServiceProvider.GetRequiredService<LocalStorageService>();
+        var stored = storage.GetItem(BybitSettingsStorage.StorageKey);
+        var settings = BybitSettingsStorage.TryDeserialize(stored);
+        if (settings is null)
+        {
+            return;
+        }
+
+        options.ApiKey = settings.ApiKey;
+        options.ApiSecret = settings.ApiSecret;
+        options.WebSocketUrl = settings.WebSocketUrl;
+        options.LivePriceUpdateIntervalMilliseconds = settings.LivePriceUpdateIntervalMilliseconds;
+    });
 builder.Services.AddSingleton<ThemeService>();
 builder.Services.AddScoped<MainLayoutViewModel>();
 builder.Services.AddTransient<AccountSettingsViewModel>();
 builder.Services.AddTransient<BybitSettingsViewModel>();
 builder.Services.AddScoped<PositionBuilderViewModel>();
-builder.Services.AddScoped<IQuickAddContext>(sp => sp.GetRequiredService<PositionBuilderViewModel>());
+builder.Services.AddScoped<INotifyUserService, NotifyUserService>();
 builder.Services.AddScoped<LegsCollectionViewModelFactory>();
+builder.Services.AddTransient<LegViewModelFactory>();
 builder.Services.AddScoped<ILegsCollectionDialogService, LegsCollectionDialogService>();
 builder.Services.AddScoped<ClosedPositionsViewModelFactory>();
 builder.Services.AddTransient<ActivePositionsPanelViewModel>();

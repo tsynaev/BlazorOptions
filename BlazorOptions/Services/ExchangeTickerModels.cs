@@ -8,6 +8,8 @@ public interface IExchangeTickerClient
 {
     string Exchange { get; }
     event EventHandler<ExchangePriceUpdate>? PriceUpdated;
-    Task ConnectAsync(ExchangeTickerSubscription subscription, CancellationToken cancellationToken);
+    Task EnsureConnectedAsync(Uri webSocketUrl, CancellationToken cancellationToken);
+    Task SubscribeAsync(string symbol, CancellationToken cancellationToken);
+    Task UnsubscribeAsync(string symbol, CancellationToken cancellationToken);
     Task DisconnectAsync();
 }

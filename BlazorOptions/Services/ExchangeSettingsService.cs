@@ -1,16 +1,10 @@
-using System.Text.Json;
 using BlazorOptions.ViewModels;
 
 namespace BlazorOptions.Services;
 
 public class ExchangeSettingsService
 {
-    private const string BybitStorageKey = "blazor-options-bybit-settings";
     private readonly LocalStorageService _localStorageService;
-    private readonly JsonSerializerOptions _serializerOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
 
     public ExchangeSettingsService(LocalStorageService localStorageService)
     {
@@ -19,26 +13,19 @@ public class ExchangeSettingsService
 
     public async Task<BybitSettings> LoadBybitSettingsAsync()
     {
-        var stored = await _localStorageService.GetItemAsync(BybitStorageKey);
+        var stored = await _localStorageService.GetItemAsync(BybitSettingsStorage.StorageKey);
 
         if (string.IsNullOrWhiteSpace(stored))
         {
             return new BybitSettings();
         }
 
-        try
-        {
-            return JsonSerializer.Deserialize<BybitSettings>(stored, _serializerOptions) ?? new BybitSettings();
-        }
-        catch
-        {
-            return new BybitSettings();
-        }
+        return BybitSettingsStorage.TryDeserialize(stored) ?? new BybitSettings();
     }
 
     public Task SaveBybitSettingsAsync(BybitSettings settings)
     {
-        var payload = JsonSerializer.Serialize(settings, _serializerOptions);
-        return _localStorageService.SetItemAsync(BybitStorageKey, payload).AsTask();
+        var payload = BybitSettingsStorage.Serialize(settings);
+        return _localStorageService.SetItemAsync(BybitSettingsStorage.StorageKey, payload).AsTask();
     }
 }

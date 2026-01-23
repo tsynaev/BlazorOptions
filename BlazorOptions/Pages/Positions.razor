@@ -2,7 +2,6 @@
 @implements IAsyncDisposable
 @inject PositionBuilderViewModel ViewModel
 @inject IDialogService DialogService
-@inject ISnackbar Snackbar
 @using System.Linq
 @using Microsoft.AspNetCore.Components.Web
 @using BlazorOptions.Shared
@@ -52,7 +51,7 @@
                                 <MudMenuItem Disabled="@(!HasActivePosition)" OnClick="OpenRenameDialogAsync">
                                     <MudIcon Icon="@Icons.Material.Filled.Edit" Class="mr-2" /> Edit position
                                 </MudMenuItem>
-                                <MudMenuItem Disabled="@(!HasActivePosition)" OnClick="async () => await ConfirmAndRemovePositionAsync(ViewModel.SelectedPosition!)">
+                                <MudMenuItem Disabled="@(!HasActivePosition)" OnClick="async () => await ConfirmAndRemovePositionAsync(ViewModel.SelectedPosition)">
                                     <MudIcon Icon="@Icons.Material.Filled.Delete" Class="mr-2" /> Delete position
                                 </MudMenuItem>
                             </MudMenu>
@@ -73,7 +72,7 @@
                     <MudStack Spacing="1">
                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
                             <MudText Typo="Typo.subtitle2">Valuation date</MudText>
-                            <MudDatePicker Date="@ViewModel.SelectedValuationDate"
+                            <MudDatePicker Date="@ViewModel.ValuationDate"
                                            DateChanged="OnValuationDateChanged"
                                            DateFormat="yyyy-MM-dd"
                                            Clearable="true"
@@ -112,26 +111,10 @@
         </MudCardContent>
     </MudCard>
 
-    <MudStack Spacing="2">
-        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-            <MudText Typo="Typo.h6">Portfolios</MudText>
-            <MudSpacer />
-            <MudButton Variant="Variant.Filled"
-                       Color="Color.Primary"
-                       Disabled="@(!HasActivePosition)"
-                       OnClick="async () => await ViewModel.AddCollectionAsync()">
-                Add portfolio
-            </MudButton>
-        </MudStack>
-        @foreach (var collection in ViewModel.Collections)
-        {
-            <LegsPanel Collection="@collection" @key="collection.Id" />
-        }
-        @if (ViewModel.SelectedPosition is not null)
-        {
-            <ClosedPositionsPanel Position="@ViewModel.SelectedPosition" />
-        }
-    </MudStack>
+    @if (ViewModel.SelectedPosition is not null)
+    {
+        <PositionPanel ViewModel="@ViewModel.SelectedPosition" />
+    }
 </MudStack>
 
 <style>
@@ -193,12 +176,11 @@
 @code {
     private int _activeTabIndex;
     private PayoffChart? _chart;
-    private bool HasActivePosition => ViewModel.SelectedPosition is not null;
+    private bool HasActivePosition => ViewModel.SelectedPosition?.Position is not null;
 
     protected override async Task OnInitializedAsync()
     {
         ViewModel.OnChange += HandleViewModelChanged;
-        ViewModel.NotificationRequested += HandleNotificationRequested;
         await ViewModel.InitializeAsync();
         SyncActiveTabIndex();
     }
@@ -206,7 +188,6 @@
     public async ValueTask DisposeAsync()
     {
         ViewModel.OnChange -= HandleViewModelChanged;
-        ViewModel.NotificationRequested -= HandleNotificationRequested;
         await ViewModel.DisposeAsync();
     }
 
@@ -257,14 +238,6 @@
         _ = InvokeAsync(StateHasChanged);
     }
 
-    private void HandleNotificationRequested(string message)
-    {
-        if (!string.IsNullOrWhiteSpace(message))
-        {
-            Snackbar.Add(message, Severity.Warning);
-        }
-    }
-
     private Task OnValuationDateChanged(DateTime? date)
     {
         if (date.HasValue)
@@ -295,8 +268,8 @@
         var parameters = new DialogParameters
         {
             [nameof(PositionCreateDialog.InitialName)] = $"Position {ViewModel.Positions.Count + 1}",
-            [nameof(PositionCreateDialog.InitialBaseAsset)] = ViewModel.SelectedPosition?.BaseAsset ?? "ETH",
-            [nameof(PositionCreateDialog.InitialQuoteAsset)] = ViewModel.SelectedPosition?.QuoteAsset ?? "USDT"
+            [nameof(PositionCreateDialog.InitialBaseAsset)] = ViewModel.SelectedPosition?.Position?.BaseAsset ?? "ETH",
+            [nameof(PositionCreateDialog.InitialQuoteAsset)] = ViewModel.SelectedPosition?.Position?.QuoteAsset ?? "USDT"
         };
 
         var options = new DialogOptions
@@ -316,9 +289,13 @@
 
         var includeSampleLegs = request.SelectedBybitPositions.Count == 0;
         await ViewModel.AddPositionAsync(request.Name, request.BaseAsset, request.QuoteAsset, includeSampleLegs);
-        if (request.SelectedBybitPositions.Count > 0 && ViewModel.SelectedPosition is not null && ViewModel.SelectedCollection is not null)
+        if (request.SelectedBybitPositions.Count > 0 && ViewModel.SelectedPosition is not null)
         {
-            await ViewModel.AddBybitPositionsToCollectionAsync(ViewModel.SelectedPosition, ViewModel.SelectedCollection, request.SelectedBybitPositions);
+            var collection = ViewModel.SelectedPosition.Collections.FirstOrDefault();
+            if (collection is not null)
+            {
+                await collection.AddBybitPositionsToCollectionAsync(request.SelectedBybitPositions);
+            }
         }
         _activeTabIndex = Math.Max(0, ViewModel.Positions.Count - 1);
         await RefreshChartAsync();
@@ -326,7 +303,7 @@
 
     private void SyncActiveTabIndex()
     {
-        var selectedIndex = ViewModel.SelectedPosition is null ? -1 : ViewModel.Positions.IndexOf(ViewModel.SelectedPosition);
+        var selectedIndex = ViewModel.SelectedPosition?.Position is null ? -1 : ViewModel.Positions.IndexOf(ViewModel.SelectedPosition.Position);
 
         if (selectedIndex >= 0)
         {
@@ -355,26 +332,16 @@
         }
     }
 
-    private async Task OnCloseTab(MudTabPanel panel)
-    {
-        if (panel?.Text is null || !Guid.TryParse(panel.Text, out var positionId))
-        {
-            return;
-        }
-
-        await ConfirmAndRemovePositionAsync(positionId);
-    }
-
     private async Task OpenRenameDialogAsync()
     {
-        if (ViewModel.SelectedPosition is null)
+        if (ViewModel.SelectedPosition?.Position is null)
         {
             return;
         }
 
         var parameters = new DialogParameters
         {
-            [nameof(PositionNameDialog.InitialName)] = ViewModel.SelectedPosition.Name
+            [nameof(PositionNameDialog.InitialName)] = ViewModel.SelectedPosition?.Position?.Name
         };
 
         var options = new DialogOptions
@@ -392,7 +359,7 @@
             return;
         }
 
-        var active = ViewModel.SelectedPosition;
+        var active = ViewModel.SelectedPosition?.Position;
 
         if (active is null)
         {
@@ -403,32 +370,27 @@
         StateHasChanged();
     }
 
-    private async Task ConfirmAndRemovePositionAsync(PositionModel position)
-    {
-        await ConfirmAndRemovePositionAsync(position.Id, position.Name);
-    }
 
-    private async Task ConfirmAndRemovePositionAsync(Guid positionId, string? name = null)
+    private async Task ConfirmAndRemovePositionAsync(PositionViewModel? position)
     {
-        var position = ViewModel.Positions.FirstOrDefault(p => p.Id == positionId);
-
-        if (position is null)
+        if (position?.Position is null)
         {
             return;
         }
 
-        var confirmed = await DialogService.ShowMessageBox("Remove position?", $"Delete {name ?? position.Name} and its chart view?", yesText: "Delete", cancelText: "Cancel");
+
+        var confirmed = await DialogService.ShowMessageBox("Remove position?", $"Delete {position.Position.Name} and its chart view?", yesText: "Delete", cancelText: "Cancel");
 
         if (confirmed != true)
         {
             return;
         }
 
-        if (await ViewModel.RemovePositionAsync(positionId))
+        if (await ViewModel.RemovePositionAsync(position.Position))
         {
             if (_chart is not null)
             {
-                await _chart.ClearRangesAsync(positionId);
+                await _chart.ClearRangesAsync(position.Position.Id);
             }
             SyncActiveTabIndex();
             await RefreshChartAsync();

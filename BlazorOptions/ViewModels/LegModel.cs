@@ -29,6 +29,23 @@ public class LegModel
     public double? ImpliedVolatility { get; set; }
 
     public string? Symbol { get; set; }
+
+    public LegModel Clone()
+    {
+        return new LegModel
+        {
+            Id = IsReadOnly ? Id : Guid.NewGuid().ToString(),
+            IsIncluded = IsIncluded,
+            IsReadOnly = IsReadOnly,
+            Type = Type,
+            Strike = Strike,
+            ExpirationDate = ExpirationDate,
+            Size = Size,
+            Price = Price,
+            ImpliedVolatility = ImpliedVolatility,
+            Symbol = Symbol
+        };
+    }
 }
 
 

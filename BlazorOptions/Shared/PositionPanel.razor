@@ -1,0 +1,35 @@
+@using BlazorOptions.ViewModels
+@using System.Collections.ObjectModel
+
+@if (ViewModel is not null)
+{
+    var collections = ViewModel.Collections ?? new ObservableCollection<LegsCollectionViewModel>();
+    <MudStack Spacing="2">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+            <MudText Typo="Typo.h6">Portfolios</MudText>
+            <MudSpacer />
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       OnClick="async () => await ViewModel.AddCollectionAsync()">
+                Add portfolio
+            </MudButton>
+        </MudStack>
+        @foreach (var collection in collections)
+        {
+            if (collection?.Collection is null)
+            {
+                continue;
+            }
+
+            <LegsPanel ViewModel="@collection" @key="collection.Collection.Id" />
+        }
+        if (ViewModel.ClosedPositions is not null)
+        {
+            <ClosedPositionsPanel ViewModel="@ViewModel.ClosedPositions" />
+        }
+    </MudStack>
+}
+
+@code {
+    [Parameter, EditorRequired] public PositionViewModel? ViewModel { get; set; }
+}

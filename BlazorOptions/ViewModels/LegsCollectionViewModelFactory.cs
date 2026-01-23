@@ -4,26 +4,32 @@ namespace BlazorOptions.ViewModels;
 
 public sealed class LegsCollectionViewModelFactory
 {
-    private readonly PositionBuilderViewModel _positionBuilder;
     private readonly OptionsChainService _optionsChainService;
     private readonly ILegsCollectionDialogService _dialogService;
+    private readonly LegViewModelFactory _legViewModelFactory;
+    private readonly INotifyUserService _notifyUserService;
 
 
     public LegsCollectionViewModelFactory(
-        PositionBuilderViewModel positionBuilder,
         OptionsChainService optionsChainService,
-        ILegsCollectionDialogService dialogService)
+        ILegsCollectionDialogService dialogService,
+        LegViewModelFactory legViewModelFactory,
+        INotifyUserService notifyUserService)
     {
-        _positionBuilder = positionBuilder;
         _optionsChainService = optionsChainService;
         _dialogService = dialogService;;
+        _legViewModelFactory = legViewModelFactory;
+        _notifyUserService = notifyUserService;
     }
 
-    public LegsCollectionViewModel Create()
+    public LegsCollectionViewModel Create(PositionBuilderViewModel positionBuilder, PositionModel position, LegsCollectionModel collection)
     {
-        var vm = new LegsCollectionViewModel(_positionBuilder, _dialogService, _optionsChainService);
-        //TODO: set BaseAsset in PositionViewModel 
-        vm.BaseAsset = _positionBuilder.SelectedPosition?.BaseAsset;
+        var vm = new LegsCollectionViewModel(positionBuilder, _dialogService, _optionsChainService, _legViewModelFactory, _notifyUserService)
+        {
+            Position = position,
+            BaseAsset = position.BaseAsset,
+            Collection = collection
+        };
 
         return vm;
     }
