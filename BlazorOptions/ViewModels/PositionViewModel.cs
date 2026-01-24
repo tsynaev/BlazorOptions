@@ -198,7 +198,7 @@ public sealed class PositionViewModel : IDisposable
             _positionBuilder.UpdateChart();
         }
 
-        await _positionBuilder.PersistPositionsAsync(Position);
+        await _positionBuilder.QueuePersistPositionsAsync(Position);
         if (refreshTicker)
         {
             _positionBuilder.RefreshLegTickerSubscription();

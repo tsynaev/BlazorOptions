@@ -2,6 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using BlazorOptions.Services;
 using BlazorOptions.Sync;
 
@@ -22,6 +23,10 @@ public class PositionBuilderViewModel : IAsyncDisposable
     private bool _isInitialized;
     private bool _suppressSync;
     private IReadOnlyList<TradingHistoryEntry> _tradingHistoryEntries = Array.Empty<TradingHistoryEntry>();
+    private readonly object _persistQueueLock = new();
+    private CancellationTokenSource? _persistQueueCts;
+    private PositionModel? _queuedPersistPosition;
+    private static readonly TimeSpan PersistQueueDelay = TimeSpan.FromMilliseconds(250);
 
 
 
@@ -235,6 +240,62 @@ public class PositionBuilderViewModel : IAsyncDisposable
             }
 
             await _positionSyncService.NotifyLocalChangeAsync(positionToSync);
+        }
+    }
+
+    internal Task QueuePersistPositionsAsync(PositionModel? changedPosition = null)
+    {
+        lock (_persistQueueLock)
+        {
+            if (changedPosition is not null)
+            {
+                _queuedPersistPosition = changedPosition;
+            }
+            else if (_queuedPersistPosition is null)
+            {
+                _queuedPersistPosition = SelectedPosition?.Position;
+            }
+
+            _persistQueueCts?.Cancel();
+            _persistQueueCts?.Dispose();
+            _persistQueueCts = new CancellationTokenSource();
+            var token = _persistQueueCts.Token;
+            _ = RunPersistQueueAsync(token);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task RunPersistQueueAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(PersistQueueDelay, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        PositionModel? target;
+        lock (_persistQueueLock)
+        {
+            target = _queuedPersistPosition;
+            _queuedPersistPosition = null;
+        }
+
+        if (target is null && SelectedPosition?.Position is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await PersistPositionsAsync(target);
+        }
+        catch
+        {
+            // ignore to keep background persistence from crashing
         }
     }
 
@@ -828,6 +889,8 @@ public class PositionBuilderViewModel : IAsyncDisposable
             await SelectedPosition.StopTickerAsync();
         }
         await _positionSyncService.DisposeAsync();
+        _persistQueueCts?.Cancel();
+        _persistQueueCts?.Dispose();
     }
 
     private async Task ApplyServerSnapshotAsync(PositionSnapshotPayload payload, DateTime occurredUtc)

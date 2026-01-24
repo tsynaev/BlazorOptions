@@ -502,6 +502,24 @@ window.payoffChart = {
             } catch { /* ignore */ }
         };
 
+        const rangeSaveDelay = 200;
+        const pendingRangeUpdates = new Map();
+        let rangeSaveTimerId;
+
+        const scheduleRangeSave = (key, range) => {
+            pendingRangeUpdates.set(key, range);
+            if (rangeSaveTimerId) {
+                clearTimeout(rangeSaveTimerId);
+            }
+            rangeSaveTimerId = setTimeout(() => {
+                pendingRangeUpdates.forEach((value, targetKey) => {
+                    persistRange(targetKey, value);
+                });
+                pendingRangeUpdates.clear();
+                rangeSaveTimerId = undefined;
+            }, rangeSaveDelay);
+        };
+
         const toRange = (zoomEntry, fallbackRange) => {
             if (!zoomEntry) return fallbackRange;
             const start = Number(zoomEntry.startValue ?? zoomEntry.start);
@@ -531,11 +549,11 @@ window.payoffChart = {
             const pnlSelection = toRange(pnlZoom, defaultPnlRange);
 
             if (priceSelection?.start !== undefined && priceSelection?.end !== undefined) {
-                persistRange(priceRangeKey, priceSelection);
+                scheduleRangeSave(priceRangeKey, priceSelection);
             }
 
             if (pnlSelection?.start !== undefined && pnlSelection?.end !== undefined) {
-                persistRange(pnlRangeKey, pnlSelection);
+                scheduleRangeSave(pnlRangeKey, pnlSelection);
             }
         });
 
