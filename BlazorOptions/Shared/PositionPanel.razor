@@ -23,7 +23,7 @@
 
             <LegsPanel ViewModel="@collection" @key="collection.Collection.Id" />
         }
-        if (ViewModel.ClosedPositions is not null)
+        @if (ViewModel.ClosedPositions is not null)
         {
             <ClosedPositionsPanel ViewModel="@ViewModel.ClosedPositions" />
         }

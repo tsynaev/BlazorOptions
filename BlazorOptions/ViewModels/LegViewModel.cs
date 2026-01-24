@@ -441,6 +441,11 @@ public sealed class LegViewModel : IDisposable
 
     private double ResolveTempPnl()
     {
+        var closingPnl = ResolveClosingPnl();
+        if (closingPnl.HasValue)
+        {
+            return closingPnl.Value;
+        }
 
         var entryPrice = ResolveEntryPrice();
         if (Leg.Type == LegType.Future)
@@ -488,6 +493,60 @@ public sealed class LegViewModel : IDisposable
         return (marketPrice.Value - entryPrice) * Leg.Size;
     }
 
+    private double? ResolveClosingPnl()
+    {
+        var collection = _collectionViewModel.Collection;
+        var legs = collection?.Legs;
+        if (legs is null || legs.Count == 0)
+        {
+            return null;
+        }
+
+        var matching = legs
+            .Where(leg => !ReferenceEquals(leg, Leg) && IsMatchingLeg(leg, Leg))
+            .ToList();
+
+        if (matching.Count == 0)
+        {
+            return null;
+        }
+
+        var netSize = matching.Sum(leg => leg.Size);
+        if (Math.Abs(netSize) < 0.0001)
+        {
+            return null;
+        }
+
+        if (Math.Sign(netSize) == Math.Sign(Leg.Size))
+        {
+            return null;
+        }
+
+        var closingSize = Math.Min(Math.Abs(Leg.Size), Math.Abs(netSize));
+        if (closingSize < 0.0001)
+        {
+            return null;
+        }
+
+        var existingLegs = matching
+            .Where(leg => Math.Sign(leg.Size) == Math.Sign(netSize))
+            .ToList();
+
+        var existingEntry = ResolveWeightedEntryPrice(existingLegs);
+        if (!existingEntry.HasValue)
+        {
+            return null;
+        }
+
+        var currentEntry = ResolveEntryPriceForLeg(Leg);
+        if (!currentEntry.HasValue)
+        {
+            return null;
+        }
+
+        return (currentEntry.Value - existingEntry.Value) * closingSize * Math.Sign(netSize);
+    }
+
     private double? ResolveTempPnlPercent()
     {
         if (!Leg.Price.HasValue)
@@ -513,6 +572,134 @@ public sealed class LegViewModel : IDisposable
         }
 
         return GetMarketPrice() ?? 0;
+    }
+
+    private double? ResolveEntryPriceForLeg(LegModel leg)
+    {
+        if (leg.Price.HasValue)
+        {
+            return leg.Price.Value;
+        }
+
+        var baseAsset = _collectionViewModel.Position?.Position.BaseAsset;
+        var ticker = _optionsChainService.FindTickerForLeg(leg, baseAsset);
+        if (ticker is null)
+        {
+            return null;
+        }
+
+        if (leg.Size >= 0)
+        {
+            if (ticker.AskPrice > 0)
+            {
+                return ticker.AskPrice;
+            }
+
+            if (ticker.MarkPrice > 0)
+            {
+                return ticker.MarkPrice;
+            }
+
+            if (ticker.BidPrice > 0)
+            {
+                return ticker.BidPrice;
+            }
+
+            return null;
+        }
+
+        if (ticker.BidPrice > 0)
+        {
+            return ticker.BidPrice;
+        }
+
+        if (ticker.MarkPrice > 0)
+        {
+            return ticker.MarkPrice;
+        }
+
+        if (ticker.AskPrice > 0)
+        {
+            return ticker.AskPrice;
+        }
+
+        return null;
+    }
+
+    private static bool IsMatchingLeg(LegModel left, LegModel right)
+    {
+        if (left.Type != right.Type)
+        {
+            return false;
+        }
+
+        if (!IsStrikeMatch(left.Strike, right.Strike))
+        {
+            return false;
+        }
+
+        return IsDateMatch(left.ExpirationDate, right.ExpirationDate);
+    }
+
+    private static bool IsStrikeMatch(double? left, double? right)
+    {
+        if (!left.HasValue && !right.HasValue)
+        {
+            return true;
+        }
+
+        if (!left.HasValue || !right.HasValue)
+        {
+            return false;
+        }
+
+        return Math.Abs(left.Value - right.Value) < 0.01;
+    }
+
+    private static bool IsDateMatch(DateTime? left, DateTime? right)
+    {
+        if (!left.HasValue && !right.HasValue)
+        {
+            return true;
+        }
+
+        if (!left.HasValue || !right.HasValue)
+        {
+            return false;
+        }
+
+        return left.Value.Date == right.Value.Date;
+    }
+
+    private double? ResolveWeightedEntryPrice(IEnumerable<LegModel> legs)
+    {
+        double totalSize = 0;
+        double totalCost = 0;
+
+        foreach (var leg in legs)
+        {
+            var entry = ResolveEntryPriceForLeg(leg);
+            if (!entry.HasValue)
+            {
+                continue;
+            }
+
+            var size = Math.Abs(leg.Size);
+            if (size < 0.0001)
+            {
+                continue;
+            }
+
+            totalSize += size;
+            totalCost += entry.Value * size;
+        }
+
+        if (totalSize < 0.0001)
+        {
+            return null;
+        }
+
+        return totalCost / totalSize;
     }
 
     private double? ResolveUnderlyingPrice()
