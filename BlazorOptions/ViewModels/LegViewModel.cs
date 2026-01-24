@@ -1,3 +1,4 @@
+using System.Globalization;
 using BlazorOptions.Services;
 
 namespace BlazorOptions.ViewModels;
@@ -44,7 +45,7 @@ public sealed class LegViewModel : IDisposable
     public event Action? Changed;
     public event Func<Task>? Removed;
 
-    public double? PlaceholderPrice => Leg.Price.HasValue ? null : GetMarketPrice();
+    public double? PlaceholderPrice => Leg.Price.HasValue ? null : GetEntryPriceSuggestion();
 
     public BidAsk BidAsk => ResolveBidAsk();
 
@@ -55,6 +56,10 @@ public sealed class LegViewModel : IDisposable
     public double TempPnl => ResolveTempPnl();
 
     public double? TempPnlPercent => ResolveTempPnlPercent();
+
+    public IReadOnlyList<DateTime> AvailableExpirations => GetAvailableExpirations();
+
+    public IReadOnlyList<double> AvailableStrikes => GetAvailableStrikes();
 
     public double? CurrentPrice
     {
@@ -228,6 +233,46 @@ public sealed class LegViewModel : IDisposable
         _ = _leg;
     }
 
+    public Task<IEnumerable<DateTime?>> SearchExpirationsAsync(string? value, CancellationToken cancellationToken = default)
+    {
+        _ = cancellationToken;
+        var items = AvailableExpirations;
+        if (items.Count == 0)
+        {
+            return Task.FromResult(Enumerable.Empty<DateTime?>());
+        }
+
+        var text = value?.Trim();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return Task.FromResult(items.Select(item => (DateTime?)item));
+        }
+
+        return Task.FromResult(items
+            .Where(item => FormatExpiration(item).Contains(text, StringComparison.OrdinalIgnoreCase))
+            .Select(item => (DateTime?)item));
+    }
+
+    public Task<IEnumerable<double?>> SearchStrikesAsync(string? value, CancellationToken cancellationToken = default)
+    {
+        _ = cancellationToken;
+        var items = AvailableStrikes;
+        if (items.Count == 0)
+        {
+            return Task.FromResult(Enumerable.Empty<double?>());
+        }
+
+        var text = value?.Trim();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return Task.FromResult(items.Select(item => (double?)item));
+        }
+
+        return Task.FromResult(items
+            .Where(item => FormatStrike(item).Contains(text, StringComparison.OrdinalIgnoreCase))
+            .Select(item => (double?)item));
+    }
+
     private async Task RefreshSubscriptionAsync()
     {
         if (_leg is null)
@@ -315,6 +360,68 @@ public sealed class LegViewModel : IDisposable
         _lastAsk = null;
         _lastMarkPrice = null;
         _lastChainIv = null;
+    }
+
+    private IReadOnlyList<OptionChainTicker> GetOptionTickers()
+    {
+        if (Leg.Type == LegType.Future)
+        {
+            return Array.Empty<OptionChainTicker>();
+        }
+
+        var baseAsset = _collectionViewModel.Position?.Position.BaseAsset;
+        if (string.IsNullOrWhiteSpace(baseAsset))
+        {
+            return Array.Empty<OptionChainTicker>();
+        }
+
+        return _optionsChainService.GetSnapshot()
+            .Where(ticker => string.Equals(ticker.BaseAsset, baseAsset, StringComparison.OrdinalIgnoreCase)
+                             && ticker.Type == Leg.Type)
+            .ToList();
+    }
+
+    private IReadOnlyList<DateTime> GetAvailableExpirations()
+    {
+        var tickers = GetOptionTickers();
+        if (tickers.Count == 0)
+        {
+            return Array.Empty<DateTime>();
+        }
+
+        return tickers
+            .Select(ticker => ticker.ExpirationDate.Date)
+            .Distinct()
+            .OrderBy(item => item)
+            .ToList();
+    }
+
+    private IReadOnlyList<double> GetAvailableStrikes()
+    {
+        var tickers = GetOptionTickers();
+        if (tickers.Count == 0)
+        {
+            return Array.Empty<double>();
+        }
+
+        var expiration = Leg.ExpirationDate?.Date;
+
+        return tickers
+            .Where(ticker => !expiration.HasValue || ticker.ExpirationDate.Date == expiration.Value)
+            .Select(ticker => ticker.Strike)
+            .Distinct()
+            .OrderBy(item => item)
+            .ToList();
+    }
+
+    private static string FormatExpiration(DateTime date)
+    {
+        return date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatStrike(double strike)
+    {
+        return strike.ToString("0.##", CultureInfo.InvariantCulture);
     }
 
     private static double? NormalizeIv(double? value)
@@ -454,6 +561,19 @@ public sealed class LegViewModel : IDisposable
         }
 
         return markPrice ?? bidAsk.Bid ?? bidAsk.Ask;
+    }
+
+    private double? GetEntryPriceSuggestion()
+    {
+        var bidAsk = BidAsk;
+        var markPrice = MarkPrice;
+
+        if (Leg.Size >= 0)
+        {
+            return bidAsk.Ask ?? markPrice ?? bidAsk.Bid;
+        }
+
+        return bidAsk.Bid ?? markPrice ?? bidAsk.Ask;
     }
 
     private OptionChainTicker? GetFallbackTicker()

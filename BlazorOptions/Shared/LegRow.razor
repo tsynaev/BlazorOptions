@@ -15,14 +15,49 @@
     </MudSelect>
 </MudTd>
 <MudTd DataLabel="Strike">
-    <MudNumericField T="double?" Value="@ViewModel.Leg.Strike" ValueChanged="async value => await ViewModel.UpdateLegStrikeAsync(value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="USDT" Disabled="@ViewModel.Leg.IsReadOnly" />
+    <MudSelect T="double?"
+               Value="@ViewModel.Leg.Strike"
+               ValueChanged="async value => await ViewModel.UpdateLegStrikeAsync(value)"
+               Dense="true"
+               Variant="Variant.Outlined"
+               Margin="Margin.Dense"
+               Disabled="@(ViewModel.Leg.IsReadOnly || ViewModel.Leg.Type == LegType.Future || ViewModel.AvailableStrikes.Count == 0)"
+               Adornment="Adornment.End"
+               AdornmentText="USDT">
+        @if (ViewModel.AvailableStrikes.Count == 0)
+        {
+            <MudSelectItem T="double?" Disabled="true">No strikes</MudSelectItem>
+        }
+        else
+        {
+            @foreach (var strike in ViewModel.AvailableStrikes)
+            {
+                <MudSelectItem T="double?" Value="@strike">@FormatStrike(strike)</MudSelectItem>
+            }
+        }
+    </MudSelect>
 </MudTd>
 <MudTd DataLabel="Expiration">
-    <MudDatePicker Date="ViewModel.Leg.ExpirationDate"
-                   DateChanged="async date => await ViewModel.UpdateLegExpirationAsync(date)"
-                   DateFormat="yyyy-MM-dd"
-                   Class="full-width"
-                   Disabled="@ViewModel.Leg.IsReadOnly" />
+    <MudSelect T="DateTime?"
+               Value="@ViewModel.Leg.ExpirationDate"
+               ValueChanged="async value => await ViewModel.UpdateLegExpirationAsync(value)"
+               Dense="true"
+               Variant="Variant.Outlined"
+               Margin="Margin.Dense"
+               Disabled="@(ViewModel.Leg.IsReadOnly || ViewModel.Leg.Type == LegType.Future || ViewModel.AvailableExpirations.Count == 0)"
+               Class="full-width">
+        @if (ViewModel.AvailableExpirations.Count == 0)
+        {
+            <MudSelectItem T="DateTime?" Disabled="true">No expirations</MudSelectItem>
+        }
+        else
+        {
+            @foreach (var expiration in ViewModel.AvailableExpirations)
+            {
+                <MudSelectItem T="DateTime?" Value="@expiration">@FormatExpiration(expiration)</MudSelectItem>
+            }
+        }
+    </MudSelect>
 </MudTd>
 <MudTd DataLabel="Size">
     <MudNumericField T="double" Value="@ViewModel.Leg.Size" ValueChanged="async value => await ViewModel.UpdateLegSizeAsync(value)" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@ViewModel.Leg.IsReadOnly" />
@@ -66,12 +101,12 @@
         }
     <MudStack Spacing="0">
         <MudText Typo="Typo.body2" Color="@(tempPnl >= 0 ? Color.Success : Color.Error)">
-            @tempPnl.ToString("0.##")
+            @tempPnl.ToString("0.00")
         </MudText>
         @if (tempPnlPercent.HasValue)
         {
             <MudText Typo="Typo.caption" Class="temp-pnl-percent">
-                @($"{tempPnlPercent.Value:0.##}%")
+                @($"{tempPnlPercent.Value:0.00}%")
             </MudText>
         }
     </MudStack>
@@ -119,7 +154,7 @@
 
     private static string FormatPrice(double? price)
     {
-        return price.HasValue ? price.Value.ToString("0.##") : "-";
+        return price.HasValue ? price.Value.ToString("0.00") : "-";
     }
 
     private static string FormatDiff(double? price, double? mark)
@@ -136,7 +171,17 @@
         }
 
         var sign = diff > 0 ? "+" : string.Empty;
-        return $"({sign}{diff:0.##})";
+        return $"({sign}{diff:0.00})";
+    }
+
+    private static string FormatStrike(double? strike)
+    {
+        return strike.HasValue ? strike.Value.ToString("0.00") : string.Empty;
+    }
+
+    private static string FormatExpiration(DateTime? date)
+    {
+        return date.HasValue ? date.Value.ToString("yyyy-MM-dd") : string.Empty;
     }
 }
 

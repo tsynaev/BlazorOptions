@@ -68,6 +68,8 @@ public sealed class LegsCollectionViewModel : IDisposable
             {
                 leg.CurrentPrice = value;
             }
+
+            QuickAdd.Price = value;
         }
     }
 
@@ -585,7 +587,7 @@ public sealed class LegsCollectionViewModel : IDisposable
 
     private async Task HandleQuickAddLegCreated(LegModel leg)
     {
-        _ = leg;
+        SyncLegViewModels();
         await RaiseUpdatedAsync();
         await RaiseLegAddedAsync(leg);
     }
