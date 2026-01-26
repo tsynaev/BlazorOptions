@@ -72,6 +72,12 @@ window.payoffChart = {
         const ySpan = Math.abs(Number(yMax) - Number(yMin)) || 1;
         const paddedYMin = typeof yMin === 'number' ? yMin - ySpan * 0.5 : yMin;
         const paddedYMax = typeof yMax === 'number' ? yMax + ySpan * 0.5 : yMax;
+        const priceCount = numericPrices.length;
+        const defaultPriceRange = {
+            start: priceCount > 0 ? numericPrices[0] : 0,
+            end: priceCount > 0 ? numericPrices[priceCount - 1] : 0
+        };
+        const defaultPnlRange = { start: paddedYMin, end: paddedYMax };
 
         const loadRange = (key) => {
             try {
@@ -92,6 +98,46 @@ window.payoffChart = {
         const priceRange = loadRange(priceRangeKey);
         const pnlRange = loadRange(pnlRangeKey);
         const axisPointerValue = Number.isFinite(tempPrice) ? Number(tempPrice) : undefined;
+
+        const ensureAxisRangeState = () => {
+            if (!element.__payoffAxisRange) {
+                element.__payoffAxisRange = {};
+            }
+        };
+
+        const toNumericRange = (value) => {
+            if (!value) {
+                return null;
+            }
+
+            const start = Number(value.start);
+            const end = Number(value.end);
+
+            if (!Number.isFinite(start) || !Number.isFinite(end)) {
+                return null;
+            }
+
+            return { start, end };
+        };
+
+        const cloneRange = (range) => ({ start: Number(range.start), end: Number(range.end) });
+
+        const setAxisRange = (key, range) => {
+            if (!range) {
+                return;
+            }
+
+            ensureAxisRangeState();
+            element.__payoffAxisRange[key] = range;
+        };
+
+        const getStoredAxisRange = (key) => {
+            ensureAxisRangeState();
+            return toNumericRange(element.__payoffAxisRange[key]);
+        };
+
+        setAxisRange('price', toNumericRange(priceRange) ?? cloneRange(defaultPriceRange));
+        setAxisRange('pnl', toNumericRange(pnlRange) ?? cloneRange(defaultPnlRange));
 
         const priceZoomInside = {
             type: 'inside',
@@ -360,6 +406,12 @@ window.payoffChart = {
         const axisFontSize = isNarrow ? 8 : 10;
         const gridLeft = isNarrow ? 35 : 35;
         const gridRight = isNarrow ?10 : 10;
+        const container = element.__payoffContainer || element;
+        if (container && container.style) {
+            container.style.touchAction = 'none';
+            container.style.userSelect = 'none';
+            element.__payoffContainer = container;
+        }
 
         chart.setOption({
             grid: { left: gridLeft, right: gridRight, top: 60, bottom: 50 },
@@ -545,13 +597,16 @@ window.payoffChart = {
 
             const priceSelection = toRange(priceZoom, defaultPriceRange);
             const pnlSelection = toRange(pnlZoom, defaultPnlRange);
-
-            if (priceSelection?.start !== undefined && priceSelection?.end !== undefined) {
-                scheduleRangeSave(priceRangeKey, priceSelection);
+            const normalizedPriceSelection = toNumericRange(priceSelection);
+            if (normalizedPriceSelection) {
+                scheduleRangeSave(priceRangeKey, normalizedPriceSelection);
+                setAxisRange('price', normalizedPriceSelection);
             }
 
-            if (pnlSelection?.start !== undefined && pnlSelection?.end !== undefined) {
-                scheduleRangeSave(pnlRangeKey, pnlSelection);
+            const normalizedPnlSelection = toNumericRange(pnlSelection);
+            if (normalizedPnlSelection) {
+                scheduleRangeSave(pnlRangeKey, normalizedPnlSelection);
+                setAxisRange('pnl', normalizedPnlSelection);
             }
         });
 
@@ -572,6 +627,9 @@ window.payoffChart = {
         chart.getZr().off('mousedown');
         chart.getZr().off('mousemove');
         chart.getZr().off('mouseup');
+        chart.getZr().off('pointerdown');
+        chart.getZr().off('pointermove');
+        chart.getZr().off('pointerup');
         chart.getZr().off('globalout');
         if (element.__payoffDomClick) {
             element.removeEventListener('click', element.__payoffDomClick);
@@ -594,50 +652,50 @@ window.payoffChart = {
 
             const safeMin = Number(hardMin);
             const safeMax = Number(hardMax);
-            if (!Number.isFinite(safeMin) || !Number.isFinite(safeMax) || safeMax <= safeMin) {
-                return { start: minValue, end: maxValue };
-            }
-
             const span = Math.max(maxValue - minValue, 0.0001);
-            if (span >= safeMax - safeMin) {
-                return { start: safeMin, end: safeMax };
-            }
-
-            let center = (minValue + maxValue) / 2;
+            const center = (minValue + maxValue) / 2;
             let start = center - span / 2;
             let end = center + span / 2;
 
-            if (start < safeMin) {
-                start = safeMin;
-                end = safeMin + span;
-            }
+            if (Number.isFinite(safeMin) && Number.isFinite(safeMax) && safeMax > safeMin) {
+                const allowedSpan = safeMax - safeMin;
+                if (span < allowedSpan) {
+                    if (start < safeMin) {
+                        start = safeMin;
+                        end = safeMin + span;
+                    }
 
-            if (end > safeMax) {
-                end = safeMax;
-                start = safeMax - span;
+                    if (end > safeMax) {
+                        end = safeMax;
+                        start = safeMax - span;
+                    }
+                }
             }
 
             return { start, end };
         };
 
         const getZoomRange = (axis) => {
+            const axisKey = axis === 'x' ? 'price' : 'pnl';
+            const storedRange = getStoredAxisRange(axisKey);
+            if (storedRange) {
+                return storedRange;
+            }
+
             const zoomState = chart.getOption().dataZoom || [];
             const zoomEntry = axis === 'x'
                 ? zoomState.find(z => z.xAxisIndex !== undefined)
                 : zoomState.find(z => z.yAxisIndex !== undefined);
 
-            const defaultRange = axis === 'x'
-                ? {
-                    start: numericPrices.length ? numericPrices[0] : 0,
-                    end: numericPrices.length ? numericPrices[numericPrices.length - 1] : 0
-                }
-                : { start: paddedYMin, end: paddedYMax };
+            const defaultRange = axis === 'x' ? defaultPriceRange : defaultPnlRange;
 
             return toRange(zoomEntry, defaultRange);
         };
 
         const applyAxisZoom = (axis, range) => {
             const zoomIndex = axis === 'x' ? 0 : 1;
+            const axisKey = axis === 'x' ? 'price' : 'pnl';
+            setAxisRange(axisKey, range);
             chart.dispatchAction({
                 type: 'dataZoom',
                 dataZoomIndex: zoomIndex,
@@ -737,13 +795,13 @@ window.payoffChart = {
         const axisDragPaddingY = 60;
         const axisZoomSpeed = 1.6;
 
-        chart.getZr().on('mousedown', (event) => {
+        const handleAxisDown = (event) => {
             if (!event) return;
             const rect = getGridRect();
             if (!rect) return;
 
-            const x = event.offsetX;
-            const y = event.offsetY;
+            const x = event.offsetX ?? 0;
+            const y = event.offsetY ?? 0;
             const withinYBounds = y >= rect.y && y <= rect.y + rect.height;
             const withinXBounds = x >= rect.x && x <= rect.x + rect.width;
 
@@ -758,6 +816,9 @@ window.payoffChart = {
             const currentRange = getZoomRange(axis);
             if (!currentRange) return;
 
+            if (event.cancelable) {
+                event.preventDefault();
+            }
             element.__payoffAxisDragState = {
                 axis,
                 startX: x,
@@ -766,7 +827,7 @@ window.payoffChart = {
                 startRange: currentRange,
                 isDragging: true
             };
-        });
+        };
 
         const setCursor = (value) => {
             if (!chart || chart.isDisposed?.()) {
@@ -785,9 +846,10 @@ window.payoffChart = {
             }
         };
 
-        chart.getZr().on('mousemove', (event) => {
+        const handleAxisMove = (event) => {
             const rect = getGridRect();
-            if (rect && event) {
+            const hasGrid = rect && event;
+            if (hasGrid) {
                 const x = event.offsetX;
                 const y = event.offsetY;
                 const withinYBounds = y >= rect.y && y <= rect.y + rect.height;
@@ -808,6 +870,12 @@ window.payoffChart = {
             }
 
             const dragState = element.__payoffAxisDragState;
+            if (hasGrid && !dragState?.isDragging) {
+                chart.dispatchAction({ type: 'showTip', x: event.offsetX, y: event.offsetY });
+            } else {
+                chart.dispatchAction({ type: 'hideTip' });
+            }
+
             if (!dragState || !dragState.isDragging) {
                 return;
             }
@@ -841,7 +909,12 @@ window.payoffChart = {
 
             const clamped = clampRange(proposed.start, proposed.end, hardBounds.min, hardBounds.max);
             applyAxisZoom(dragState.axis, clamped);
-        });
+        };
+
+        chart.getZr().on('mousedown', handleAxisDown);
+        chart.getZr().on('pointerdown', handleAxisDown);
+        chart.getZr().on('mousemove', handleAxisMove);
+        chart.getZr().on('pointermove', handleAxisMove);
 
         const clearAxisDrag = () => {
             if (element.__payoffAxisDragState) {
@@ -850,6 +923,7 @@ window.payoffChart = {
         };
 
         chart.getZr().on('mouseup', clearAxisDrag);
+        chart.getZr().on('pointerup', clearAxisDrag);
         chart.getZr().on('globalout', () => {
             setCursor('');
             clearAxisDrag();
