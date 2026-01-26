@@ -1,0 +1,133 @@
+@using System.Globalization
+@using BlazorOptions.ViewModels
+@using MudBlazor
+
+<MudDialog Class="leg-edit-dialog">
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudSelect T="LegType"
+                       Label="Type"
+                       Value="@ViewModel.Leg.Type"
+                       ValueChanged="ViewModel.UpdateLegTypeAsync"
+                       Dense="true"
+                       Disabled="@ViewModel.Leg.IsReadOnly">
+                @foreach (var type in ViewModel.LegTypes)
+                {
+                    <MudSelectItem Value="@type">@type</MudSelectItem>
+                }
+            </MudSelect>
+
+            <MudStack Row="true" RowAlign="AlignItems.Center" Spacing="2">
+                <MudSelect T="DateTime?"
+                           Label="Expiration"
+                           Value="@ViewModel.Leg.ExpirationDate"
+                           ValueChanged="ViewModel.UpdateLegExpirationAsync"
+                           Dense="true"
+                           Disabled="@(ViewModel.Leg.IsReadOnly || ViewModel.Leg.Type == LegType.Future || ViewModel.AvailableExpirations.Count == 0)">
+                    @if (ViewModel.AvailableExpirations.Count == 0)
+                    {
+                        <MudSelectItem T="DateTime?" Disabled="true">No expirations available</MudSelectItem>
+                    }
+                    else
+                    {
+                        @foreach (var expiration in ViewModel.AvailableExpirations)
+                        {
+                            <MudSelectItem T="DateTime?" Value="@expiration">@FormatExpiration(expiration)</MudSelectItem>
+                        }
+                    }
+                </MudSelect>
+
+                <MudSelect T="decimal?"
+                           Label="Strike"
+                           Value="@ViewModel.Leg.Strike"
+                           ValueChanged="ViewModel.UpdateLegStrikeAsync"
+                           Dense="true"
+                           Disabled="@(ViewModel.Leg.IsReadOnly || ViewModel.Leg.Type == LegType.Future || !ViewModel.Leg.ExpirationDate.HasValue)">
+                    @foreach (var strike in ViewModel.AvailableStrikes)
+                    {
+                        <MudSelectItem T="decimal?" Value="@strike">@strike.ToString("0.##")</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudStack>
+
+            <MudNumericField T="decimal"
+                             Label="Size"
+                             Value="@ViewModel.Leg.Size"
+                             ValueChanged="ViewModel.UpdateLegSizeAsync"
+                             Dense="true"
+                             Disabled="@ViewModel.Leg.IsReadOnly" />
+
+            <MudNumericField T="decimal?"
+                             Label="Price"
+                             Value="@ViewModel.Leg.Price"
+                             ValueChanged="async value => await ViewModel.UpdateLegPriceAsync(value)"
+                             Dense="true"
+                             Adornment="Adornment.End"
+                             AdornmentText="USDT"
+                             Placeholder="@FormatPrice(ViewModel.PlaceholderPrice)"
+                             Disabled="@ViewModel.Leg.IsReadOnly" />
+
+            <MudNumericField T="decimal?"
+                             Label="IV"
+                             Value="@ViewModel.Leg.ImpliedVolatility"
+                             ValueChanged="ViewModel.UpdateLegIvAsync"
+                             Dense="true"
+                             Adornment="Adornment.End"
+                             AdornmentText="%"
+                             Disabled="@ViewModel.Leg.IsReadOnly" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="SaveAsync" Disabled="@ViewModel.Leg.IsReadOnly">Save</MudButton>
+        <MudButton Color="Color.Secondary" OnClick="CancelAsync">Cancel</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter, EditorRequired] public LegViewModel ViewModel { get; set; } = default!;
+
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    private Task SaveAsync()
+    {
+        MudDialog.Close(DialogResult.Ok(true));
+        return Task.CompletedTask;
+    }
+
+    private Task CancelAsync()
+    {
+        MudDialog.Cancel();
+        return Task.CompletedTask;
+    }
+
+    private static string FormatExpiration(DateTime? date)
+    {
+        return date.HasValue ? date.Value.ToString("yyyy-MM-dd") : string.Empty;
+    }
+
+    private static string FormatPrice(decimal? price)
+    {
+        return price.HasValue ? price.Value.ToString("0.##", CultureInfo.InvariantCulture) : string.Empty;
+    }
+
+    private static string FormatIv(decimal? iv)
+    {
+        return iv.HasValue ? $"{iv.Value:0.##}%" : string.Empty;
+    }
+}
+
+<style>
+    .leg-edit-dialog .mud-dialog {
+        width: 100%;
+        max-width: 600px;
+    }
+
+    @@media (max-width: 600px) {
+        .leg-edit-dialog .mud-dialog {
+            width: 100vw !important;
+            max-width: 100vw !important;
+            margin: 0;
+            border-radius: 0;
+        }
+    }
+</style>

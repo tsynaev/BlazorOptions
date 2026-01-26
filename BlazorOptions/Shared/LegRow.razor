@@ -1,13 +1,16 @@
+@using System.Globalization
 @using System.Linq
 @using BlazorOptions.ViewModels
+@using MudBlazor
+@inject IDialogService DialogService
 @implements IDisposable
 
-<MudTd DataLabel="Include">
+<MudTd DataLabel="Include" Class="leg-desktop include-cell">
     <MudCheckBox T="bool"
                  Value="@ViewModel.Leg.IsIncluded"
                  ValueChanged="ViewModel.UpdateLegIncludedAsync" />
 </MudTd>
-<MudTd DataLabel="Type">
+<MudTd DataLabel="Type" Class="leg-desktop">
     <MudSelect T="LegType" Value="@ViewModel.Leg.Type" ValueChanged="ViewModel.UpdateLegTypeAsync" Dense="true" Disabled="@ViewModel.Leg.IsReadOnly">
         @foreach (var type in ViewModel.LegTypes)
         {
@@ -15,7 +18,7 @@
         }
     </MudSelect>
 </MudTd>
-<MudTd DataLabel="Strike">
+<MudTd DataLabel="Strike" Class="leg-desktop strike-cell">
     @{
 
         var strikeIsInList = ViewModel.Leg.Strike.HasValue 
@@ -51,7 +54,7 @@
         }
     </MudSelect>
 </MudTd>
-<MudTd DataLabel="Expiration">
+<MudTd DataLabel="Expiration" Class="leg-desktop expiration-cell">
 
     <MudSelect T="DateTime?"
                Value="@ViewModel.Leg.ExpirationDate"
@@ -77,10 +80,10 @@
         }
     </MudSelect>
 </MudTd>
-<MudTd DataLabel="Size">
+<MudTd DataLabel="Size" Class="leg-desktop">
     <MudNumericField T="decimal" Value="@ViewModel.Leg.Size" ValueChanged="ViewModel.UpdateLegSizeAsync" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@ViewModel.Leg.IsReadOnly" />
 </MudTd>
-<MudTd DataLabel="Price">
+<MudTd DataLabel="Price" Class="leg-desktop">
     <MudStack Spacing="0">
         @{
             var placeholderPrice = ViewModel.PlaceholderPrice;
@@ -111,7 +114,7 @@
         }
     </MudStack>
 </MudTd>
-<MudTd DataLabel="Temp P/L">
+<MudTd DataLabel="Temp P/L" Class="leg-desktop">
         @{
             var tempPnl = ViewModel.TempPnl;
             var tempPnlPercent = ViewModel.TempPnlPercent;
@@ -128,7 +131,7 @@
         }
     </MudStack>
 </MudTd>
-<MudTd DataLabel="IV" Class="iv-column">
+<MudTd DataLabel="IV" Class="leg-desktop iv-column">
         @{
             var chainIv = ViewModel.ChainIv;
         }
@@ -140,8 +143,51 @@
         }
     </MudStack>
 </MudTd>
-<MudTd DataLabel="Actions" Style="text-align:right;">
+<MudTd DataLabel="Actions" Class="leg-desktop" Style="text-align:right;">
     <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="async () => await ViewModel.RemoveLegAsync()" />
+</MudTd>
+<MudTd Class="leg-mobile-cell" ColSpan="9">
+    <MudPaper Elevation="1" Class="mobile-leg-card">
+        <MudStack Spacing="1">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                <MudStack Spacing="0">
+                    <MudText Typo="Typo.subtitle2">@BuildLegSummary()</MudText>
+                    <MudText Typo="Typo.overline" Class="mobile-leg-subtitle">@BuildLegSubtitle()</MudText>
+                </MudStack>
+                <MudSpacer />
+                <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                               Color="Color.Primary"
+                               Size="Size.Medium"
+                               OnClick="OpenEditDialogAsync"
+                               Disabled="@ViewModel.Leg.IsReadOnly" />
+            </MudStack>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudText Typo="Typo.caption">
+                    Price: @FormatPrice(ViewModel.Leg.Price ?? ViewModel.PlaceholderPrice)
+                </MudText>
+                <MudText Typo="Typo.caption">
+                    IV: @FormatIv(ViewModel.Leg.ImpliedVolatility ?? ViewModel.ChainIv)
+                </MudText>
+            </MudStack>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudText Typo="Typo.caption" Color="@(ViewModel.TempPnl >= 0 ? Color.Success : Color.Error)">
+                    Temp P/L: @FormatPrice(ViewModel.TempPnl)
+                </MudText>
+                @if (ViewModel.TempPnlPercent.HasValue)
+                {
+                    <MudText Typo="Typo.caption">
+                        (@($"{ViewModel.TempPnlPercent.Value:0.00}%"))
+                    </MudText>
+                }
+                @if (ViewModel.IsLive && (ViewModel.Bid.HasValue || ViewModel.Ask.HasValue))
+                {
+                    <MudText Typo="Typo.caption">
+                        Bid: @FormatPrice(ViewModel.Bid) | Ask: @FormatPrice(ViewModel.Ask)
+                    </MudText>
+                }
+            </MudStack>
+        </MudStack>
+    </MudPaper>
 </MudTd>
 
 @code {
@@ -200,6 +246,46 @@
     {
         return date.HasValue ? date.Value.ToString("yyyy-MM-dd") : string.Empty;
     }
+
+    private async Task OpenEditDialogAsync()
+    {
+        var parameters = new DialogParameters
+        {
+            { nameof(LegEditDialog.ViewModel), ViewModel }
+        };
+
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Medium,
+            FullWidth = true,
+            CloseButton = true
+        };
+
+        await DialogService.ShowAsync<LegEditDialog>("Edit leg", parameters, options);
+    }
+
+    private string BuildLegSummary()
+    {
+        var direction = ViewModel.Leg.Size >= 0 ? "Buy" : "Sell";
+        var typeLabel = ViewModel.Leg.Type.ToString().ToUpperInvariant();
+        var size = Math.Abs(ViewModel.Leg.Size);
+        var strike = ViewModel.Leg.Strike.HasValue
+            ? Math.Round(ViewModel.Leg.Strike.Value).ToString("0", CultureInfo.InvariantCulture)
+            : "ATM";
+        return $"{direction} {size:0.##} {typeLabel} {strike}";
+    }
+
+    private string BuildLegSubtitle()
+    {
+        return ViewModel.Leg.ExpirationDate.HasValue
+            ? ViewModel.Leg.ExpirationDate.Value.ToString("dd.MM.yy")
+            : "No expiration";
+    }
+
+    private static string FormatIv(decimal? value)
+    {
+        return value.HasValue ? $"{value.Value:0.##}%" : "-";
+    }
 }
 
 <style>
@@ -235,6 +321,68 @@
         display: block;
         margin-top: 2px;
         line-height: 1.1;
+    }
+    .mobile-temp-pnl {
+        min-width: 100px;
+    }
+
+    .mobile-leg-card {
+        background-color: rgba(255, 255, 255, 0.02);
+        border-radius: 12px;
+        padding: 12px;
+    }
+
+    .mobile-leg-card .price-chain {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 4px;
+    }
+
+    .leg-mobile-cell {
+        display: none;
+        padding: 0;
+    }
+
+    @@media (max-width: 960px) {
+        .leg-table thead,
+        .leg-table th {
+            display: none;
+        }
+
+        .leg-table tr {
+            display: block;
+        }
+
+        .leg-table td {
+            display: none;
+        }
+
+        .leg-table td.leg-mobile-cell {
+            display: table-cell;
+        }
+
+        .leg-mobile-cell .mud-paper-root {
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .leg-table .leg-desktop {
+            display: none;
+        }
+    }
+
+    @@media (min-width: 961px) {
+        .leg-mobile-cell {
+            display: none;
+        }
+
+        .leg-table tr {
+            display: table-row;
+        }
+
+        .leg-table td.leg-mobile-cell {
+            display: none;
+        }
     }
 </style>
 
