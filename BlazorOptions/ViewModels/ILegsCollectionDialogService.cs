@@ -7,7 +7,7 @@ public interface ILegsCollectionDialogService
     Task<IReadOnlyList<LegModel>?> ShowOptionChainDialogAsync(
         PositionModel position,
         LegsCollectionModel collection,
-        double? underlyingPrice);
+        decimal? underlyingPrice);
 
     Task<IReadOnlyList<BybitPosition>?> ShowBybitPositionsDialogAsync(
         string? baseAsset,

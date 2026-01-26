@@ -75,8 +75,8 @@ public class BybitPositionService : BybitApiService
 
             TryReadString(entry, "side", out var side);
 
-            var size = ReadDouble(entry, "size");
-            var avgPrice = ReadDouble(entry, "avgPrice");
+            var size = ReadDecimal(entry, "size");
+            var avgPrice = ReadDecimal(entry, "avgPrice");
 
             positions.Add(new BybitPosition(symbol, side, category, size, avgPrice));
         }
@@ -117,7 +117,7 @@ public class BybitPositionService : BybitApiService
         return !string.IsNullOrWhiteSpace(value);
     }
 
-    private static double ReadDouble(JsonElement element, string propertyName)
+    private static decimal ReadDecimal(JsonElement element, string propertyName)
     {
         if (!element.TryGetProperty(propertyName, out var property))
         {
@@ -126,11 +126,11 @@ public class BybitPositionService : BybitApiService
 
         switch (property.ValueKind)
         {
-            case JsonValueKind.Number when property.TryGetDouble(out var value):
+            case JsonValueKind.Number when property.TryGetDecimal(out var value):
                 return value;
             case JsonValueKind.String:
                 var raw = property.GetString();
-                if (double.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
+                if (decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
                 {
                     return parsed;
                 }
@@ -144,7 +144,7 @@ public class BybitPositionService : BybitApiService
         }
 
         var trimmed = property.GetRawText();
-        return double.TryParse(trimmed, NumberStyles.Any, CultureInfo.InvariantCulture, out var fallback)
+        return decimal.TryParse(trimmed, NumberStyles.Any, CultureInfo.InvariantCulture, out var fallback)
             ? fallback
             : 0;
     }
@@ -155,5 +155,5 @@ public sealed record BybitPosition(
     string Symbol,
     string Side,
     string Category,
-    double Size,
-    double AvgPrice);
+    decimal Size,
+    decimal AvgPrice);

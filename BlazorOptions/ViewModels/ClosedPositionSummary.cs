@@ -9,11 +9,11 @@ namespace BlazorOptions.ViewModels;
 public sealed record ClosedPositionSummary(
     string Symbol,
     DateTime? Since,
-    double Size,
-    double AvgEntryPrice,
-    double AvgClosePrice,
-    double ClosePnl,
-    double Fee);
+    decimal Size,
+    decimal AvgEntryPrice,
+    decimal AvgClosePrice,
+    decimal ClosePnl,
+    decimal Fee);
 
 public static class ClosedPositionCalculator
 {
@@ -187,11 +187,11 @@ public static class ClosedPositionCalculator
         return new ClosedPositionSummary(
             normalizedSymbol,
             sinceDate ?? computedSinceDate,
-            (double)closeQty,
-            (double)avgEntry,
-            (double)avgClose,
-            (double)realized,
-            (double)feeTotal);
+            closeQty,
+            avgEntry,
+            avgClose,
+            realized,
+            feeTotal);
     }
 
     private static decimal? ParseDecimal(string? value)

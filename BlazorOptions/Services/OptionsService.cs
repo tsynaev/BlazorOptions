@@ -39,15 +39,15 @@ namespace BlazorOptions
             return (xs, profits);
         }
 
-        public (double[] xs, double[] profits, double[] theoreticalProfits) GeneratePosition(IEnumerable<LegModel> legs, int points = 200, DateTime? valuationDate = null)
+        public (decimal[] xs, decimal[] profits, decimal[] theoreticalProfits) GeneratePosition(IEnumerable<LegModel> legs, int points = 200, DateTime? valuationDate = null)
         {
             var activeLegs = legs.Where(l => l.IsIncluded).ToList();
             var anchor = activeLegs.Count > 0
                 ? activeLegs.Average(l => l.Strike.HasValue && l.Strike.Value > 0 ? l.Strike.Value : (l.Price ?? 0))
                 : 1000;
 
-            var start = Math.Max(0, anchor * 0.5);
-            var end = Math.Max(anchor + 1, anchor * 1.5);
+            var start = Math.Max(0m, anchor * 0.5m);
+            var end = Math.Max(anchor + 1, anchor * 1.5m);
 
             if (points < 20)
             {
@@ -64,9 +64,9 @@ namespace BlazorOptions
             var adjustedStep = (end - start) / steps;
             var count = steps + 1;
 
-            var xs = new double[count];
-            var profits = new double[count];
-            var theoreticalProfits = new double[count];
+            var xs = new decimal[count];
+            var profits = new decimal[count];
+            var theoreticalProfits = new decimal[count];
             var evaluationDate = valuationDate ?? DateTime.UtcNow;
 
             for (int i = 0; i < count; i++)
@@ -80,7 +80,7 @@ namespace BlazorOptions
             return (xs, profits, theoreticalProfits);
         }
 
-        public double CalculateLegProfit(LegModel leg, double underlyingPrice)
+        public decimal CalculateLegProfit(LegModel leg, decimal underlyingPrice)
         {
             var strike = leg.Strike ?? 0;
             var entryPrice = leg.Price ?? 0;
@@ -93,7 +93,7 @@ namespace BlazorOptions
             };
         }
 
-        public double CalculateLegTheoreticalProfit(LegModel leg, double underlyingPrice, DateTime? valuationDate = null)
+        public decimal CalculateLegTheoreticalProfit(LegModel leg, decimal underlyingPrice, DateTime? valuationDate = null)
         {
             var evaluationDate = valuationDate ?? DateTime.UtcNow;
             var strike = leg.Strike;
@@ -104,18 +104,18 @@ namespace BlazorOptions
             return leg.Type switch
             {
                 LegType.Call when strike.HasValue && expiration.HasValue && impliedVolatility.HasValue =>
-                    (_blackScholes.CalculatePrice(underlyingPrice, strike.Value, impliedVolatility.Value, expiration.Value, true, evaluationDate) - entryPrice) * leg.Size,
+                    (_blackScholes.CalculatePriceDecimal(underlyingPrice, strike.Value, impliedVolatility.Value, expiration.Value, true, evaluationDate) - entryPrice) * leg.Size,
                 LegType.Put when strike.HasValue && expiration.HasValue && impliedVolatility.HasValue =>
-                    (_blackScholes.CalculatePrice(underlyingPrice, strike.Value, impliedVolatility.Value, expiration.Value, false, evaluationDate) - entryPrice) * leg.Size,
+                    (_blackScholes.CalculatePriceDecimal(underlyingPrice, strike.Value, impliedVolatility.Value, expiration.Value, false, evaluationDate) - entryPrice) * leg.Size,
                 LegType.Future => (underlyingPrice - entryPrice) * leg.Size,
                 _ => 0
             };
         }
 
-        public double CalculateTotalTheoreticalProfit(IEnumerable<LegModel> legs, double underlyingPrice, DateTime? valuationDate = null)
+        public decimal CalculateTotalTheoreticalProfit(IEnumerable<LegModel> legs, decimal underlyingPrice, DateTime? valuationDate = null)
         {
             var evaluationDate = valuationDate ?? DateTime.UtcNow;
-            double total = 0;
+            decimal total = 0;
 
             foreach (var leg in legs)
             {
@@ -125,9 +125,9 @@ namespace BlazorOptions
             return total;
         }
 
-        public double CalculateTotalProfit(IEnumerable<LegModel> legs, double underlyingPrice)
+        public decimal CalculateTotalProfit(IEnumerable<LegModel> legs, decimal underlyingPrice)
         {
-            double total = 0;
+            decimal total = 0;
 
             foreach (var leg in legs)
             {
@@ -137,35 +137,27 @@ namespace BlazorOptions
             return total;
         }
 
-        private static double CalculateNiceStep(double step)
+        private static decimal CalculateNiceStep(decimal step)
         {
-            if (step <= 0)
-            {
-                return 1;
-            }
+            if (step <= 0m)
+                return 1m;
 
-            var exponent = Math.Floor(Math.Log10(step));
-            var fraction = step / Math.Pow(10, exponent);
-            double niceFraction;
+            // double внутри
+            double s = (double)step;
+            double exponent = Math.Floor(Math.Log10(s));
+            double pow10 = Math.Pow(10.0, exponent);
 
-            if (fraction <= 1)
-            {
-                niceFraction = 1;
-            }
-            else if (fraction <= 2)
-            {
-                niceFraction = 2;
-            }
-            else if (fraction <= 5)
-            {
-                niceFraction = 5;
-            }
-            else
-            {
-                niceFraction = 10;
-            }
+            double fraction = s / pow10;
 
-            return niceFraction * Math.Pow(10, exponent);
+            decimal niceFraction =
+                fraction <= 1.0 ? 1m :
+                fraction <= 2.0 ? 2m :
+                fraction <= 5.0 ? 5m :
+                10m;
+
+            // вернуть decimal
+            decimal scale = (decimal)pow10;
+            return niceFraction * scale;
         }
     }
 }

@@ -7,7 +7,7 @@ public record ExchangePriceUpdate(string Exchange, string Symbol, decimal Price,
 public interface IExchangeTickerClient
 {
     string Exchange { get; }
-    event EventHandler<ExchangePriceUpdate>? PriceUpdated;
+    event Func<ExchangePriceUpdate, Task> PriceUpdated;
     Task EnsureConnectedAsync(Uri webSocketUrl, CancellationToken cancellationToken);
     Task SubscribeAsync(string symbol, CancellationToken cancellationToken);
     Task UnsubscribeAsync(string symbol, CancellationToken cancellationToken);

@@ -18,15 +18,15 @@ public class LegModel
 
     public LegType Type { get; set; } = LegType.Call;
 
-    public double? Strike { get; set; } 
+    public decimal? Strike { get; set; } 
 
     public DateTime? ExpirationDate { get; set; }
 
-    public double Size { get; set; } = 1;
+    public decimal Size { get; set; } = 1;
 
-    public double? Price { get; set; }
+    public decimal? Price { get; set; }
 
-    public double? ImpliedVolatility { get; set; }
+    public decimal? ImpliedVolatility { get; set; }
 
     public string? Symbol { get; set; }
 

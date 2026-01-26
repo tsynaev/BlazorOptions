@@ -10,7 +10,7 @@
     public EChartOptions? Config { get; set; }
 
     [Parameter]
-    public EventCallback<double> PriceSelected { get; set; }
+    public EventCallback<decimal> PriceSelected { get; set; }
 
     [Parameter]
     public EventCallback<LegendSelectionChangedEventArgs> LegendSelectionChanged { get; set; }
@@ -49,7 +49,7 @@
     }
 
     [JSInvokable]
-    public Task OnChartPriceSelected(double price)
+    public Task OnChartPriceSelected(decimal price)
     {
         if (PriceSelected.HasDelegate)
         {

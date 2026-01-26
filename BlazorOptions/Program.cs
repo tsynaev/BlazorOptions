@@ -10,6 +10,8 @@ var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
+builder.Logging.AddFilter("System.Net.Http", LogLevel.Warning);
+
 builder.Services.AddScoped<DeviceIdHeaderHandler>();
 builder.Services.AddHttpClient("App", client =>
 {
@@ -19,6 +21,7 @@ builder.Services.AddScoped(sp => sp.GetRequiredService<IHttpClientFactory>().Cre
 
 // register the options helper/service used by the chart page
 builder.Services.AddSingleton<BlackScholes>();
+builder.Services.AddSingleton<ITelemetryService, TelemetryService>();
 builder.Services.AddSingleton<OptionsService>();
 builder.Services.AddScoped<LocalStorageService>();
 builder.Services.AddScoped<DeviceIdentityService>();
@@ -32,6 +35,7 @@ builder.Services.AddScoped<ActivePositionsService>();
 builder.Services.AddScoped<BybitTransactionService>();
 builder.Services.AddScoped<TradingHistoryStorageService>();
 builder.Services.AddScoped<ExchangeTickerService>();
+builder.Services.AddSingleton<IExchangeService, ExchangeService>();
 builder.Services.AddScoped<IExchangeTickerClient, BybitTickerClient>();
 builder.Services.AddScoped<OptionsChainService>();
 builder.Services.AddScoped<IOptions<BybitSettings>, LocalStorageBybitSettingsOptions>();

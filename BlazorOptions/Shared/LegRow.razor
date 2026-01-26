@@ -1,13 +1,14 @@
+@using System.Linq
 @using BlazorOptions.ViewModels
 @implements IDisposable
 
 <MudTd DataLabel="Include">
     <MudCheckBox T="bool"
                  Value="@ViewModel.Leg.IsIncluded"
-                 ValueChanged="async checkedValue => await ViewModel.UpdateLegIncludedAsync(checkedValue)" />
+                 ValueChanged="ViewModel.UpdateLegIncludedAsync" />
 </MudTd>
 <MudTd DataLabel="Type">
-    <MudSelect T="LegType" Value="@ViewModel.Leg.Type" ValueChanged="async type => await ViewModel.UpdateLegTypeAsync(type)" Dense="true" Disabled="@ViewModel.Leg.IsReadOnly">
+    <MudSelect T="LegType" Value="@ViewModel.Leg.Type" ValueChanged="ViewModel.UpdateLegTypeAsync" Dense="true" Disabled="@ViewModel.Leg.IsReadOnly">
         @foreach (var type in ViewModel.LegTypes)
         {
             <MudSelectItem Value="@type">@type</MudSelectItem>
@@ -15,40 +16,57 @@
     </MudSelect>
 </MudTd>
 <MudTd DataLabel="Strike">
-    <MudSelect T="double?"
+    @{
+
+        var strikeIsInList = ViewModel.Leg.Strike.HasValue 
+                             && ViewModel.AvailableStrikes.Any(item => Math.Abs(item - ViewModel.Leg.Strike.Value) < 0.01m);
+    }
+    <MudSelect T="decimal?"
                Value="@ViewModel.Leg.Strike"
-               ValueChanged="async value => await ViewModel.UpdateLegStrikeAsync(value)"
+               ValueChanged="ViewModel.UpdateLegStrikeAsync"
                Dense="true"
                Variant="Variant.Outlined"
                Margin="Margin.Dense"
-               Disabled="@(ViewModel.Leg.IsReadOnly || ViewModel.Leg.Type == LegType.Future || ViewModel.AvailableStrikes.Count == 0)"
+               Disabled="@(ViewModel.Leg.IsReadOnly || ViewModel.Leg.Type == LegType.Future || !ViewModel.Leg.ExpirationDate.HasValue)"
                Adornment="Adornment.End"
                AdornmentText="USDT">
-        @if (ViewModel.AvailableStrikes.Count == 0)
+        @if (ViewModel.Leg.Strike.HasValue && !strikeIsInList)
         {
-            <MudSelectItem T="double?" Disabled="true">No strikes</MudSelectItem>
+            <MudSelectItem T="decimal?" Value="@ViewModel.Leg.Strike" Disabled="true">@FormatStrike(ViewModel.Leg.Strike)</MudSelectItem>
+        }
+        @if (!ViewModel.Leg.ExpirationDate.HasValue)
+        {
+            <MudSelectItem T="decimal?" Disabled="true">Select expiration first</MudSelectItem>
+        }
+        else if (ViewModel.AvailableStrikes.Count == 0)
+        {
+            <MudSelectItem T="decimal?" Disabled="true">No strikes for selected expiration</MudSelectItem>
         }
         else
         {
             @foreach (var strike in ViewModel.AvailableStrikes)
             {
-                <MudSelectItem T="double?" Value="@strike">@FormatStrike(strike)</MudSelectItem>
+                <MudSelectItem T="decimal?" Value="@strike">@FormatStrike(strike)</MudSelectItem>
             }
         }
     </MudSelect>
 </MudTd>
 <MudTd DataLabel="Expiration">
+
     <MudSelect T="DateTime?"
                Value="@ViewModel.Leg.ExpirationDate"
-               ValueChanged="async value => await ViewModel.UpdateLegExpirationAsync(value)"
+               ValueChanged="ViewModel.UpdateLegExpirationAsync"
                Dense="true"
                Variant="Variant.Outlined"
                Margin="Margin.Dense"
-               Disabled="@(ViewModel.Leg.IsReadOnly || ViewModel.Leg.Type == LegType.Future || ViewModel.AvailableExpirations.Count == 0)"
+               Disabled="@(ViewModel.Leg.IsReadOnly || (ViewModel.AvailableExpirations.Count == 0))"
                Class="full-width">
+
         @if (ViewModel.AvailableExpirations.Count == 0)
         {
-            <MudSelectItem T="DateTime?" Disabled="true">No expirations</MudSelectItem>
+            <MudSelectItem T="DateTime?" Disabled="true">
+                @(ViewModel.Leg.Type == LegType.Future ? "No expirations" : "No expirations available")
+            </MudSelectItem>
         }
         else
         {
@@ -60,7 +78,7 @@
     </MudSelect>
 </MudTd>
 <MudTd DataLabel="Size">
-    <MudNumericField T="double" Value="@ViewModel.Leg.Size" ValueChanged="async value => await ViewModel.UpdateLegSizeAsync(value)" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@ViewModel.Leg.IsReadOnly" />
+    <MudNumericField T="decimal" Value="@ViewModel.Leg.Size" ValueChanged="ViewModel.UpdateLegSizeAsync" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@ViewModel.Leg.IsReadOnly" />
 </MudTd>
 <MudTd DataLabel="Price">
     <MudStack Spacing="0">
@@ -68,7 +86,7 @@
             var placeholderPrice = ViewModel.PlaceholderPrice;
             var placeholder = placeholderPrice.HasValue ? placeholderPrice.Value.ToString("0.##") : null;
         }
-        <MudNumericField T="double?"
+        <MudNumericField T="decimal?"
                          Value="@ViewModel.Leg.Price"
                          ValueChanged="async value => await ViewModel.UpdateLegPriceAsync(value)"
                          Variant="Variant.Outlined"
@@ -79,17 +97,16 @@
                          Disabled="@ViewModel.Leg.IsReadOnly"
                          Class="price-input" />
         @{
-            var bidAsk = ViewModel.BidAsk;
             var markPrice = ViewModel.MarkPrice;
         }
-        @if (ViewModel.IsLive && (bidAsk.Bid.HasValue || bidAsk.Ask.HasValue))
+        @if (ViewModel.IsLive && (ViewModel.Bid.HasValue || ViewModel.Ask.HasValue))
         {
             <MudText Typo="Typo.caption" Class="price-chain">
-                <span class="price-bid">@FormatPrice(bidAsk.Bid)<span class="price-diff">@FormatDiff(bidAsk.Bid, markPrice)</span></span>
+                <span class="price-bid">@FormatPrice(ViewModel.Bid)<span class="price-diff">@FormatDiff(ViewModel.Bid, markPrice)</span></span>
                 <span class="price-sep">|</span>
                 <span class="price-mark">@FormatPrice(markPrice)</span>
                 <span class="price-sep">|</span>
-                <span class="price-ask"><span class="price-diff">@FormatDiff(bidAsk.Ask, markPrice)</span> @FormatPrice(bidAsk.Ask)</span>
+                <span class="price-ask"><span class="price-diff">@FormatDiff(ViewModel.Ask, markPrice)</span> @FormatPrice(ViewModel.Ask)</span>
             </MudText>
         }
     </MudStack>
@@ -101,7 +118,7 @@
         }
     <MudStack Spacing="0">
         <MudText Typo="Typo.body2" Color="@(tempPnl >= 0 ? Color.Success : Color.Error)">
-            @tempPnl.ToString("0.00")
+            @FormatPrice(tempPnl)
         </MudText>
         @if (tempPnlPercent.HasValue)
         {
@@ -116,7 +133,7 @@
             var chainIv = ViewModel.ChainIv;
         }
     <MudStack Spacing="0">
-        <MudNumericField T="double?" Value="@ViewModel.Leg.ImpliedVolatility" ValueChanged="async value => await ViewModel.UpdateLegIvAsync(value)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="%" Disabled="@ViewModel.Leg.IsReadOnly" Class="iv-input" />
+        <MudNumericField T="decimal?" Value="@ViewModel.Leg.ImpliedVolatility" ValueChanged="ViewModel.UpdateLegIvAsync" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="%" Disabled="@ViewModel.Leg.IsReadOnly" Class="iv-input" />
         @if (chainIv.HasValue)
         {
             <MudText Typo="Typo.caption" Class="iv-chain">Chain: @chainIv.Value.ToString("0.##")%</MudText>
@@ -152,12 +169,12 @@
         return InvokeAsync(StateHasChanged);
     }
 
-    private static string FormatPrice(double? price)
+    private static string FormatPrice(decimal? price)
     {
         return price.HasValue ? price.Value.ToString("0.00") : "-";
     }
 
-    private static string FormatDiff(double? price, double? mark)
+    private static string FormatDiff(decimal? price, decimal? mark)
     {
         if (!price.HasValue || !mark.HasValue)
         {
@@ -165,7 +182,7 @@
         }
 
         var diff = price.Value - mark.Value;
-        if (Math.Abs(diff) < 0.0001)
+        if (Math.Abs(diff) < 0.0001m)
         {
             return string.Empty;
         }
@@ -174,7 +191,7 @@
         return $"({sign}{diff:0.00})";
     }
 
-    private static string FormatStrike(double? strike)
+    private static string FormatStrike(decimal? strike)
     {
         return strike.HasValue ? strike.Value.ToString("0.00") : string.Empty;
     }

@@ -155,7 +155,7 @@ public sealed class ActivePositionsService : IAsyncDisposable
         await _sync.WaitAsync();
         try
         {
-            var incoming = positions.Where(position => Math.Abs(position.Size) >= 0.0001).ToList();
+            var incoming = positions.Where(position => Math.Abs(position.Size) >= 0.0001m).ToList();
             var incomingSet = new HashSet<BybitPosition>(incoming, _comparer);
 
             _positions.RemoveAll(existing => !incomingSet.Contains(existing));
@@ -357,11 +357,11 @@ public sealed class ActivePositionsService : IAsyncDisposable
 
                 TryReadString(entry, "side", out var side);
                 TryReadString(entry, "category", out var category);
-                var size = ReadDouble(entry, "size");
-                var avgPrice = ReadDouble(entry, "avgPrice");
+                var size = ReadDecimal(entry, "size");
+                var avgPrice = ReadDecimal(entry, "avgPrice");
                 if (avgPrice <= 0)
                 {
-                    avgPrice = ReadDouble(entry, "entryPrice");
+                    avgPrice = ReadDecimal(entry, "entryPrice");
                 }
 
                 if (string.IsNullOrWhiteSpace(category))
@@ -384,7 +384,7 @@ public sealed class ActivePositionsService : IAsyncDisposable
         try
         {
             var index = _positions.FindIndex(existing => _comparer.Equals(existing, update));
-            if (Math.Abs(update.Size) < 0.0001)
+            if (Math.Abs(update.Size) < 0.0001m)
             {
                 if (index >= 0)
                 {
@@ -496,7 +496,7 @@ public sealed class ActivePositionsService : IAsyncDisposable
         return !string.IsNullOrWhiteSpace(value);
     }
 
-    private static double ReadDouble(JsonElement element, string propertyName)
+    private static decimal ReadDecimal(JsonElement element, string propertyName)
     {
         if (!element.TryGetProperty(propertyName, out var property))
         {
@@ -505,11 +505,11 @@ public sealed class ActivePositionsService : IAsyncDisposable
 
         switch (property.ValueKind)
         {
-            case JsonValueKind.Number when property.TryGetDouble(out var value):
+            case JsonValueKind.Number when property.TryGetDecimal(out var value):
                 return value;
             case JsonValueKind.String:
                 var raw = property.GetString();
-                if (double.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
+                if (decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
                 {
                     return parsed;
                 }
@@ -523,7 +523,7 @@ public sealed class ActivePositionsService : IAsyncDisposable
         }
 
         var trimmed = property.GetRawText();
-        return double.TryParse(trimmed, NumberStyles.Any, CultureInfo.InvariantCulture, out var fallback)
+        return decimal.TryParse(trimmed, NumberStyles.Any, CultureInfo.InvariantCulture, out var fallback)
             ? fallback
             : 0;
     }

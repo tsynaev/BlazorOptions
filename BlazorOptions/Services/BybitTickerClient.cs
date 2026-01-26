@@ -17,7 +17,7 @@ public class BybitTickerClient : IExchangeTickerClient
 
     public string Exchange => "Bybit";
 
-    public event EventHandler<ExchangePriceUpdate>? PriceUpdated;
+    public event Func<ExchangePriceUpdate, Task> PriceUpdated;
 
     public async Task EnsureConnectedAsync(Uri webSocketUrl, CancellationToken cancellationToken)
     {
@@ -182,11 +182,11 @@ public class BybitTickerClient : IExchangeTickerClient
             }
 
             var payload = Encoding.UTF8.GetString(builder.WrittenSpan);
-            TryHandleTickerPayload(payload);
+            await TryHandleTickerPayload(payload);
         }
     }
 
-    private void TryHandleTickerPayload(string payload)
+    private async Task TryHandleTickerPayload(string payload)
     {
         try
         {
@@ -218,7 +218,7 @@ public class BybitTickerClient : IExchangeTickerClient
             if (TryExtractPrice(dataElement, out var price, out var symbol))
             {
                 var resolvedSymbol = string.IsNullOrWhiteSpace(symbol) ? topicSymbol : symbol;
-                PriceUpdated?.Invoke(this, new ExchangePriceUpdate(Exchange, resolvedSymbol, price, DateTime.UtcNow));
+                await PriceUpdated?.Invoke(new ExchangePriceUpdate(Exchange, resolvedSymbol, price, DateTime.UtcNow));
             }
         }
         catch

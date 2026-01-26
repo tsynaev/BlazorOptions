@@ -1,4 +1,8 @@
+using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using BlazorOptions.Services;
 
 namespace BlazorOptions.ViewModels;
@@ -8,25 +12,35 @@ public sealed class LegViewModel : IDisposable
     private readonly LegsCollectionViewModel _collectionViewModel;
     private readonly OptionsService _optionsService;
     private readonly OptionsChainService _optionsChainService;
+    private readonly ExchangeTickerService _exchangeTicker;
+    private readonly IExchangeService _exchangeService;
+    private readonly ITelemetryService _telemetryService;
     private readonly SemaphoreSlim _subscriptionLock = new(1, 1);
     private IDisposable? _subscriptionRegistration;
-    private double? _currentPrice;
+    private decimal? _currentPrice;
     private bool _isLive;
-    private double? _lastBid;
-    private double? _lastAsk;
-    private double? _lastMarkPrice;
-    private double? _lastChainIv;
-    private DateTime _valuationDate;
+ 
     private LegModel? _leg;
+    private List<DateTime?> _cachedExpirations = new List<DateTime?>();
+    private IReadOnlyList<decimal> _cachedStrikes = Array.Empty<decimal>();
+    private DateTime _valuationDate;
+ 
+
 
     public LegViewModel(
         LegsCollectionViewModel collectionViewModel,
         OptionsService optionsService,
-        OptionsChainService optionsChainService)
+        OptionsChainService optionsChainService,
+        ExchangeTickerService exchangeTicker,
+        IExchangeService exchangeService,
+        ITelemetryService telemetryService)
     {
         _collectionViewModel = collectionViewModel;
         _optionsService = optionsService;
         _optionsChainService = optionsChainService;
+        _exchangeTicker = exchangeTicker;
+        _exchangeService = exchangeService;
+        _telemetryService = telemetryService;
     }
 
     public LegModel Leg
@@ -35,7 +49,8 @@ public sealed class LegViewModel : IDisposable
         set
         {
             _leg = value;
-            UpdateSymbol();
+
+            RefreshExpDatesAndStrikes();
             _ = RefreshSubscriptionAsync();
         }
     }
@@ -45,23 +60,26 @@ public sealed class LegViewModel : IDisposable
     public event Action? Changed;
     public event Func<Task>? Removed;
 
-    public double? PlaceholderPrice => Leg.Price.HasValue ? null : GetEntryPriceSuggestion();
+    public decimal? PlaceholderPrice => Leg.Price.HasValue ? null : GetEntryPriceSuggestion();
 
-    public BidAsk BidAsk => ResolveBidAsk();
+    public decimal? Bid { get; private set; }
+    public decimal? Ask { get; private set; }
 
-    public double? MarkPrice => _isLive ? (_lastMarkPrice ?? ResolveFallbackMarkPrice()) : null;
+    public decimal? MarkPrice { get; private set; }
 
-    public double? ChainIv => _isLive ? (_lastChainIv ?? ResolveFallbackIv()) : null;
+    public decimal? ChainIv { get; private set; }
 
-    public double TempPnl => ResolveTempPnl();
+    public decimal? TempPnl { get; private set; }
 
-    public double? TempPnlPercent => ResolveTempPnlPercent();
+ 
 
-    public IReadOnlyList<DateTime> AvailableExpirations => GetAvailableExpirations();
+    public decimal? TempPnlPercent => ResolveTempPnlPercent();
 
-    public IReadOnlyList<double> AvailableStrikes => GetAvailableStrikes();
+    public IReadOnlyList<DateTime?> AvailableExpirations => _cachedExpirations;
 
-    public double? CurrentPrice
+    public IReadOnlyList<decimal> AvailableStrikes => _cachedStrikes;
+
+    public decimal? CurrentPrice
     {
         get => _currentPrice;
         set
@@ -72,6 +90,9 @@ public sealed class LegViewModel : IDisposable
             }
 
             _currentPrice = value;
+
+            CalculateLegTheoreticalProfit();
+
             Changed?.Invoke();
         }
     }
@@ -91,11 +112,10 @@ public sealed class LegViewModel : IDisposable
             {
                 _subscriptionRegistration?.Dispose();
                 _subscriptionRegistration = null;
-
-                ClearTickerCache();
             }
             else
             {
+                CalculateLegTheoreticalProfit();
                 _ = RefreshSubscriptionAsync();
             }
             Changed?.Invoke();
@@ -113,53 +133,102 @@ public sealed class LegViewModel : IDisposable
             }
 
             _valuationDate = value;
+
+            CalculateLegTheoreticalProfit();
             Changed?.Invoke();
         }
     }
 
-    public Task UpdateLegIvAsync(double? iv)
+    public void UpdateLegIvAsync(decimal? iv)
     {
-        return _collectionViewModel.UpdateLegIvAsync(Leg, iv);
+        using var activity = _telemetryService.StartActivity("LegViewModel.UpdateLegIv");
+        if (Leg.IsReadOnly)
+        {
+            return;
+        }
+
+        Leg.ImpliedVolatility = iv;
     }
 
-    public async Task UpdateLegIncludedAsync(bool include)
+
+    public void UpdateLegIncludedAsync(bool include)
     {
-        await _collectionViewModel.UpdateLegIncludedAsync(Leg, include);
+        using var activity = _telemetryService.StartActivity("LegViewModel.UpdateIncluded");
+        Leg.IsIncluded = include;
         Changed?.Invoke();
     }
 
-    public async Task UpdateLegTypeAsync(LegType type)
+    public void UpdateLegTypeAsync(LegType type)
     {
-        await _collectionViewModel.UpdateLegTypeAsync(Leg, type);
+        using var activity = _telemetryService.StartActivity("LegViewModel.UpdateType");
+        if (Leg.IsReadOnly)
+        {
+            return;
+        }
+
+        Leg.Type = type;
+        RefreshExpDatesAndStrikes();
         Changed?.Invoke();
     }
 
-    public async Task UpdateLegStrikeAsync(double? strike)
+    public void UpdateLegStrikeAsync(decimal? strike)
     {
-        await _collectionViewModel.UpdateLegStrikeAsync(Leg, strike);
+        using var activity = _telemetryService.StartActivity("LegViewModel.UpdateStrike");
+        if (Leg.IsReadOnly)
+        {
+            return;
+        }
+
+        Leg.Strike = strike;
         Changed?.Invoke();
     }
 
-    public async Task UpdateLegSizeAsync(double size)
+    public void UpdateLegSizeAsync(decimal size)
     {
-        await _collectionViewModel.UpdateLegSizeAsync(Leg, size);
+        using var activity = _telemetryService.StartActivity("LegViewModel.UpdateSize");
+        if (Leg.IsReadOnly)
+        {
+            return;
+        }
+
+        Leg.Size = size;
         Changed?.Invoke();
     }
 
-    public async Task UpdateLegExpirationAsync(DateTime? date)
+    public void UpdateLegExpirationAsync(DateTime? date)
     {
-        await _collectionViewModel.UpdateLegExpirationAsync(Leg, date);
+        using var activity = _telemetryService.StartActivity("LegViewModel.UpdateExpiration");
+
+        if (Leg.IsReadOnly)
+        {
+            return;
+        }
+
+        if (date.HasValue)
+        {
+            Leg.ExpirationDate = date.Value;
+        }
+
+        RefreshExpDatesAndStrikes();
         Changed?.Invoke();
     }
 
-    public async Task UpdateLegPriceAsync(double? price)
+    public async Task UpdateLegPriceAsync(decimal? price)
     {
-        await _collectionViewModel.UpdateLegPriceAsync(Leg, price);
+        using var activity = _telemetryService.StartActivity("LegViewModel.UpdatePrice");
+        if (Leg.IsReadOnly)
+        {
+            return;
+        }
+
+        Leg.Price = price;
+
         Changed?.Invoke();
     }
 
     public async Task RemoveLegAsync()
     {
+        using var activity = _telemetryService.StartActivity("LegViewModel.RemoveLeg");
         await _collectionViewModel.RemoveLegAsync(Leg);
         if (Removed is not null)
         {
@@ -170,8 +239,7 @@ public sealed class LegViewModel : IDisposable
     public void UpdateLeg(LegModel leg)
     {
         _leg = leg;
-        UpdateSymbol();
-        ClearTickerCache();
+
         _ = RefreshSubscriptionAsync();
     }
 
@@ -196,13 +264,13 @@ public sealed class LegViewModel : IDisposable
         var updated = false;
         var signedSize = DetermineSignedSize(position);
 
-        if (Math.Abs(Leg.Size - signedSize) > 0.0001)
+        if (Math.Abs(Leg.Size - signedSize) > 0.0001m)
         {
             Leg.Size = signedSize;
             updated = true;
         }
 
-        if (!Leg.Price.HasValue || Math.Abs(Leg.Price.Value - position.AvgPrice) > 0.0001)
+        if (!Leg.Price.HasValue || Math.Abs(Leg.Price.Value - position.AvgPrice) > 0.0001m)
         {
             Leg.Price = position.AvgPrice;
             updated = true;
@@ -211,7 +279,6 @@ public sealed class LegViewModel : IDisposable
         if (string.IsNullOrWhiteSpace(Leg.Symbol))
         {
             Leg.Symbol = position.Symbol;
-            UpdateSymbol();
             updated = true;
         }
 
@@ -228,53 +295,11 @@ public sealed class LegViewModel : IDisposable
         _subscriptionRegistration?.Dispose();
     }
 
-    private void UpdateSymbol()
-    {
-        _ = _leg;
-    }
 
-    public Task<IEnumerable<DateTime?>> SearchExpirationsAsync(string? value, CancellationToken cancellationToken = default)
-    {
-        _ = cancellationToken;
-        var items = AvailableExpirations;
-        if (items.Count == 0)
-        {
-            return Task.FromResult(Enumerable.Empty<DateTime?>());
-        }
-
-        var text = value?.Trim();
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return Task.FromResult(items.Select(item => (DateTime?)item));
-        }
-
-        return Task.FromResult(items
-            .Where(item => FormatExpiration(item).Contains(text, StringComparison.OrdinalIgnoreCase))
-            .Select(item => (DateTime?)item));
-    }
-
-    public Task<IEnumerable<double?>> SearchStrikesAsync(string? value, CancellationToken cancellationToken = default)
-    {
-        _ = cancellationToken;
-        var items = AvailableStrikes;
-        if (items.Count == 0)
-        {
-            return Task.FromResult(Enumerable.Empty<double?>());
-        }
-
-        var text = value?.Trim();
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return Task.FromResult(items.Select(item => (double?)item));
-        }
-
-        return Task.FromResult(items
-            .Where(item => FormatStrike(item).Contains(text, StringComparison.OrdinalIgnoreCase))
-            .Select(item => (double?)item));
-    }
-
+   
     private async Task RefreshSubscriptionAsync()
     {
+        using var activity = _telemetryService.StartActivity("LegViewModel.RefreshSubscription");
         if (_leg is null)
         {
             return;
@@ -297,8 +322,15 @@ public sealed class LegViewModel : IDisposable
                 return;
             }
 
-            var subscription = new OptionsChainService.OptionChainSubscription(Leg.Symbol);
-            _subscriptionRegistration = await _optionsChainService.SubscribeAsync(subscription, HandleTicker);
+            if (Leg.Type == LegType.Future)
+            {
+                _subscriptionRegistration = await _exchangeTicker.SubscribeAsync(Leg.Symbol, HandleLinearTicker);
+            }
+            else
+            {
+
+                _subscriptionRegistration = await _optionsChainService.SubscribeAsync(Leg.Symbol, HandleOptionTicker);
+            }
         }
         finally
         {
@@ -306,114 +338,79 @@ public sealed class LegViewModel : IDisposable
         }
     }
 
-    private void HandleTicker(OptionChainTicker ticker)
+    private Task HandleLinearTicker(ExchangePriceUpdate e)
+    {
+
+        TempPnl = ResolveFuturesPnl(e.Price);
+
+        Changed?.Invoke();
+
+        return Task.CompletedTask;
+    }
+
+    private async Task HandleOptionTicker(OptionChainTicker ticker)
     {
         if (!_isLive)
         {
             return;
         }
 
-        _lastBid = ticker.BidPrice > 0 ? ticker.BidPrice : null;
-        _lastAsk = ticker.AskPrice > 0 ? ticker.AskPrice : null;
-        _lastMarkPrice = ticker.MarkPrice > 0 ? ticker.MarkPrice : null;
-        _lastChainIv = NormalizeIv(ticker.MarkIv)
+        Bid = ticker.BidPrice > 0 ? ticker.BidPrice : null;
+        Ask = ticker.AskPrice > 0 ? ticker.AskPrice : null;
+        MarkPrice = ticker.MarkPrice > 0 ? ticker.MarkPrice : null;
+        ChainIv = NormalizeIv(ticker.MarkIv)
             ?? NormalizeIv(ticker.BidIv)
             ?? NormalizeIv(ticker.AskIv);
 
         if (!Leg.ImpliedVolatility.HasValue || Leg.ImpliedVolatility.Value <= 0)
         {
-            if (_lastChainIv.HasValue && _lastChainIv.Value > 0)
+            if (ChainIv.HasValue && ChainIv.Value > 0)
             {
-                Leg.ImpliedVolatility = _lastChainIv.Value;
+                Leg.ImpliedVolatility = ChainIv.Value;
             }
         }
+
+        TempPnl = ResolveOptionTempPnl(ticker.UnderlyingPrice);
 
         Changed?.Invoke();
     }
 
-    private BidAsk ResolveBidAsk()
+
+
+    private void RefreshExpDatesAndStrikes()
     {
-        if (!_isLive)
-        {
-            return default;
-        }
+        using var activity = _telemetryService.StartActivity("LegViewModel.RefreshExpDatesAndStrikes");
 
-        if (_lastBid.HasValue || _lastAsk.HasValue)
-        {
-            return new BidAsk(_lastBid, _lastAsk);
-        }
+        var tickers = _optionsChainService.GetTickersByBaseAsset(_collectionViewModel.BaseAsset, Leg.Type);
 
-        var ticker = GetFallbackTicker();
-        if (ticker is null)
-        {
-            return default;
-        }
-
-        var bid = ticker.BidPrice > 0 ? ticker.BidPrice : (double?)null;
-        var ask = ticker.AskPrice > 0 ? ticker.AskPrice : (double?)null;
-        return new BidAsk(bid, ask);
-    }
-
-    private void ClearTickerCache()
-    {
-        _lastBid = null;
-        _lastAsk = null;
-        _lastMarkPrice = null;
-        _lastChainIv = null;
-    }
-
-    private IReadOnlyList<OptionChainTicker> GetOptionTickers()
-    {
-        if (Leg.Type == LegType.Future)
-        {
-            return Array.Empty<OptionChainTicker>();
-        }
-
-        var baseAsset = _collectionViewModel.Position?.Position.BaseAsset;
-        if (string.IsNullOrWhiteSpace(baseAsset))
-        {
-            return Array.Empty<OptionChainTicker>();
-        }
-
-        return _optionsChainService.GetSnapshot()
-            .Where(ticker => string.Equals(ticker.BaseAsset, baseAsset, StringComparison.OrdinalIgnoreCase)
-                             && ticker.Type == Leg.Type)
-            .ToList();
-    }
-
-    private IReadOnlyList<DateTime> GetAvailableExpirations()
-    {
-        var tickers = GetOptionTickers();
-        if (tickers.Count == 0)
-        {
-            return Array.Empty<DateTime>();
-        }
-
-        return tickers
-            .Select(ticker => ticker.ExpirationDate.Date)
+        _cachedExpirations = tickers.Select(ticker => (DateTime?)ticker.ExpirationDate.Date)
             .Distinct()
             .OrderBy(item => item)
             .ToList();
-    }
 
-    private IReadOnlyList<double> GetAvailableStrikes()
-    {
-        var tickers = GetOptionTickers();
-        if (tickers.Count == 0)
+        if (Leg.Type == LegType.Future)
         {
-            return Array.Empty<double>();
+            _cachedExpirations.Insert(0, null);
+
+            _cachedStrikes = Array.Empty<decimal>();
+
+            return;
         }
 
-        var expiration = Leg.ExpirationDate?.Date;
 
-        return tickers
-            .Where(ticker => !expiration.HasValue || ticker.ExpirationDate.Date == expiration.Value)
+        _cachedStrikes = tickers
+            .Where(ticker => ticker.ExpirationDate.Date == Leg.ExpirationDate?.Date)
             .Select(ticker => ticker.Strike)
             .Distinct()
             .OrderBy(item => item)
             .ToList();
+
+
     }
 
+
+  
+    
     private static string FormatExpiration(DateTime date)
     {
         return date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -424,7 +421,7 @@ public sealed class LegViewModel : IDisposable
         return strike.ToString("0.##", CultureInfo.InvariantCulture);
     }
 
-    private static double? NormalizeIv(double? value)
+    private static decimal? NormalizeIv(decimal? value)
     {
         if (!value.HasValue || value.Value <= 0)
         {
@@ -434,12 +431,43 @@ public sealed class LegViewModel : IDisposable
         return value.Value <= 3 ? value.Value * 100 : value.Value;
     }
 
-    private double CalculateLegTheoreticalProfit(LegModel leg, double underlyingPrice, DateTime? valuationDate = null)
+    private void CalculateLegTheoreticalProfit()
     {
-        return _optionsService.CalculateLegTheoreticalProfit(leg, underlyingPrice, valuationDate);
+        if (IsLive) return;
+
+        if (_currentPrice == null)
+        {
+            TempPnl = null;
+            return;
+        }
+
+        if (Leg.Type == LegType.Future)
+        {
+            TempPnl = ResolveFuturesPnl(_currentPrice);
+        }
+        else
+        {
+            TempPnl = _optionsService.CalculateLegTheoreticalProfit(Leg, _currentPrice.Value, ValuationDate);
+        }
     }
 
-    private double ResolveTempPnl()
+    private decimal? ResolveFuturesPnl(decimal? price)
+    {
+        if (price == null) return null;
+
+        var entryPrice = Leg.Price;
+
+        if (entryPrice.HasValue)
+        {
+            return (price.Value - entryPrice.Value) * Leg.Size;
+        }
+
+        return null;
+
+
+    }
+
+    private decimal ResolveOptionTempPnl(decimal? underlyingPrice)
     {
         var closingPnl = ResolveClosingPnl();
         if (closingPnl.HasValue)
@@ -447,21 +475,10 @@ public sealed class LegViewModel : IDisposable
             return closingPnl.Value;
         }
 
+
         var entryPrice = ResolveEntryPrice();
-        if (Leg.Type == LegType.Future)
-        {
-            var underlyingPrice = ResolveFutureUnderlyingPrice();
-            if (!underlyingPrice.HasValue)
-            {
-                return 0;
-            }
-
-            return (underlyingPrice.Value - entryPrice) * Leg.Size;
-        }
-
         if (!IsLive)
         {
-            var underlyingPrice = ResolveUnderlyingPrice();
             if (!underlyingPrice.HasValue)
             {
                 return 0;
@@ -478,10 +495,7 @@ public sealed class LegViewModel : IDisposable
                 ImpliedVolatility = iv
             };
 
-            return CalculateLegTheoreticalProfit(
-                calculationLeg,
-                underlyingPrice.Value,
-                ValuationDate);
+            return _optionsService.CalculateLegTheoreticalProfit(calculationLeg, underlyingPrice.Value, ValuationDate);
         }
 
         var marketPrice = GetMarketPrice();
@@ -493,7 +507,7 @@ public sealed class LegViewModel : IDisposable
         return (marketPrice.Value - entryPrice) * Leg.Size;
     }
 
-    private double? ResolveClosingPnl()
+    private decimal? ResolveClosingPnl()
     {
         var collection = _collectionViewModel.Collection;
         var legs = collection?.Legs;
@@ -512,7 +526,7 @@ public sealed class LegViewModel : IDisposable
         }
 
         var netSize = matching.Sum(leg => leg.Size);
-        if (Math.Abs(netSize) < 0.0001)
+        if (Math.Abs(netSize) < 0.0001m)
         {
             return null;
         }
@@ -523,7 +537,7 @@ public sealed class LegViewModel : IDisposable
         }
 
         var closingSize = Math.Min(Math.Abs(Leg.Size), Math.Abs(netSize));
-        if (closingSize < 0.0001)
+        if (closingSize < 0.0001m)
         {
             return null;
         }
@@ -547,24 +561,25 @@ public sealed class LegViewModel : IDisposable
         return (currentEntry.Value - existingEntry.Value) * closingSize * Math.Sign(netSize);
     }
 
-    private double? ResolveTempPnlPercent()
+    private decimal? ResolveTempPnlPercent()
     {
         if (!Leg.Price.HasValue)
         {
             return null;
         }
 
+ 
         var entryPrice = ResolveEntryPrice();
         var positionValue = entryPrice * Leg.Size;
-        if (Math.Abs(positionValue) < 0.0001)
+        if (Math.Abs(positionValue) < 0.0001m)
         {
             return null;
         }
 
-        return ResolveTempPnl() / Math.Abs(positionValue) * 100;
+        return TempPnl / Math.Abs(positionValue) * 100m;
     }
 
-    private double ResolveEntryPrice()
+    private decimal ResolveEntryPrice()
     {
         if (Leg.Price.HasValue)
         {
@@ -574,7 +589,7 @@ public sealed class LegViewModel : IDisposable
         return GetMarketPrice() ?? 0;
     }
 
-    private double? ResolveEntryPriceForLeg(LegModel leg)
+    private decimal? ResolveEntryPriceForLeg(LegModel leg)
     {
         if (leg.Price.HasValue)
         {
@@ -641,7 +656,7 @@ public sealed class LegViewModel : IDisposable
         return IsDateMatch(left.ExpirationDate, right.ExpirationDate);
     }
 
-    private static bool IsStrikeMatch(double? left, double? right)
+    private static bool IsStrikeMatch(decimal? left, decimal? right)
     {
         if (!left.HasValue && !right.HasValue)
         {
@@ -653,7 +668,7 @@ public sealed class LegViewModel : IDisposable
             return false;
         }
 
-        return Math.Abs(left.Value - right.Value) < 0.01;
+        return Math.Abs(left.Value - right.Value) < 0.01m;
     }
 
     private static bool IsDateMatch(DateTime? left, DateTime? right)
@@ -671,10 +686,10 @@ public sealed class LegViewModel : IDisposable
         return left.Value.Date == right.Value.Date;
     }
 
-    private double? ResolveWeightedEntryPrice(IEnumerable<LegModel> legs)
+    private decimal? ResolveWeightedEntryPrice(IEnumerable<LegModel> legs)
     {
-        double totalSize = 0;
-        double totalCost = 0;
+        decimal totalSize = 0;
+        decimal totalCost = 0;
 
         foreach (var leg in legs)
         {
@@ -685,7 +700,7 @@ public sealed class LegViewModel : IDisposable
             }
 
             var size = Math.Abs(leg.Size);
-            if (size < 0.0001)
+            if (size < 0.0001m)
             {
                 continue;
             }
@@ -694,7 +709,7 @@ public sealed class LegViewModel : IDisposable
             totalCost += entry.Value * size;
         }
 
-        if (totalSize < 0.0001)
+        if (totalSize < 0.0001m)
         {
             return null;
         }
@@ -702,100 +717,42 @@ public sealed class LegViewModel : IDisposable
         return totalCost / totalSize;
     }
 
-    private double? ResolveUnderlyingPrice()
+
+    private decimal? GetMarketPrice()
     {
-        return CurrentPrice;
-    }
-
-    private double? ResolveFutureUnderlyingPrice()
-    {
-        var marketPrice = GetMarketPrice();
-        if (marketPrice.HasValue)
-        {
-            return marketPrice;
-        }
-
-        var baseAsset = _collectionViewModel.Position?.Position.BaseAsset;
-        if (!string.IsNullOrWhiteSpace(Leg.Symbol))
-        {
-            if (string.IsNullOrWhiteSpace(baseAsset))
-            {
-                return null;
-            }
-
-            if (!Leg.Symbol.StartsWith(baseAsset, StringComparison.OrdinalIgnoreCase))
-            {
-                return null;
-            }
-        }
-
-        return CurrentPrice;
-    }
-
-    private double? GetMarketPrice()
-    {
-        var bidAsk = BidAsk;
         var markPrice = MarkPrice;
 
         if (Leg.Size < 0)
         {
-            return bidAsk.Ask ?? markPrice ?? bidAsk.Bid;
+            return Ask ?? markPrice ?? Bid;
         }
 
         if (Leg.Size > 0)
         {
-            return bidAsk.Bid ?? markPrice ?? bidAsk.Ask;
+            return Bid ?? markPrice ?? Ask;
         }
 
-        return markPrice ?? bidAsk.Bid ?? bidAsk.Ask;
+        return markPrice ?? Bid ?? Ask;
     }
 
-    private double? GetEntryPriceSuggestion()
+    private decimal? GetEntryPriceSuggestion()
     {
-        var bidAsk = BidAsk;
         var markPrice = MarkPrice;
 
         if (Leg.Size >= 0)
         {
-            return bidAsk.Ask ?? markPrice ?? bidAsk.Bid;
+            return Ask ?? markPrice ?? Bid;
         }
 
-        return bidAsk.Bid ?? markPrice ?? bidAsk.Ask;
+        return Bid ?? markPrice ?? Ask;
     }
 
-    private OptionChainTicker? GetFallbackTicker()
-    {
-        return _optionsChainService.FindTickerForLeg(Leg);
-    }
 
-    private double? ResolveFallbackMarkPrice()
-    {
-        var ticker = GetFallbackTicker();
-        if (ticker is null)
-        {
-            return null;
-        }
 
-        return ticker.MarkPrice > 0 ? ticker.MarkPrice : null;
-    }
-
-    private double? ResolveFallbackIv()
-    {
-        var ticker = GetFallbackTicker();
-        if (ticker is null)
-        {
-            return null;
-        }
-
-        return NormalizeIv(ticker.MarkIv)
-            ?? NormalizeIv(ticker.BidIv)
-            ?? NormalizeIv(ticker.AskIv);
-    }
-
-    private static double DetermineSignedSize(BybitPosition position)
+    private static decimal DetermineSignedSize(BybitPosition position)
     {
         var magnitude = Math.Abs(position.Size);
-        if (magnitude < 0.0001)
+        if (magnitude < 0.0001m)
         {
             return 0;
         }

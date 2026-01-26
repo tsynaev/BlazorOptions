@@ -82,11 +82,11 @@ public sealed class ClosedPositionsViewModel
         set => _ = SetIncludeInChartAsync(value);
     }
 
-    public double TotalClosePnl => _summaries.Sum(item => item.ClosePnl);
+    public decimal TotalClosePnl => _summaries.Sum(item => item.ClosePnl);
 
-    public double TotalFee => _summaries.Sum(item => item.Fee);
+    public decimal TotalFee => _summaries.Sum(item => item.Fee);
 
-    public double TotalNet => TotalClosePnl + TotalFee;
+    public decimal TotalNet => TotalClosePnl + TotalFee;
 
     public ClosedPositionSummary GetSummary(ClosedPositionModel? model)
     {

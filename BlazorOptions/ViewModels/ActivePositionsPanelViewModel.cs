@@ -9,6 +9,7 @@ public sealed class ActivePositionsPanelViewModel : IDisposable
 {
     private static readonly string[] _positionExpirationFormats = { "ddMMMyy", "ddMMMyyyy" };
     private readonly ActivePositionsService _activePositionsService;
+    private readonly IExchangeService _exchangeService;
     private readonly HashSet<BybitPosition> _selectedPositions;
     private readonly BybitPositionComparer _comparer = new();
     private readonly List<BybitPosition> _filteredPositions = new();
@@ -16,9 +17,10 @@ public sealed class ActivePositionsPanelViewModel : IDisposable
     private bool _isInitialized;
     private bool _isSubscribed;
 
-    public ActivePositionsPanelViewModel(ActivePositionsService activePositionsService)
+    public ActivePositionsPanelViewModel(ActivePositionsService activePositionsService, IExchangeService exchangeService)
     {
         _activePositionsService = activePositionsService;
+        _exchangeService = exchangeService;
         _selectedPositions = new HashSet<BybitPosition>(_comparer);
     }
 
@@ -115,7 +117,7 @@ public sealed class ActivePositionsPanelViewModel : IDisposable
     public static string FormatSignedSize(BybitPosition position)
     {
         var magnitude = Math.Abs(position.Size);
-        if (magnitude < 0.0001)
+        if (magnitude < 0.0001m)
         {
             return "0";
         }
@@ -182,7 +184,7 @@ public sealed class ActivePositionsPanelViewModel : IDisposable
         _selectedPositions.RemoveWhere(position => !_filteredPositions.Contains(position, _comparer));
     }
 
-    private static bool TryBuildLegFromBybitPosition(BybitPosition position, string baseAsset, string category, out LegModel leg)
+    private bool TryBuildLegFromBybitPosition(BybitPosition position, string baseAsset, string category, out LegModel leg)
     {
         leg = new LegModel();
         if (string.IsNullOrWhiteSpace(position.Symbol))
@@ -191,11 +193,11 @@ public sealed class ActivePositionsPanelViewModel : IDisposable
         }
 
         DateTime? expiration = null;
-        double? strike = null;
+        decimal? strike = null;
         var type = LegType.Future;
         if (string.Equals(category, "option", StringComparison.OrdinalIgnoreCase))
         {
-            if (!TryParsePositionSymbol(position.Symbol, out var parsedBase, out var parsedExpiration, out var parsedStrike, out var parsedType))
+            if (!_exchangeService.TryParseSymbol(position.Symbol, out var parsedBase, out var parsedExpiration, out var parsedStrike, out var parsedType))
             {
                 return false;
             }
@@ -239,7 +241,7 @@ public sealed class ActivePositionsPanelViewModel : IDisposable
                && IsStrikeMatch(existing.Strike, candidate.Strike);
     }
 
-    private static bool IsStrikeMatch(double? left, double? right)
+    private static bool IsStrikeMatch(decimal? left, decimal? right)
     {
         if (!left.HasValue && !right.HasValue)
         {
@@ -251,7 +253,7 @@ public sealed class ActivePositionsPanelViewModel : IDisposable
             return false;
         }
 
-        return Math.Abs(left.Value - right.Value) < 0.01;
+        return Math.Abs(left.Value - right.Value) < 0.01m;
     }
 
     private static bool IsDateMatch(DateTime? left, DateTime? right)
@@ -269,36 +271,6 @@ public sealed class ActivePositionsPanelViewModel : IDisposable
         return left.Value.Date == right.Value.Date;
     }
 
-    private static bool TryParsePositionSymbol(string symbol, out string baseAsset, out DateTime expiration, out double strike, out LegType type)
-    {
-        baseAsset = string.Empty;
-        expiration = default;
-        strike = 0;
-        type = LegType.Call;
-
-        var parts = symbol.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (parts.Length < 4)
-        {
-            return false;
-        }
-
-        baseAsset = parts[0];
-        if (!DateTime.TryParseExact(parts[1], _positionExpirationFormats, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsedExpiration))
-        {
-            return false;
-        }
-
-        expiration = parsedExpiration.Date;
-
-        if (!double.TryParse(parts[2], NumberStyles.Any, CultureInfo.InvariantCulture, out strike))
-        {
-            return false;
-        }
-
-        var typeToken = parts[3].Trim();
-        type = typeToken.Equals("P", StringComparison.OrdinalIgnoreCase) ? LegType.Put : LegType.Call;
-        return true;
-    }
 
     private static bool TryParseFutureExpiration(string symbol, out DateTime expiration)
     {

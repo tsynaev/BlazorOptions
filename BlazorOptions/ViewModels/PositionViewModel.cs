@@ -26,13 +26,15 @@ public sealed class PositionViewModel : IDisposable
     private readonly INotifyUserService _notifyUserService;
     private readonly ExchangeTickerService _exchangeTickerService;
     private readonly ActivePositionsService _activePositionsService;
-    private double? _currentPrice;
+    private readonly OptionsChainService _optionsChainService;
+    private decimal? _currentPrice;
     private DateTime _valuationDate = DateTime.UtcNow;
-    private double? _selectedPrice;
-    private double? _livePrice;
+    private decimal? _selectedPrice;
+    private decimal? _livePrice;
     private bool _isLive = true;
     private IDisposable? _tickerSubscription;
     private string? _currentSymbol;
+    private PositionModel _position;
 
     public PositionViewModel(
         PositionBuilderViewModel positionBuilder,
@@ -41,7 +43,7 @@ public sealed class PositionViewModel : IDisposable
         INotifyUserService notifyUserService,
         ExchangeTickerService exchangeTickerService,
         ActivePositionsService activePositionsService,
-        PositionModel position)
+        OptionsChainService optionsChainService)
     {
         _positionBuilder = positionBuilder;
         _collectionFactory = collectionFactory;
@@ -49,46 +51,61 @@ public sealed class PositionViewModel : IDisposable
         _notifyUserService = notifyUserService;
         _exchangeTickerService = exchangeTickerService;
         _activePositionsService = activePositionsService;
-        Position = position;
-        if (position.Collections.Count == 0)
-        {
-            position.Collections.Add(CreateCollection(position, GetNextCollectionName(position)));
-        }
-        if (position.ClosedPositions is null)
-        {
-            position.ClosedPositions = new ObservableCollection<ClosedPositionModel>();
-        }
-        Collections = new ObservableCollection<LegsCollectionViewModel>();
-
-        foreach (var collection in position.Collections)
-        {
-            Collections.Add(CreateCollectionViewModel(collection));
-        }
-
-        ClosedPositions = _closedPositionsFactory.Create(_positionBuilder, position);
-        UpdateDerivedState();
-        _ = EnsureLiveSubscriptionAsync();
-        _activePositionsService.PositionUpdated += HandleActivePositionUpdated;
-        _activePositionsService.PositionsUpdated += HandleActivePositionsSnapshot;
+        _optionsChainService = optionsChainService;
+       
+  
     }
 
-    public PositionModel Position { get; }
+    public PositionModel Position
+    {
+        get => _position;
+        set
+        {
+            _position = value;
+            if (_position.Collections.Count == 0)
+            {
+                _position.Collections.Add(CreateCollection(_position, GetNextCollectionName(_position)));
+            }
+            if (_position.ClosedPositions is null)
+            {
+                _position.ClosedPositions = new ObservableCollection<ClosedPositionModel>();
+            }
+            Collections = new ObservableCollection<LegsCollectionViewModel>();
 
-    public ObservableCollection<LegsCollectionViewModel> Collections { get; }
+            foreach (var collection in _position.Collections)
+            {
+                Collections.Add(CreateCollectionViewModel(collection));
+            }
 
-    public ClosedPositionsViewModel ClosedPositions { get; }
+            ClosedPositions = _closedPositionsFactory.Create(_positionBuilder, _position);
 
-    public double? SelectedPrice => _selectedPrice;
+  
+        }
+    }
 
-    public double? LivePrice => _livePrice;
+    public ObservableCollection<LegsCollectionViewModel> Collections { get; private set; }
+
+    public ClosedPositionsViewModel ClosedPositions { get; private set; }
+
+    public decimal? SelectedPrice => _selectedPrice;
+
+    public decimal? LivePrice => _livePrice;
 
     public bool IsLive => _isLive;
 
     public DateTime ValuationDate => _valuationDate;
 
-    public Task InitializeAsync()
+    public async Task InitializeAsync()
     {
-        return InitializeInternalAsync();
+
+        UpdateDerivedState();
+
+        _ = EnsureLiveSubscriptionAsync();
+        _activePositionsService.PositionUpdated += HandleActivePositionUpdated;
+        _activePositionsService.PositionsUpdated += HandleActivePositionsSnapshot;
+
+        await ClosedPositions.InitializeAsync();
+
     }
 
     public async Task AddCollectionAsync()
@@ -271,7 +288,7 @@ public sealed class PositionViewModel : IDisposable
         }
     }
 
-    internal void SetSelectedPrice(double? price)
+    internal void SetSelectedPrice(decimal? price)
     {
         if (_selectedPrice == price)
         {
@@ -282,7 +299,7 @@ public sealed class PositionViewModel : IDisposable
         UpdateDerivedState();
     }
 
-    internal void SetLivePrice(double? price)
+    internal void SetLivePrice(decimal? price)
     {
         if (_livePrice == price)
         {
@@ -347,10 +364,7 @@ public sealed class PositionViewModel : IDisposable
         }
     }
 
-    private async Task InitializeInternalAsync()
-    {
-        await ClosedPositions.InitializeAsync();
-    }
+
 
     internal async Task EnsureLiveSubscriptionAsync()
     {
@@ -384,21 +398,23 @@ public sealed class PositionViewModel : IDisposable
         await Task.CompletedTask;
     }
 
-    private void HandlePriceUpdated(object? sender, ExchangePriceUpdate update)
+    private Task HandlePriceUpdated(ExchangePriceUpdate update)
     {
         if (!_isLive)
         {
-            return;
+            return Task.CompletedTask;
         }
 
         if (!string.Equals(update.Symbol, _currentSymbol, StringComparison.OrdinalIgnoreCase))
         {
-            return;
+            return Task.CompletedTask;
         }
 
-        SetLivePrice((double)update.Price);
+        SetLivePrice(update.Price);
         _positionBuilder.UpdateChart();
         _positionBuilder.NotifyStateChanged();
+
+        return Task.CompletedTask;
     }
 
     private static string NormalizeSymbol(PositionModel position)

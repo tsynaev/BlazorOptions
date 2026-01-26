@@ -16,7 +16,7 @@ public sealed class LegsCollectionDialogService : ILegsCollectionDialogService
     public async Task<IReadOnlyList<LegModel>?> ShowOptionChainDialogAsync(
         PositionModel position,
         LegsCollectionModel collection,
-        double? underlyingPrice)
+        decimal? underlyingPrice)
     {
         var parameters = new DialogParameters
         {

@@ -12,8 +12,8 @@ public class OptionChainDialogViewModel : IDisposable
     private List<OptionChainTicker> _chainTickers = new();
     private string? _baseAsset;
     private DateTime? _selectedExpiration;
-    private double? _atmStrike;
-    private double? _underlyingPrice;
+    private decimal? _atmStrike;
+    private decimal? _underlyingPrice;
     private readonly HashSet<string> _ivModeLegIds = new();
     private readonly Dictionary<string, IDisposable> _tickerSubscriptions = new(StringComparer.OrdinalIgnoreCase);
     private int _strikeWindowSize = 10;
@@ -28,9 +28,9 @@ public class OptionChainDialogViewModel : IDisposable
 
     public IReadOnlyList<DateTime> AvailableExpirations { get; private set; } = [];
 
-    public IReadOnlyList<double> AvailableStrikes { get; private set; } = [];
+    public IReadOnlyList<decimal> AvailableStrikes { get; private set; } = [];
 
-    public IReadOnlyList<double> DisplayStrikes { get; private set; } = [];
+    public IReadOnlyList<decimal> DisplayStrikes { get; private set; } = [];
 
     public int StrikeWindowSize => _strikeWindowSize;
 
@@ -44,7 +44,7 @@ public class OptionChainDialogViewModel : IDisposable
 
     public event Action? OnChange;
 
-    public async Task InitializeAsync(PositionModel? position, LegsCollectionModel? collection, double? underlyingPrice)
+    public async Task InitializeAsync(PositionModel? position, LegsCollectionModel? collection, decimal? underlyingPrice)
     {
         _position = position;
         _baseAsset = position?.BaseAsset;
@@ -62,7 +62,7 @@ public class OptionChainDialogViewModel : IDisposable
             Legs.Add(CloneLeg(leg));
         }
 
-        _chainTickers = _optionsChainService.GetSnapshot().ToList();
+        _chainTickers = _optionsChainService.GetTickersByBaseAsset(_baseAsset).ToList();
         UpdateExpirations();
 
         if (Legs.Count > 0)
@@ -140,12 +140,12 @@ public class OptionChainDialogViewModel : IDisposable
         OnChange?.Invoke();
     }
 
-    public double GetLegInputValue(LegModel leg)
+    public decimal GetLegInputValue(LegModel leg)
     {
-        return IsLegIvMode(leg) ? (leg.ImpliedVolatility ?? 0) : (leg.Price ?? 0);
+        return IsLegIvMode(leg) ? (leg.ImpliedVolatility ?? 0m) : (leg.Price ?? 0m);
     }
 
-    public void SetLegInputValue(LegModel leg, double value)
+    public void SetLegInputValue(LegModel leg, decimal value)
     {
         if (IsLegIvMode(leg))
         {
@@ -159,13 +159,13 @@ public class OptionChainDialogViewModel : IDisposable
         OnChange?.Invoke();
     }
 
-    public void SetLegSize(LegModel leg, double size)
+    public void SetLegSize(LegModel leg, decimal size)
     {
         leg.Size = size;
         OnChange?.Invoke();
     }
 
-    public void AdjustLegSize(LegModel leg, double delta)
+    public void AdjustLegSize(LegModel leg, decimal delta)
     {
         leg.Size += delta;
         OnChange?.Invoke();
@@ -195,7 +195,7 @@ public class OptionChainDialogViewModel : IDisposable
         return $"({typeLabel} {strikeLabel}, Exp: {expirationText}, DTE: {dteLabel})";
     }
 
-    public void AddLeg(double strike, LegType type)
+    public void AddLeg(decimal strike, LegType type)
     {
         if (!_selectedExpiration.HasValue)
         {
@@ -206,7 +206,7 @@ public class OptionChainDialogViewModel : IDisposable
             string.Equals(item.BaseAsset, _baseAsset, StringComparison.OrdinalIgnoreCase)
             && item.ExpirationDate.Date == _selectedExpiration.Value.Date
             && item.Type == type
-            && Math.Abs(item.Strike - strike) < 0.01);
+            && Math.Abs(item.Strike - strike) < 0.01m);
 
         var leg = new LegModel
         {
@@ -222,7 +222,7 @@ public class OptionChainDialogViewModel : IDisposable
         OnChange?.Invoke();
     }
 
-    public void AddLegFromQuote(double strike, LegType type, double price, double iv)
+    public void AddLegFromQuote(decimal strike, LegType type, decimal price, decimal iv)
     {
         if (!_selectedExpiration.HasValue)
         {
@@ -233,7 +233,7 @@ public class OptionChainDialogViewModel : IDisposable
             string.Equals(item.BaseAsset, _baseAsset, StringComparison.OrdinalIgnoreCase)
             && item.ExpirationDate.Date == _selectedExpiration.Value.Date
             && item.Type == type
-            && Math.Abs(item.Strike - strike) < 0.01);
+            && Math.Abs(item.Strike - strike) < 0.01m);
 
         var leg = new LegModel
         {
@@ -269,7 +269,7 @@ public class OptionChainDialogViewModel : IDisposable
         OnChange?.Invoke();
 
         await _optionsChainService.RefreshAsync(_baseAsset);
-        _chainTickers = _optionsChainService.GetSnapshot().ToList();
+        _chainTickers = _optionsChainService.GetTickersByBaseAsset(_baseAsset);
         UpdateExpirations();
         UpdateStrikes();
         IsRefreshing = false;
@@ -304,7 +304,7 @@ public class OptionChainDialogViewModel : IDisposable
     {
         if (!_selectedExpiration.HasValue)
         {
-            AvailableStrikes = Array.Empty<double>();
+            AvailableStrikes = Array.Empty<decimal>();
             _atmStrike = null;
             return;
         }
@@ -339,17 +339,17 @@ public class OptionChainDialogViewModel : IDisposable
         return filtered.Count > 0 ? filtered : _chainTickers;
     }
 
-    public bool IsAtmStrike(double strike)
+    public bool IsAtmStrike(decimal strike)
     {
         if (!_atmStrike.HasValue)
         {
             return false;
         }
 
-        return Math.Abs(strike - _atmStrike.Value) < 0.01;
+        return Math.Abs(strike - _atmStrike.Value) < 0.01m;
     }
 
-    public double? GetStrikeImpliedVolatility(double strike)
+    public decimal? GetStrikeImpliedVolatility(decimal strike)
     {
         if (!_selectedExpiration.HasValue)
         {
@@ -358,7 +358,7 @@ public class OptionChainDialogViewModel : IDisposable
 
         var candidates = GetFilteredTickers()
             .Where(ticker => ticker.ExpirationDate.Date == _selectedExpiration.Value.Date
-                && Math.Abs(ticker.Strike - strike) < 0.01)
+                && Math.Abs(ticker.Strike - strike) < 0.01m)
             .ToList();
 
         if (candidates.Count == 0)
@@ -378,7 +378,7 @@ public class OptionChainDialogViewModel : IDisposable
         return normalizedPut.HasValue && normalizedPut.Value > 0 ? normalizedPut.Value : null;
     }
 
-    public OptionChainTicker? GetStrikeTicker(double strike, LegType type)
+    public OptionChainTicker? GetStrikeTicker(decimal strike, LegType type)
     {
         if (!_selectedExpiration.HasValue)
         {
@@ -388,16 +388,16 @@ public class OptionChainDialogViewModel : IDisposable
         return GetFilteredTickers()
             .FirstOrDefault(ticker => ticker.ExpirationDate.Date == _selectedExpiration.Value.Date
                 && ticker.Type == type
-                && Math.Abs(ticker.Strike - strike) < 0.01);
+                && Math.Abs(ticker.Strike - strike) < 0.01m);
     }
 
-    public double GetTotalPremium()
+    public decimal GetTotalPremium()
     {
         return Legs.Sum(leg => (leg.Price ?? 0) * leg.Size);
     }
 
 
-    public double GetTotalGreek(Func<OptionChainTicker, double?> selector)
+    public decimal GetTotalGreek(Func<OptionChainTicker, decimal?> selector)
     {
         return Legs.Sum(leg =>
         {
@@ -407,13 +407,13 @@ public class OptionChainDialogViewModel : IDisposable
         });
     }
 
-    public double GetLegGreekValue(LegModel leg, Func<OptionChainTicker, double?> selector)
+    public decimal GetLegGreekValue(LegModel leg, Func<OptionChainTicker, decimal?> selector)
     {
         var ticker = GetTickerForLeg(leg);
         return ticker is null ? 0 : selector(ticker) ?? 0;
     }
 
-    private static double? DetermineAtmStrike(List<OptionChainTicker> tickers, List<double> strikes, double? underlyingPrice)
+    private static decimal? DetermineAtmStrike(List<OptionChainTicker> tickers, List<decimal> strikes, decimal? underlyingPrice)
     {
         if (underlyingPrice.HasValue && strikes.Count > 0)
         {
@@ -429,7 +429,7 @@ public class OptionChainDialogViewModel : IDisposable
 
         var callByDelta = tickers
             .Where(ticker => ticker.Type == LegType.Call && ticker.Delta.HasValue)
-            .OrderBy(ticker => Math.Abs(ticker.Delta!.Value - 0.5))
+            .OrderBy(ticker => Math.Abs(ticker.Delta!.Value - 0.5m))
             .FirstOrDefault();
 
         if (callByDelta is not null)
@@ -480,7 +480,7 @@ public class OptionChainDialogViewModel : IDisposable
         }
     }
 
-    private static IReadOnlyList<double> BuildStrikeWindow(IReadOnlyList<double> strikes, double? atmStrike, int windowSize)
+    private static IReadOnlyList<decimal> BuildStrikeWindow(IReadOnlyList<decimal> strikes, decimal? atmStrike, int windowSize)
     {
         if (strikes.Count == 0 || windowSize <= 0 || !atmStrike.HasValue)
         {
@@ -496,7 +496,7 @@ public class OptionChainDialogViewModel : IDisposable
         var start = Math.Max(0, atmIndex - windowSize);
         var end = Math.Min(strikes.Count - 1, atmIndex + windowSize);
 
-        var window = new List<double>();
+        var window = new List<decimal>();
         for (var i = start; i <= end; i++)
         {
             window.Add(strikes[i]);
@@ -505,7 +505,7 @@ public class OptionChainDialogViewModel : IDisposable
         return window;
     }
 
-    private static double? NormalizeIv(double? value)
+    private static decimal? NormalizeIv(decimal? value)
     {
         if (!value.HasValue || value.Value <= 0)
         {
@@ -559,16 +559,14 @@ public class OptionChainDialogViewModel : IDisposable
             {
                 continue;
             }
-
-            var subscription = new OptionsChainService.OptionChainSubscription(symbol);
-            var registration = await _optionsChainService.SubscribeAsync(subscription, HandleTickerUpdated);
+            var registration = await _optionsChainService.SubscribeAsync(symbol, HandleTickerUpdated);
             _tickerSubscriptions[symbol] = registration;
         }
     }
 
-    private void HandleTickerUpdated(OptionChainTicker ticker)
+    private async Task HandleTickerUpdated(OptionChainTicker ticker)
     {
-        _chainTickers = _optionsChainService.GetSnapshot().ToList();
+        _chainTickers = _optionsChainService.GetTickersByBaseAsset(_baseAsset);
         OnChange?.Invoke();
     }
 }

@@ -9,6 +9,8 @@ public sealed class QuickAddViewModel
 {
     private readonly INotifyUserService _context;
     private readonly OptionsChainService _optionsChainService;
+    private readonly ITelemetryService _telemetryService;
+    private readonly IExchangeService _exchangeService;
     private static readonly Regex QuickAddAtRegex = new(@"@\s*(?<value>\d+(?:\.\d+)?)\s*(?<percent>%?)", RegexOptions.Compiled);
     private static readonly Regex QuickAddDateWithYearRegex = new(@"(?i)\b\d{1,2}[A-Z]{3}\d{2,4}\b", RegexOptions.Compiled);
     private static readonly Regex QuickAddDateWithoutYearRegex = new(@"(?i)\b\d{1,2}[A-Z]{3}\b", RegexOptions.Compiled);
@@ -20,17 +22,19 @@ public sealed class QuickAddViewModel
 
     public string AddActionDescription => BuildActionDescription(QuickLegInput);
 
-    public double? Price { get; set; }
+    public decimal? Price { get; set; }
 
     public string? BaseAsset { get; set; }
     public LegsCollectionModel? Collection { get; set; }
 
     public event Func<LegModel,Task>? LegCreated;
 
-    public QuickAddViewModel(INotifyUserService context, OptionsChainService optionsChainService)
+    public QuickAddViewModel(INotifyUserService context, OptionsChainService optionsChainService, ITelemetryService telemetryService, IExchangeService exchangeService)
     {
         _context = context;
         _optionsChainService = optionsChainService;
+        _telemetryService = telemetryService;
+        _exchangeService = exchangeService;
     }
 
    
@@ -47,6 +51,7 @@ public sealed class QuickAddViewModel
 
     public async Task AddQuickLegAsync()
     {
+        using var activity = _telemetryService.StartActivity("QuickAdd.AddQuickLeg");
         var leg = await AddLegFromTextWithResultAsync(QuickLegInput);
         if (leg is not null)
         {
@@ -62,6 +67,7 @@ public sealed class QuickAddViewModel
 
     public async Task<LegModel?> AddLegFromTextWithResultAsync(string? input)
     {
+        using var activity = _telemetryService.StartActivity("QuickAdd.ParseLeg");
         var collection = Collection;
         if (collection is null)
         {
@@ -77,16 +83,16 @@ public sealed class QuickAddViewModel
 
         var trimmed = input.Trim();
         var tokens = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var size = 1.0;
+        var size = 1.0m;
         var tokenIndex = 0;
 
-        if (tokens.Length > 0 && TryParseNumber(tokens[0], out var parsedSize))
+        if (tokens.Length > 0 && TryParseDecimal(tokens[0], out var parsedSize))
         {
             size = parsedSize;
             tokenIndex = 1;
         }
 
-        if (Math.Abs(size) < 0.0001)
+        if (Math.Abs(size) < 0.0001m)
         {
             _context.NotifyUser("Leg size must be non-zero.");
             return null;
@@ -95,10 +101,10 @@ public sealed class QuickAddViewModel
         var symbolHint = ExtractSymbolToken(tokens);
         var parsedBaseAsset = string.Empty;
         var parsedSymbolExpiration = default(DateTime);
-        var parsedSymbolStrike = 0.0;
+        var parsedSymbolStrike = 0.0m;
         var parsedSymbolType = LegType.Call;
         var hasParsedSymbol = !string.IsNullOrWhiteSpace(symbolHint)
-            && TryParsePositionSymbol(symbolHint, out parsedBaseAsset, out parsedSymbolExpiration, out parsedSymbolStrike, out parsedSymbolType);
+            && _exchangeService.TryParseSymbol(symbolHint, out parsedBaseAsset, out parsedSymbolExpiration, out parsedSymbolStrike, out parsedSymbolType);
 
         if (!TryFindLegType(tokens, tokenIndex, out var type, out var typeIndex))
         {
@@ -112,7 +118,7 @@ public sealed class QuickAddViewModel
                 type = LegType.Future;
                 typeIndex = -1;
             }
-            else if (tokens.Length == 1 && TryParseNumber(tokens[0], out _))
+            else if (tokens.Length == 1 && TryParseDecimal(tokens[0], out _))
             {
                 type = LegType.Future;
                 typeIndex = -1;
@@ -219,7 +225,7 @@ public sealed class QuickAddViewModel
 
         var resolvedStrike = strike ?? ResolveAtmStrike(candidates, type, expirationParsed);
         var matchingTickers = candidates
-            .Where(ticker => Math.Abs(ticker.Strike - resolvedStrike) < 0.01)
+            .Where(ticker => Math.Abs(ticker.Strike - resolvedStrike) < 0.01m)
             .ToList();
 
         if (matchingTickers.Count != 1)
@@ -253,7 +259,7 @@ public sealed class QuickAddViewModel
             return Array.Empty<string>();
         }
 
-        var snapshot = _optionsChainService.GetSnapshot();
+        var snapshot = _optionsChainService.GetTickersByBaseAsset(BaseAsset);
         var symbols = snapshot
             .Select(ticker => ticker.Symbol)
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -271,9 +277,7 @@ public sealed class QuickAddViewModel
 
     private async Task<IReadOnlyList<OptionChainTicker>> LoadChainTickersAsync(string baseAsset)
     {
-        var snapshot = _optionsChainService.GetSnapshot()
-            .Where(ticker => string.Equals(ticker.BaseAsset, baseAsset, StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        var snapshot = _optionsChainService.GetTickersByBaseAsset(BaseAsset);
 
         if (snapshot.Count > 0)
         {
@@ -281,12 +285,11 @@ public sealed class QuickAddViewModel
         }
 
         await _optionsChainService.RefreshAsync(baseAsset);
-        return _optionsChainService.GetSnapshot()
-            .Where(ticker => string.Equals(ticker.BaseAsset, baseAsset, StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        return _optionsChainService.GetTickersByBaseAsset(BaseAsset);
+
     }
 
-    private double ResolveAtmStrike(IReadOnlyList<OptionChainTicker> candidates, LegType type, bool preferAtm)
+    private decimal ResolveAtmStrike(IReadOnlyList<OptionChainTicker> candidates, LegType type, bool preferAtm)
     {
         var referencePrice = Price;
         if (!referencePrice.HasValue)
@@ -352,17 +355,17 @@ public sealed class QuickAddViewModel
         }
     }
 
-    private static bool TryParseNumber(string token, out double value)
+    private static bool TryParseDecimal(string token, out decimal value)
     {
         var cleaned = token.Trim().Trim(',', ';');
-        return double.TryParse(cleaned, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+        return decimal.TryParse(cleaned, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
     }
 
-    private static double? TryParseFirstNumber(string[] tokens, int startIndex)
+    private static decimal? TryParseFirstNumber(string[] tokens, int startIndex)
     {
         for (var i = startIndex; i < tokens.Length; i++)
         {
-            if (TryParseNumber(tokens[i], out var value))
+            if (TryParseDecimal(tokens[i], out var value))
             {
                 return value;
             }
@@ -399,7 +402,7 @@ public sealed class QuickAddViewModel
                 continue;
             }
 
-            if (TryParseNumber(token, out _))
+            if (TryParseDecimal(token, out _))
             {
                 continue;
             }
@@ -460,7 +463,7 @@ public sealed class QuickAddViewModel
         return false;
     }
 
-    private static double? TryParseStrike(string[] tokens, int typeIndex)
+    private static decimal? TryParseStrike(string[] tokens, int typeIndex)
     {
         for (var i = typeIndex + 1; i < tokens.Length; i++)
         {
@@ -476,7 +479,7 @@ public sealed class QuickAddViewModel
                 continue;
             }
 
-            if (TryParseNumber(token, out var strike))
+            if (TryParseDecimal(token, out var strike))
             {
                 return strike;
             }
@@ -485,7 +488,7 @@ public sealed class QuickAddViewModel
         return null;
     }
 
-    private static (double? price, double? iv) ParsePriceOverrides(string input)
+    private static (decimal? price, decimal? iv) ParsePriceOverrides(string input)
     {
         var match = QuickAddAtRegex.Match(input);
         if (!match.Success)
@@ -493,7 +496,7 @@ public sealed class QuickAddViewModel
             return (null, null);
         }
 
-        if (!double.TryParse(match.Groups["value"].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+        if (!decimal.TryParse(match.Groups["value"].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
         {
             return (null, null);
         }
@@ -604,41 +607,11 @@ public sealed class QuickAddViewModel
         return candidate;
     }
 
-    private static double RoundPrice(double value)
+    private static decimal RoundPrice(decimal value)
     {
         return Math.Round(value, 2, MidpointRounding.AwayFromZero);
     }
 
-    private static bool TryParsePositionSymbol(string symbol, out string baseAsset, out DateTime expiration, out double strike, out LegType type)
-    {
-        baseAsset = string.Empty;
-        expiration = default;
-        strike = 0;
-        type = LegType.Call;
-
-        var parts = symbol.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (parts.Length < 4)
-        {
-            return false;
-        }
-
-        baseAsset = parts[0];
-        if (!DateTime.TryParseExact(parts[1], PositionExpirationFormats, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsedExpiration))
-        {
-            return false;
-        }
-
-        expiration = parsedExpiration.Date;
-
-        if (!double.TryParse(parts[2], NumberStyles.Any, CultureInfo.InvariantCulture, out strike))
-        {
-            return false;
-        }
-
-        var typeToken = parts[3].Trim();
-        type = typeToken.Equals("P", StringComparison.OrdinalIgnoreCase) ? LegType.Put : LegType.Call;
-        return true;
-    }
 
     private string BuildActionDescription(string? input)
     {
@@ -655,16 +628,16 @@ public sealed class QuickAddViewModel
 
         var trimmed = input.Trim();
         var tokens = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var size = 1.0;
+        var size = 1.0m;
         var tokenIndex = 0;
 
-        if (tokens.Length > 0 && TryParseNumber(tokens[0], out var parsedSize))
+        if (tokens.Length > 0 && TryParseDecimal(tokens[0], out var parsedSize))
         {
             size = parsedSize;
             tokenIndex = 1;
         }
 
-        if (Math.Abs(size) < 0.0001)
+        if (Math.Abs(size) < 0.0001m)
         {
             return "Leg size must be non-zero.";
         }
@@ -672,10 +645,10 @@ public sealed class QuickAddViewModel
         var symbolHint = ExtractSymbolToken(tokens);
         var parsedBaseAsset = string.Empty;
         var parsedSymbolExpiration = default(DateTime);
-        var parsedSymbolStrike = 0.0;
+        var parsedSymbolStrike = 0.0m;
         var parsedSymbolType = LegType.Call;
         var hasParsedSymbol = !string.IsNullOrWhiteSpace(symbolHint)
-            && TryParsePositionSymbol(symbolHint, out parsedBaseAsset, out parsedSymbolExpiration, out parsedSymbolStrike, out parsedSymbolType);
+            && _exchangeService.TryParseSymbol(symbolHint, out parsedBaseAsset, out parsedSymbolExpiration, out parsedSymbolStrike, out parsedSymbolType);
 
         if (!TryFindLegType(tokens, tokenIndex, out var type, out var typeIndex))
         {
@@ -689,7 +662,7 @@ public sealed class QuickAddViewModel
                 type = LegType.Future;
                 typeIndex = -1;
             }
-            else if (tokens.Length == 1 && TryParseNumber(tokens[0], out _))
+            else if (tokens.Length == 1 && TryParseDecimal(tokens[0], out _))
             {
                 type = LegType.Future;
                 typeIndex = -1;
@@ -758,7 +731,7 @@ public sealed class QuickAddViewModel
         return string.Join(" ", pieces.Where(item => !string.IsNullOrWhiteSpace(item)));
     }
 
-    private double? ResolveAtmStrikeFromSnapshot(LegType type, DateTime expirationDate, bool preferAtm)
+    private decimal? ResolveAtmStrikeFromSnapshot(LegType type, DateTime expirationDate, bool preferAtm)
     {
         var baseAsset = BaseAsset;
         if (string.IsNullOrWhiteSpace(baseAsset))
@@ -766,10 +739,8 @@ public sealed class QuickAddViewModel
             return null;
         }
 
-        var candidates = _optionsChainService.GetSnapshot()
-            .Where(ticker => string.Equals(ticker.BaseAsset, baseAsset, StringComparison.OrdinalIgnoreCase)
-                             && ticker.Type == type
-                             && ticker.ExpirationDate.Date == expirationDate.Date)
+        var candidates = _optionsChainService.GetTickersByBaseAsset(BaseAsset, type)
+            .Where(ticker => ticker.ExpirationDate.Date == expirationDate.Date)
             .ToList();
 
         if (candidates.Count == 0)
@@ -806,9 +777,7 @@ public sealed class QuickAddViewModel
             return requestedDate;
         }
 
-        var expirations = _optionsChainService.GetSnapshot()
-            .Where(ticker => string.Equals(ticker.BaseAsset, baseAsset, StringComparison.OrdinalIgnoreCase)
-                             && ticker.Type == type)
+        var expirations = _optionsChainService.GetTickersByBaseAsset(BaseAsset, type)
             .Select(ticker => ticker.ExpirationDate.Date)
             .Distinct()
             .OrderBy(date => date)
@@ -823,7 +792,7 @@ public sealed class QuickAddViewModel
         return next != default ? next : expirations.Last();
     }
 
-    private double? ResolveOptionPriceFromSnapshot(LegType type, DateTime expirationDate, double? strike, double size)
+    private decimal? ResolveOptionPriceFromSnapshot(LegType type, DateTime expirationDate, decimal? strike, decimal size)
     {
         if (!strike.HasValue)
         {
@@ -836,11 +805,9 @@ public sealed class QuickAddViewModel
             return null;
         }
 
-        var match = _optionsChainService.GetSnapshot()
-            .FirstOrDefault(ticker => string.Equals(ticker.BaseAsset, baseAsset, StringComparison.OrdinalIgnoreCase)
-                                      && ticker.Type == type
-                                      && ticker.ExpirationDate.Date == expirationDate.Date
-                                      && Math.Abs(ticker.Strike - strike.Value) < 0.01);
+        var match = _optionsChainService.GetTickersByBaseAsset(BaseAsset, type)
+            .FirstOrDefault(ticker => ticker.ExpirationDate.Date == expirationDate.Date
+                                       && Math.Abs(ticker.Strike - strike.Value) < 0.01m);
 
         if (match is null)
         {
@@ -850,7 +817,7 @@ public sealed class QuickAddViewModel
         return ResolveEntryPriceFromTicker(match, size);
     }
 
-    private static double? ResolveEntryPriceFromTicker(OptionChainTicker ticker, double size)
+    private static decimal? ResolveEntryPriceFromTicker(OptionChainTicker ticker, decimal size)
     {
         if (size >= 0)
         {
@@ -890,12 +857,12 @@ public sealed class QuickAddViewModel
         return null;
     }
 
-    private static string FormatPrice(double? value)
+    private static string FormatPrice(decimal? value)
     {
         return value.HasValue ? value.Value.ToString("0.00", CultureInfo.InvariantCulture) : "?";
     }
 
-    private static string FormatStrike(double? value)
+    private static string FormatStrike(decimal? value)
     {
         return value.HasValue ? Math.Round(value.Value).ToString("0", CultureInfo.InvariantCulture) : "?";
     }

@@ -1,8 +1,5 @@
-using System;
 using System.Collections.ObjectModel;
-using System.Linq;
 using System.Text.Json;
-using System.Threading;
 using BlazorOptions.Services;
 using BlazorOptions.Sync;
 
@@ -30,9 +27,9 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
 
 
-    public double? SelectedPrice => SelectedPosition?.SelectedPrice;
+    public decimal? SelectedPrice => SelectedPosition?.SelectedPrice;
 
-    public double? LivePrice => SelectedPosition?.LivePrice;
+    public decimal? LivePrice => SelectedPosition?.LivePrice;
 
     public bool IsLive => SelectedPosition?.IsLive ?? true;
 
@@ -76,7 +73,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
     public PositionViewModel? SelectedPosition { get; private set; }
 
 
-    public EChartOptions ChartConfig { get; private set; } = new(Guid.Empty, Array.Empty<double>(), Array.Empty<string>(), null, Array.Empty<ChartCollectionSeries>(), 0, 0);
+    public EChartOptions ChartConfig { get; private set; } = new(Guid.Empty, Array.Empty<decimal>(), Array.Empty<string>(), null, Array.Empty<ChartCollectionSeries>(), 0, 0);
 
     public async Task InitializeAsync()
     {
@@ -88,15 +85,15 @@ public class PositionBuilderViewModel : IAsyncDisposable
         _isInitialized = true;
         var storedPositions = await _storageService.LoadPositionsAsync();
         var deletedPositionIds = await _storageService.LoadDeletedPositionsAsync();
-        _tradingHistoryEntries = Array.Empty<TradingHistoryEntry>();
+        _tradingHistoryEntries = [];
         await _activePositionsService.InitializeAsync();
 
         if (storedPositions.Count == 0)
         {
             var defaultPosition = CreateDefaultPosition();
             Positions.Add(defaultPosition);
-            SetSelectedPosition(defaultPosition);
-            await InitializeSelectedPositionAsync();
+            await SetSelectedPositionAsync(defaultPosition);
+
             UpdateChart();
 
             await PersistPositionsAsync();
@@ -113,8 +110,12 @@ public class PositionBuilderViewModel : IAsyncDisposable
             Positions.Add(position);
         }
 
-        SetSelectedPosition(Positions.FirstOrDefault());
-        await InitializeSelectedPositionAsync();
+        var selectedPosition = Positions.FirstOrDefault();
+
+
+
+        await SetSelectedPositionAsync(selectedPosition);
+
         UpdateChart();
 
         UpdateLegTickerSubscription();
@@ -129,8 +130,8 @@ public class PositionBuilderViewModel : IAsyncDisposable
     {
         var position = CreateDefaultPosition(name ?? $"Position {Positions.Count + 1}", baseAsset, quoteAsset, includeSampleLegs);
         Positions.Add(position);
-        SetSelectedPosition(position);
-        await InitializeSelectedPositionAsync();
+        await SetSelectedPositionAsync(position);
+
         UpdateChart();
 
         await PersistPositionsAsync();
@@ -147,8 +148,8 @@ public class PositionBuilderViewModel : IAsyncDisposable
             return false;
         }
 
-        SetSelectedPosition(position);
-        await InitializeSelectedPositionAsync();
+        await SetSelectedPositionAsync(position);
+
         UpdateChart();
 
         // Don't reconnect ticker or refresh chain when switching tabs.
@@ -321,8 +322,8 @@ public class PositionBuilderViewModel : IAsyncDisposable
         var displayPrice = GetEffectivePrice();
 
         var chartCollections = new List<ChartCollectionSeries>();
-        var minProfit = 0.0;
-        var maxProfit = 0.0;
+        var minProfit = 0.0m;
+        var maxProfit = 0.0m;
         var hasProfit = false;
 
         foreach (var collection in collections)
@@ -332,12 +333,12 @@ public class PositionBuilderViewModel : IAsyncDisposable
             var theoreticalProfits = xs.Select(price => _optionsService.CalculateTotalTheoreticalProfit(collectionLegs, price, valuationDate)).ToArray();
             var tempPnl = collectionLegs.Any()
                 ? _optionsService.CalculateTotalTheoreticalProfit(collectionLegs, displayPrice, valuationDate)
-                : (double?)null;
+                : (decimal?)null;
             var tempExpiryPnl = collectionLegs.Any()
                 ? _optionsService.CalculateTotalProfit(collectionLegs, displayPrice)
-                : (double?)null;
+                : (decimal?)null;
 
-            if (Math.Abs(closedPositionsTotal) > 0.0001)
+            if (Math.Abs(closedPositionsTotal) > 0.0001m)
             {
                 for (var i = 0; i < profits.Length; i++)
                 {
@@ -423,7 +424,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         }
 
         var range = Math.Abs(maxProfit - minProfit);
-        var padding = Math.Max(10, range * 0.1);
+        var padding = Math.Max(10, range * 0.1m);
         var positionId = position?.Position.Id ?? Guid.Empty;
 
         ChartConfig = new EChartOptions(positionId, xs, labels, displayPrice, chartCollections, minProfit - padding, maxProfit + padding);
@@ -473,7 +474,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         return _tradingHistoryEntries;
     }
 
-    private double GetClosedPositionsTotal(PositionViewModel? position)
+    private decimal GetClosedPositionsTotal(PositionViewModel? position)
     {
         if (position is null || !position.Position.IncludeClosedPositions || position.Position.ClosedPositions is null)
         {
@@ -483,7 +484,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         return position.Position.ClosedPositionsNetTotal;
     }
 
-    public double? GetLegMarkIv(LegModel leg, string? baseAsset = null)
+    public decimal? GetLegMarkIv(LegModel leg, string? baseAsset = null)
     {
         var resolvedBaseAsset = baseAsset ?? SelectedPosition?.Position?.BaseAsset;
         var ticker = _optionsChainService.FindTickerForLeg(leg, resolvedBaseAsset);
@@ -509,12 +510,12 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
 
 
-    public void SetSelectedPrice(double price)
+    public void SetSelectedPrice(decimal price)
     {
         UpdateSelectedPrice(price, refresh: true);
     }
 
-    public void UpdateSelectedPrice(double? price, bool refresh)
+    public void UpdateSelectedPrice(decimal? price, bool refresh)
     {
         if (SelectedPosition is null)
         {
@@ -586,9 +587,8 @@ public class PositionBuilderViewModel : IAsyncDisposable
         Positions.Remove(position);
         await _storageService.MarkDeletedPositionAsync(position.Id);
 
-        SetSelectedPosition(Positions.FirstOrDefault());
+        await SetSelectedPositionAsync(Positions.FirstOrDefault());
 
-        await InitializeSelectedPositionAsync();
 
         UpdateChart();
 
@@ -648,31 +648,38 @@ public class PositionBuilderViewModel : IAsyncDisposable
         }
     }
 
-    private void SetSelectedPosition(PositionModel? position)
+    private async Task SetSelectedPositionAsync(PositionModel? position)
     {
         if (SelectedPosition is not null)
         {
             SelectedPosition.Dispose();
         }
 
-        SelectedPosition = position is null
-            ? null
-            : new PositionViewModel(
+        if (position == null)
+        {
+            SelectedPosition = null;
+            return;
+        }
+
+        await _optionsChainService.EnsureBaseAssetAsync(position.BaseAsset);
+
+        SelectedPosition = new PositionViewModel(
                 this,
                 _collectionFactory,
                 _closedPositionsFactory,
                 _notifyUserService,
                 _exchangeTickerService,
                 _activePositionsService,
-                position);
+                _optionsChainService)
+            {
+                Position = position
+            };
+
+       await SelectedPosition.InitializeAsync();
     }
 
-    private Task InitializeSelectedPositionAsync()
-    {
-        return SelectedPosition?.InitializeAsync() ?? Task.CompletedTask;
-    }
 
-    private double ResolveLegEntryPrice(LegViewModel leg)
+    private decimal ResolveLegEntryPrice(LegViewModel leg)
     {
         return leg.Leg.Price
             ?? leg.PlaceholderPrice
@@ -688,7 +695,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
             && IsStrikeMatch(leg.Strike, candidate.Strike));
     }
 
-    private static bool IsStrikeMatch(double? left, double? right)
+    private static bool IsStrikeMatch(decimal? left, decimal? right)
     {
         if (!left.HasValue && !right.HasValue)
         {
@@ -700,7 +707,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
             return false;
         }
 
-        return Math.Abs(left.Value - right.Value) < 0.01;
+        return Math.Abs(left.Value - right.Value) < 0.01m;
     }
 
     private static bool IsDateMatch(DateTime? left, DateTime? right)
@@ -758,7 +765,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     }
 
-    private double GetEffectivePrice()
+    private decimal GetEffectivePrice()
     {
         if (!IsLive)
         {
@@ -821,8 +828,8 @@ public class PositionBuilderViewModel : IAsyncDisposable
         }
         var originalIv = model.ImpliedVolatility ?? 0;
         var resolvedIv = impliedVolatility ?? 0;
-        var priceChanged = !model.Price.HasValue || Math.Abs(resolvedPrice - model.Price.Value) > 0.0001;
-        if (!priceChanged && Math.Abs(resolvedIv - originalIv) < 0.0001)
+        var priceChanged = !model.Price.HasValue || Math.Abs(resolvedPrice - model.Price.Value) > 0.0001m;
+        if (!priceChanged && Math.Abs(resolvedIv - originalIv) < 0.0001m)
         {
             return model;
         }
@@ -840,7 +847,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         };
     }
 
-    private static double NormalizeIv(double value)
+    private static decimal NormalizeIv(decimal value)
     {
         if (value <= 0)
         {
@@ -919,8 +926,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
                 }
             }
 
-            SetSelectedPosition(Positions.FirstOrDefault());
-            await InitializeSelectedPositionAsync();
+            await SetSelectedPositionAsync(Positions.FirstOrDefault());
 
             UpdateChart();
             await PersistPositionsAsync();
@@ -968,13 +974,12 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
             if (Positions.Count == 0)
             {
-                SetSelectedPosition(null);
+                await SetSelectedPositionAsync(null);
             }
             else if (wasSelected || SelectedPosition?.Position is null)
             {
-                SetSelectedPosition(Positions.FirstOrDefault(position => position.Id == payload.PositionId) ??
+                await SetSelectedPositionAsync(Positions.FirstOrDefault(position => position.Id == payload.PositionId) ??
                                    Positions.FirstOrDefault());
-                await InitializeSelectedPositionAsync();
             }
 
             UpdateChart();

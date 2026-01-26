@@ -134,7 +134,7 @@
                                         <td class="qty-cell">
                                             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                                                 <MudIconButton Icon="@Icons.Material.Filled.RemoveCircle" Size="Size.Small" Class="qty-button" OnClick="() => ViewModel.AdjustLegSize(leg, -1)" />
-                                                <MudNumericField T="double"
+                                                <MudNumericField T="decimal"
                                                                  Value="@leg.Size"
                                                                  ValueChanged="value => ViewModel.SetLegSize(leg, value)"
                                                                  Margin="Margin.Dense"
@@ -146,7 +146,7 @@
                                         </td>
                                         <td class="input-cell">
                                             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                                                <MudNumericField T="double"
+                                                <MudNumericField T="decimal"
                                                                  Value="@ViewModel.GetLegInputValue(leg)"
                                                                  ValueChanged="value => ViewModel.SetLegInputValue(leg, value)"
                                                                  Margin="Margin.Dense"
@@ -198,7 +198,7 @@
     [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
     [Parameter] public PositionModel? Position { get; set; }
     [Parameter] public LegsCollectionModel? Collection { get; set; }
-    [Parameter] public double? UnderlyingPrice { get; set; }
+    [Parameter] public decimal? UnderlyingPrice { get; set; }
     private int SelectedExpirationIndex { get; set; }
 
     protected override async Task OnInitializedAsync()
@@ -254,22 +254,22 @@
         SelectedExpirationIndex = index == default ? 0 : index.position;
     }
 
-    private static string FormatMetric(double? value)
+    private static string FormatMetric(decimal? value)
     {
         return value?.ToString("0.###") ?? "0";
     }
 
-    private static string FormatQuotePrice(double value)
+    private static string FormatQuotePrice(decimal value)
     {
         return value <= 0 ? "-" : value.ToString("0.###");
     }
 
-    private static string FormatQuoteIv(double value)
+    private static string FormatQuoteIv(decimal value)
     {
         return value <= 0 ? "-" : $"{value * 100:0.#}%";
     }
 
-    private string StrikeRowClass(double strike, int index)
+    private string StrikeRowClass(decimal strike, int index)
     {
         return ViewModel.IsAtmStrike(strike) ? "atm-strike-row" : string.Empty;
     }

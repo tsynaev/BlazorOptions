@@ -8,9 +8,9 @@ public class ExchangeTickerService : IAsyncDisposable
 {
     private static readonly Uri DefaultBybitWebSocketUrl = new("wss://stream.bybit.com/v5/public/linear");
     private readonly IReadOnlyDictionary<string, IExchangeTickerClient> _clients;
-    private readonly ConcurrentDictionary<IExchangeTickerClient, EventHandler<ExchangePriceUpdate>> _handlers = new();
+    private readonly ConcurrentDictionary<IExchangeTickerClient, Func<ExchangePriceUpdate, Task>> _handlers = new();
     private readonly object _subscriberLock = new();
-    private readonly Dictionary<string, List<EventHandler<ExchangePriceUpdate>>> _subscriberHandlers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, List<Func<ExchangePriceUpdate, Task>>> _subscriberHandlers = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _legacySubscriptions = new(StringComparer.OrdinalIgnoreCase);
     private IExchangeTickerClient? _activeClient;
     private Uri? _activeWebSocketUrl;
@@ -26,33 +26,16 @@ public class ExchangeTickerService : IAsyncDisposable
 
         foreach (var client in _clients.Values)
         {
-            var handler = new EventHandler<ExchangePriceUpdate>(HandleClientPriceUpdated);
+            var handler = HandleClientPriceUpdated;
             _handlers[client] = handler;
             client.PriceUpdated += handler;
         }
     }
 
-    public event EventHandler<ExchangePriceUpdate>? PriceUpdated;
-
-    private sealed class SubscriptionRegistration : IDisposable
-    {
-        private Action? _dispose;
-
-        public SubscriptionRegistration(Action dispose)
-        {
-            _dispose = dispose;
-        }
-
-        public void Dispose()
-        {
-            var dispose = Interlocked.Exchange(ref _dispose, null);
-            dispose?.Invoke();
-        }
-    }
-
+  
     public async ValueTask<IDisposable> SubscribeAsync(
         string symbol,
-        EventHandler<ExchangePriceUpdate> handler,
+        Func<ExchangePriceUpdate, Task> handler,
         CancellationToken cancellationToken = default)
     {
         if (handler is null || string.IsNullOrWhiteSpace(symbol))
@@ -67,7 +50,7 @@ public class ExchangeTickerService : IAsyncDisposable
         {
             if (!_subscriberHandlers.TryGetValue(normalizedSymbol, out var handlers))
             {
-                handlers = new List<EventHandler<ExchangePriceUpdate>>();
+                handlers = new List<Func<ExchangePriceUpdate, Task>>();
                 _subscriberHandlers[normalizedSymbol] = handlers;
                 shouldSubscribe = true;
             }
@@ -117,11 +100,7 @@ public class ExchangeTickerService : IAsyncDisposable
         return DefaultBybitWebSocketUrl;
     }
 
-    public BybitSettings GetBybitSettings()
-    {
-        return _bybitSettingsOptions.Value ?? new BybitSettings();
-    }
-
+ 
     public async Task DisconnectAsync()
     {
         if (_activeClient is null)
@@ -165,7 +144,7 @@ public class ExchangeTickerService : IAsyncDisposable
             throw new InvalidOperationException($"Exchange '{subscription.Exchange}' is not registered.");
         }
 
-        var settings = GetBybitSettings();
+        var settings = _bybitSettingsOptions.Value;
         var resolvedUrl = ResolveWebSocketUrl(settings.WebSocketUrl);
         if (_activeClient != client || _activeWebSocketUrl != resolvedUrl)
         {
@@ -191,9 +170,9 @@ public class ExchangeTickerService : IAsyncDisposable
         }
     }
 
-    private void HandleClientPriceUpdated(object? sender, ExchangePriceUpdate update)
+    private async Task HandleClientPriceUpdated(ExchangePriceUpdate update)
     {
-        var settings = GetBybitSettings();
+        var settings = _bybitSettingsOptions.Value;
         _livePriceUpdateInterval = TimeSpan.FromMilliseconds(Math.Max(100, settings.LivePriceUpdateIntervalMilliseconds));
         var now = DateTime.UtcNow;
         if (_lastUpdateUtc.TryGetValue(update.Symbol, out var lastUpdate) &&
@@ -204,7 +183,7 @@ public class ExchangeTickerService : IAsyncDisposable
 
         _lastUpdateUtc[update.Symbol] = now;
 
-        List<EventHandler<ExchangePriceUpdate>>? handlers = null;
+        List<Func<ExchangePriceUpdate, Task>>? handlers = null;
         lock (_subscriberLock)
         {
             if (_subscriberHandlers.TryGetValue(update.Symbol, out var symbolHandlers))
@@ -217,14 +196,12 @@ public class ExchangeTickerService : IAsyncDisposable
         {
             foreach (var handler in handlers)
             {
-                handler.Invoke(this, update);
+                await handler.Invoke(update);
             }
         }
-
-        PriceUpdated?.Invoke(this, update);
     }
 
-    private async Task UnsubscribeAsync(string symbol, EventHandler<ExchangePriceUpdate> handler)
+    private async Task UnsubscribeAsync(string symbol, Func<ExchangePriceUpdate, Task> handler)
     {
         var shouldUnsubscribe = false;
 

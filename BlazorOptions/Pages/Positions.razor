@@ -87,7 +87,7 @@
                                        ValueChanged="OnLivePriceChanged"
                                        Label="Live" />
                             <MudText Typo="Typo.caption" Class="ml-2">Index Price</MudText>
-                            <MudNumericField T="double?"
+                            <MudNumericField T="decimal?"
                                              Value="@ViewModel.SelectedPrice"
                                              ValueChanged="OnTemporaryPriceChanged"
                                              Immediate="true"
@@ -191,7 +191,7 @@
         await ViewModel.DisposeAsync();
     }
 
-    private async Task HandleChartPriceSelected(double price)
+    private async Task HandleChartPriceSelected(decimal price)
     {
         ViewModel.SetSelectedPrice(price);
         await InvokeAsync(StateHasChanged);
@@ -219,7 +219,7 @@
         }
     }
 
-    private async Task OnTemporaryPriceChanged(double? price)
+    private async Task OnTemporaryPriceChanged(decimal? price)
     {
         var refresh = !ViewModel.IsLive;
         ViewModel.UpdateSelectedPrice(price, refresh);

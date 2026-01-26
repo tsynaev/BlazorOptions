@@ -19,6 +19,6 @@ public class PositionModel
 
     public bool IncludeClosedPositions { get; set; }
 
-    public double ClosedPositionsNetTotal { get; set; }
+    public decimal ClosedPositionsNetTotal { get; set; }
 }
 

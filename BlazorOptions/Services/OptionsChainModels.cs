@@ -8,25 +8,27 @@ public class OptionChainTicker
         string symbol,
         string baseAsset,
         DateTime expirationDate,
-        double strike,
+        decimal strike,
         LegType type,
-        double markPrice,
-        double lastPrice,
-        double markIv,
-        double bidPrice,
-        double askPrice,
-        double bidIv,
-        double askIv,
-        double? delta,
-        double? gamma,
-        double? vega,
-        double? theta)
+        decimal underlyingPrice,
+        decimal markPrice,
+        decimal lastPrice,
+        decimal markIv,
+        decimal bidPrice,
+        decimal askPrice,
+        decimal bidIv,
+        decimal askIv,
+        decimal? delta,
+        decimal? gamma,
+        decimal? vega,
+        decimal? theta)
     {
         Symbol = symbol;
         BaseAsset = baseAsset;
         ExpirationDate = expirationDate;
         Strike = strike;
         Type = type;
+        UnderlyingPrice = underlyingPrice;
         MarkPrice = markPrice;
         LastPrice = lastPrice;
         MarkIv = markIv;
@@ -46,30 +48,32 @@ public class OptionChainTicker
 
     public DateTime ExpirationDate { get; }
 
-    public double Strike { get; }
+    public decimal Strike { get; }
 
     public LegType Type { get; }
 
-    public double MarkPrice { get; }
+    public decimal? UnderlyingPrice { get; set; }
+    public decimal MarkPrice { get; }
 
-    public double LastPrice { get; }
+    public decimal LastPrice { get; }
 
-    public double MarkIv { get; }
+    public decimal MarkIv { get; }
 
-    public double BidPrice { get; }
+    public decimal BidPrice { get; }
 
-    public double AskPrice { get; }
+    public decimal AskPrice { get; }
 
-    public double BidIv { get; }
+    public decimal BidIv { get; }
 
-    public double AskIv { get; }
+    public decimal AskIv { get; }
 
-    public double? Delta { get; }
+    public decimal? Delta { get; }
 
-    public double? Gamma { get; }
+    public decimal? Gamma { get; }
 
-    public double? Vega { get; }
+    public decimal? Vega { get; }
 
-    public double? Theta { get; }
+    public decimal? Theta { get; }
+  
 }
 

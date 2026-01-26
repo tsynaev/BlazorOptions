@@ -8,6 +8,8 @@
 ## Task completion
 - Run `dotnet build --no-restore` before completing the task.
 - fix errors and warnings (if possible)
+- Performance is critical; aim for responsive interactions especially in chart and leg editing flows.
+- Minimize memory usage where possible, particularly during chart rendering and leg operations.
 
 ## Testing
 - don't run tests

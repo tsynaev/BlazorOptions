@@ -6,6 +6,20 @@ public class BlackScholes
 {
     private const double RiskFreeRate = 0.0;
 
+
+    public decimal CalculatePriceDecimal(
+        decimal underlyingPrice, decimal strike, decimal ivPercent,
+        DateTime expirationDate, bool isCall, DateTime? valuationDate = null,
+        int round = 8)
+    {
+        double price = CalculatePrice(
+            (double)underlyingPrice, (double)strike, (double)ivPercent,
+            expirationDate, isCall, valuationDate);
+
+
+        return Math.Round((decimal)price, round, MidpointRounding.ToEven);
+    }
+
     public double CalculatePrice(double underlyingPrice, double strike, double impliedVolatility, DateTime expirationDate, bool isCall, DateTime? valuationDate = null)
     {
         var adjustedUnderlying = Math.Max(underlyingPrice, 1e-6);

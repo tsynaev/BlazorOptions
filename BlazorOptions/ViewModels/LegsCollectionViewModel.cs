@@ -6,22 +6,21 @@ using System.Text.RegularExpressions;
 
 namespace BlazorOptions.ViewModels;
 
-public readonly record struct BidAsk(double? Bid, double? Ask);
-
-
 public sealed class LegsCollectionViewModel : IDisposable
 {
     private readonly ILegsCollectionDialogService _dialogService;
     private readonly OptionsChainService _optionsChainService;
     private readonly LegViewModelFactory _legViewModelFactory;
     private readonly INotifyUserService _notifyUserService;
-    private string? _baseAsset;
-    private double? _currentPrice;
+    private readonly ITelemetryService _telemetryService;
+    private string _baseAsset;
+    private decimal? _currentPrice;
     private bool _isLive;
     private DateTime _valuationDate;
     private LegsCollectionModel _collection = default!;
     private readonly Dictionary<string, LegViewModel> _legViewModels = new(StringComparer.Ordinal);
     private readonly ObservableCollection<LegViewModel> _legs = new();
+    private IExchangeService _exchangeService;
 
 
     private static readonly string[] PositionExpirationFormats = { "ddMMMyy", "ddMMMyyyy" };
@@ -30,21 +29,24 @@ public sealed class LegsCollectionViewModel : IDisposable
         ILegsCollectionDialogService dialogService,
         OptionsChainService optionsChainService,
         LegViewModelFactory legViewModelFactory,
-        INotifyUserService notifyUserService)
+        INotifyUserService notifyUserService,
+        ITelemetryService telemetryService, IExchangeService exchangeService)
     {
         _dialogService = dialogService;
         _optionsChainService = optionsChainService;
         _legViewModelFactory = legViewModelFactory;
         _notifyUserService = notifyUserService;
+        _telemetryService = telemetryService;
+        _exchangeService = exchangeService;
 
-        QuickAdd = new QuickAddViewModel(_notifyUserService, optionsChainService);
+        QuickAdd = new QuickAddViewModel(_notifyUserService, optionsChainService, telemetryService, exchangeService);
         QuickAdd.LegCreated += HandleQuickAddLegCreated;
 
     }
 
     public PositionViewModel Position { get; set; } = default!;
 
-    public string? BaseAsset
+    public string BaseAsset
     {
         get => _baseAsset;
         set {
@@ -53,7 +55,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         }
     }
 
-    public double? CurrentPrice
+    public decimal? CurrentPrice
     {
         get => _currentPrice;
         set
@@ -148,6 +150,7 @@ public sealed class LegsCollectionViewModel : IDisposable
 
     public async Task AddLegAsync()
     {
+        using var activity = _telemetryService.StartActivity("LegsCollection.AddLeg");
         if (Position is null)
         {
             return;
@@ -178,10 +181,11 @@ public sealed class LegsCollectionViewModel : IDisposable
         await RaiseUpdatedAsync();
     }
 
-    public Task AddQuickLegAsync()
+    public async Task AddQuickLegAsync()
     {
+        using var activity = _telemetryService.StartActivity("LegsCollection.AddQuickLeg");
         SyncQuickAddPrice();
-        return QuickAdd.AddQuickLegAsync();
+        await QuickAdd.AddQuickLegAsync();
     }
 
     public Task OnQuickLegKeyDown(KeyboardEventArgs args)
@@ -257,7 +261,7 @@ public sealed class LegsCollectionViewModel : IDisposable
 
         foreach (var bybitPosition in positions)
         {
-            if (Math.Abs(bybitPosition.Size) < 0.0001)
+            if (Math.Abs(bybitPosition.Size) < 0.0001m)
             {
                 continue;
             }
@@ -299,11 +303,12 @@ public sealed class LegsCollectionViewModel : IDisposable
         }
 
         DateTime? expiration = null;
-        double? strike = null;
+        decimal? strike = null;
         var type = LegType.Future;
         if (string.Equals(category, "option", StringComparison.OrdinalIgnoreCase))
         {
-            if (!TryParsePositionSymbol(position.Symbol, out var parsedBase, out var parsedExpiration, out var parsedStrike, out var parsedType))
+           
+            if (!_exchangeService.TryParseSymbol(position.Symbol, out var parsedBase, out var parsedExpiration, out var parsedStrike, out var parsedType))
             {
                 return null;
             }
@@ -332,7 +337,7 @@ public sealed class LegsCollectionViewModel : IDisposable
 
 
         var size = DetermineSignedSize(position);
-        if (Math.Abs(size) < 0.0001)
+        if (Math.Abs(size) < 0.0001m)
         {
             return null;
         }
@@ -352,36 +357,6 @@ public sealed class LegsCollectionViewModel : IDisposable
         };
     }
 
-    private static bool TryParsePositionSymbol(string symbol, out string baseAsset, out DateTime expiration, out double strike, out LegType type)
-    {
-        baseAsset = string.Empty;
-        expiration = default;
-        strike = 0;
-        type = LegType.Call;
-
-        var parts = symbol.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (parts.Length < 4)
-        {
-            return false;
-        }
-
-        baseAsset = parts[0];
-        if (!DateTime.TryParseExact(parts[1], PositionExpirationFormats, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsedExpiration))
-        {
-            return false;
-        }
-
-        expiration = parsedExpiration.Date;
-
-        if (!double.TryParse(parts[2], NumberStyles.Any, CultureInfo.InvariantCulture, out strike))
-        {
-            return false;
-        }
-
-        var typeToken = parts[3].Trim();
-        type = typeToken.Equals("P", StringComparison.OrdinalIgnoreCase) ? LegType.Put : LegType.Call;
-        return true;
-    }
 
     private static bool TryParseFutureExpiration(string symbol, out DateTime expiration)
     {
@@ -409,10 +384,10 @@ public sealed class LegsCollectionViewModel : IDisposable
         return DateTime.TryParseExact(match.Groups[1].Value, format, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out expiration);
     }
 
-    private static double DetermineSignedSize(BybitPosition position)
+    private static decimal DetermineSignedSize(BybitPosition position)
     {
         var magnitude = Math.Abs(position.Size);
-        if (magnitude < 0.0001)
+        if (magnitude < 0.0001m)
         {
             return 0;
         }
@@ -479,88 +454,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         await RaiseLegRemovedAsync(leg);
     }
 
-    public async Task UpdateLegIncludedAsync(LegModel leg, bool include)
-    {
-        leg.IsIncluded = include;
-        await RaiseUpdatedAsync();
-        await RaiseLegUpdatedAsync(leg);
-    }
 
-    public async Task UpdateLegTypeAsync(LegModel leg, LegType type)
-    {
-        if (leg.IsReadOnly)
-        {
-            return;
-        }
-
-        leg.Type = type;
-        await RaiseUpdatedAsync();
-        await RaiseLegUpdatedAsync(leg);
-    }
-
-    public async Task UpdateLegStrikeAsync(LegModel leg, double? strike)
-    {
-        if (leg.IsReadOnly)
-        {
-            return;
-        }
-
-        leg.Strike = strike;
-        await RaiseUpdatedAsync();
-        await RaiseLegUpdatedAsync(leg);
-    }
-
-    public async Task UpdateLegExpirationAsync(LegModel leg, DateTime? date)
-    {
-        if (leg.IsReadOnly)
-        {
-            return;
-        }
-
-        if (date.HasValue)
-        {
-            leg.ExpirationDate = date.Value;
-        }
-
-        await RaiseUpdatedAsync();
-        await RaiseLegUpdatedAsync(leg);
-    }
-
-    public async Task UpdateLegSizeAsync(LegModel leg, double size)
-    {
-        if (leg.IsReadOnly)
-        {
-            return;
-        }
-
-        leg.Size = size;
-        await RaiseUpdatedAsync();
-        await RaiseLegUpdatedAsync(leg);
-    }
-
-    public async Task UpdateLegPriceAsync(LegModel leg, double? price)
-    {
-        if (leg.IsReadOnly)
-        {
-            return;
-        }
-
-        leg.Price = price;
-        await RaiseUpdatedAsync();
-        await RaiseLegUpdatedAsync(leg);
-    }
-
-    public async Task UpdateLegIvAsync(LegModel leg, double? iv)
-    {
-        if (leg.IsReadOnly)
-        {
-            return;
-        }
-
-        leg.ImpliedVolatility = iv;
-        await RaiseUpdatedAsync();
-        await RaiseLegUpdatedAsync(leg);
-    }
 
 
     private Task RaiseUpdatedAsync()
@@ -578,12 +472,6 @@ public sealed class LegsCollectionViewModel : IDisposable
         return LegAdded?.Invoke(leg) ?? Task.CompletedTask;
     }
 
-    private Task RaiseLegUpdatedAsync(LegModel leg)
-    {
-        return RaiseLegRemovedAsync(leg)
-            .ContinueWith(_ => RaiseLegAddedAsync(leg))
-            .Unwrap();
-    }
 
     private async Task HandleQuickAddLegCreated(LegModel leg)
     {
@@ -705,12 +593,8 @@ public sealed class LegsCollectionViewModel : IDisposable
             return;
         }
 
-        var baseAsset = Position?.Position.BaseAsset;
-        var ticker = _optionsChainService.FindTickerForLeg(leg, baseAsset);
-        if (ticker is not null)
-        {
-            leg.Symbol = ticker.Symbol;
-        }
+        leg.Symbol = _exchangeService.FormatSymbol(leg, Position?.Position.BaseAsset, Position?.Position.QuoteAsset);
+
     }
 }
 
