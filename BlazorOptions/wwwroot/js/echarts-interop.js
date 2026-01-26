@@ -118,19 +118,17 @@ window.payoffChart = {
             const numeric = Number(value);
             if (!Number.isFinite(numeric)) return '';
             const abs = Math.abs(numeric);
+
+            if (abs === 0) return '0';
+
             if (abs >= 100) {
-                return Math.round(numeric).toString();
-            }
-            if (abs === 0) {
-                return '0';
+                return numeric.toFixed(2).replace(/\.?0+$/, '');
             }
 
             const magnitude = Math.floor(Math.log10(abs));
-            const decimals = magnitude >= 0
-                ? Math.max(0, 2 - magnitude)
-                : Math.abs(magnitude) + 2;
+            const decimals = magnitude >= 0 ? Math.max(0, 2 - magnitude) : Math.abs(magnitude) + 2;
 
-            return numeric.toFixed(decimals);
+            return numeric.toFixed(decimals).replace(/\.?0+$/, '');
         };
 
         const normalizePrice = (value) => {
@@ -870,4 +868,136 @@ window.payoffChart.clearRanges = function (positionId) {
         localStorage.removeItem(`payoffChart:${positionId}:priceRange`);
         localStorage.removeItem(`payoffChart:${positionId}:pnlRange`);
     } catch { /* ignore */ }
+};
+
+window.dailyPnlChart = {
+    render: function (element, options) {
+        if (!element || !options) return;
+
+        if (!element.isConnected) {
+            if (element.__dailyPnlInstance && !element.__dailyPnlInstance.isDisposed?.()) {
+                element.__dailyPnlInstance.dispose();
+            }
+            element.__dailyPnlInstance = null;
+            return;
+        }
+
+        if (!element || typeof element.offsetWidth !== 'number' || typeof element.offsetHeight !== 'number') {
+            return;
+        }
+        const hasSize = element.offsetWidth > 0 || element.offsetHeight > 0;
+        if (!hasSize) {
+            const attempts = (element.__dailyPnlRenderAttempts || 0) + 1;
+            element.__dailyPnlRenderAttempts = attempts;
+            if (attempts <= 5) {
+                requestAnimationFrame(() => window.dailyPnlChart.render(element, options));
+            }
+            return;
+        }
+
+        element.__dailyPnlRenderAttempts = 0;
+
+        if (element.__dailyPnlInstance?.isDisposed?.()) {
+            element.__dailyPnlInstance = null;
+        } else if (element.__dailyPnlInstance?.getDom?.() && element.__dailyPnlInstance.getDom() !== element) {
+            element.__dailyPnlInstance.dispose();
+            element.__dailyPnlInstance = null;
+        }
+
+        const chart = element.__dailyPnlInstance || echarts.init(element);
+        element.__dailyPnlInstance = chart;
+
+        const labels = options.days || [];
+        const collections = options.series || [];
+        const yMin = Number.isFinite(options.yMin) ? Number(options.yMin) : 'dataMin';
+        const yMax = Number.isFinite(options.yMax) ? Number(options.yMax) : 'dataMax';
+        const palette = ['#26A69A', '#42A5F5', '#7E57C2', '#FFA726', '#66BB6A', '#EF5350', '#FFCA28', '#8D6E63'];
+
+        const formatPnl = (value) => {
+            const numeric = Number(value);
+            if (!Number.isFinite(numeric)) return '0';
+            const abs = Math.abs(numeric);
+            const decimals = abs >= 100 ? 2 : abs >= 1 ? 2 : 4;
+            return numeric.toFixed(decimals).replace(/\.?0+$/, '');
+        };
+
+        const isNarrow = element.offsetWidth <= 520;
+        const axisFontSize = isNarrow ? 8 : 10;
+        const rotateLabels = isNarrow && labels.length > 8;
+
+        const series = collections.map((collection, index) => {
+            const values = collection.values || [];
+            const color = collection.color || palette[index % palette.length];
+            return {
+                name: collection.name || `Series ${index + 1}`,
+                type: 'bar',
+                barMaxWidth: 26,
+                data: values.map(value => Number.isFinite(value) ? Number(value) : 0),
+                itemStyle: { color }
+            };
+        });
+
+        chart.setOption({
+            grid: { left: 55, right: 18, top: collections.length > 1 ? 45 : 30, bottom: rotateLabels ? 55 : 40 },
+            legend: collections.length > 1
+                ? {
+                    top: 0,
+                    left: 10,
+                    textStyle: { color: '#E0E0E0' }
+                }
+                : undefined,
+            tooltip: {
+                trigger: 'axis',
+                axisPointer: { type: 'shadow' },
+                formatter: function (params) {
+                    if (!params || !params.length) return '';
+                    const day = params[0]?.axisValue ?? '';
+                    const lines = [`${day}`];
+                    params.forEach(p => {
+                        const value = Number(p?.value);
+                        if (!Number.isFinite(value)) return;
+                        lines.push(`${p.marker || ''} ${p.seriesName}: ${formatPnl(value)}`);
+                    });
+                    return lines.join('<br/>');
+                }
+            },
+            xAxis: {
+                type: 'category',
+                data: labels,
+                boundaryGap: true,
+                axisLabel: {
+                    color: '#B0BEC5',
+                    fontSize: axisFontSize,
+                    rotate: rotateLabels ? 45 : 0
+                },
+                axisLine: { lineStyle: { color: '#546E7A' } }
+            },
+            yAxis: {
+                type: 'value',
+                min: yMin,
+                max: yMax,
+                axisLabel: {
+                    color: '#B0BEC5',
+                    fontSize: axisFontSize,
+                    formatter: function (value) {
+                        return formatPnl(value);
+                    }
+                },
+                splitLine: { lineStyle: { color: 'rgba(224, 224, 224, 0.1)' } }
+            },
+            series: series
+        }, true);
+
+        if (!chart.isDisposed?.()) {
+            chart.resize();
+        }
+    },
+    dispose: function (element) {
+        if (!element) return;
+        const chart = element.__dailyPnlInstance;
+        if (chart && !chart.isDisposed?.()) {
+            chart.dispose();
+        }
+        element.__dailyPnlInstance = null;
+    }
 };

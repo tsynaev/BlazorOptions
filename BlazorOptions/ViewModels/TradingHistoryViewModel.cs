@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Linq;
 using System.Text.Json;
 using BlazorOptions.Services;
@@ -18,6 +18,7 @@ public class TradingHistoryViewModel
     private TradingHistoryMeta _meta = new();
     private IReadOnlyList<TradingSummaryRow>? _summaryBySymbolCache;
     private IReadOnlyList<TradingPnlByCoinRow>? _pnlByCoinCache;
+    private DailyPnlChartOptions? _dailyPnlChartCache;
     private readonly List<TradingHistoryEntry> _loadedEntries = new();
     private bool _isInitialized;
     private bool _isBackgroundInitialized;
@@ -463,6 +464,17 @@ public class TradingHistoryViewModel
         return Array.Empty<TradingPnlByCoinRow>();
     }
 
+    public DailyPnlChartOptions? GetDailyRealizedPnlChart()
+    {
+        if (_dailyPnlChartCache is not null)
+        {
+            return _dailyPnlChartCache;
+        }
+
+        _ = EnsureSummaryCacheAsync();
+        return null;
+    }
+
     private async Task EnsureSummaryCacheAsync()
     {
         if (_summaryBySymbolCache is not null || _pnlByCoinCache is not null || _isLoadingSummary)
@@ -477,6 +489,7 @@ public class TradingHistoryViewModel
             BuildSummaryCaches(entries);
             var dailySummaries = BuildDailySummaries(entries);
             await _storageService.SaveDailySummariesAsync(dailySummaries);
+            _dailyPnlChartCache = BuildDailyPnlChart(entries);
             OnChange?.Invoke();
         }
         finally
@@ -692,6 +705,100 @@ public class TradingHistoryViewModel
             .ToList();
     }
 
+    private static DailyPnlChartOptions? BuildDailyPnlChart(IReadOnlyList<TradingHistoryEntry> entries)
+    {
+        if (entries.Count == 0)
+        {
+            return null;
+        }
+
+        var utcNow = DateTimeOffset.UtcNow;
+        var startDate = new DateTimeOffset(utcNow.Year, utcNow.Month, utcNow.Day, 0, 0, 0, TimeSpan.Zero).AddDays(-29);
+        var startTimestamp = startDate.ToUnixTimeMilliseconds();
+        var dayKeys = Enumerable.Range(0, 30)
+            .Select(offset => startDate.AddDays(offset))
+            .Select(day => day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
+            .ToArray();
+        var byDay = dayKeys.ToDictionary(
+            key => key,
+            _ => new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase),
+            StringComparer.OrdinalIgnoreCase);
+        var coins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var entry in entries)
+        {
+            if (!entry.Timestamp.HasValue || entry.Timestamp.Value < startTimestamp)
+            {
+                continue;
+            }
+
+            var day = GetDayKey(entry.Timestamp);
+            if (string.IsNullOrWhiteSpace(day) || !byDay.TryGetValue(day, out var totals))
+            {
+                continue;
+            }
+
+            var settleCoin = GetSettleCoin(entry.Currency);
+            var realized = ParseDecimal(entry.Calculated?.RealizedPnl) ?? 0m;
+
+            totals.TryGetValue(settleCoin, out var current);
+            totals[settleCoin] = current + realized;
+            coins.Add(settleCoin);
+        }
+
+        if (coins.Count == 0)
+        {
+            return null;
+        }
+
+        var orderedCoins = coins.OrderBy(coin => coin, StringComparer.OrdinalIgnoreCase).ToArray();
+        var series = new List<DailyPnlSeries>(orderedCoins.Length);
+        var hasValue = false;
+        var min = 0m;
+        var max = 0m;
+
+        for (var coinIndex = 0; coinIndex < orderedCoins.Length; coinIndex++)
+        {
+            var coin = orderedCoins[coinIndex];
+            var values = new decimal[dayKeys.Length];
+
+            for (var i = 0; i < dayKeys.Length; i++)
+            {
+                var amount = 0m;
+                if (byDay.TryGetValue(dayKeys[i], out var totals) &&
+                    totals.TryGetValue(coin, out var found))
+                {
+                    amount = found;
+                }
+
+                values[i] = amount;
+                if (!hasValue)
+                {
+                    min = amount;
+                    max = amount;
+                    hasValue = true;
+                }
+                else
+                {
+                    min = Math.Min(min, amount);
+                    max = Math.Max(max, amount);
+                }
+            }
+
+            series.Add(new DailyPnlSeries(coin, values));
+        }
+
+        if (!hasValue)
+        {
+            return null;
+        }
+
+        min = Math.Min(min, 0m);
+        max = Math.Max(max, 0m);
+
+        return new DailyPnlChartOptions(dayKeys, series, min, max);
+    }
+
     private static string GetDayKey(long? timestamp)
     {
         if (!timestamp.HasValue || timestamp.Value <= 0)
@@ -709,6 +816,7 @@ public class TradingHistoryViewModel
     {
         _summaryBySymbolCache = null;
         _pnlByCoinCache = null;
+        _dailyPnlChartCache = null;
     }
 
     private static void ApplyCalculatedFields(IReadOnlyList<TradingHistoryEntry> entries, CalculationState state, bool updateEntries = true)

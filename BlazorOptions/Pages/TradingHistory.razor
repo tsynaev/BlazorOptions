@@ -146,6 +146,24 @@
             <MudStack Spacing="3">
                 <MudPaper Class="pa-6" Elevation="1">
                     <MudStack Spacing="2">
+                        <MudText Typo="Typo.h6">Realized PnL per day</MudText>
+                        @if (ViewModel.TotalTransactionsCount == 0)
+                        {
+                            <MudText Typo="Typo.body2">No transactions loaded yet.</MudText>
+                        }
+                        else if (ViewModel.GetDailyRealizedPnlChart() is { } dailyChart)
+                        {
+                            <DailyPnlChart Config="dailyChart" Height="280px" />
+                        }
+                        else
+                        {
+                            <MudText Typo="Typo.body2">Preparing daily chart...</MudText>
+                        }
+                    </MudStack>
+                </MudPaper>
+
+                <MudPaper Class="pa-6" Elevation="1">
+                    <MudStack Spacing="2">
                         <MudText Typo="Typo.h6">Totals by symbol</MudText>
                         @if (ViewModel.TotalTransactionsCount == 0)
                         {

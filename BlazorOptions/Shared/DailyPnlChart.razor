@@ -1,0 +1,47 @@
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
+
+<div class="chart-host @Class" style="@($"height:{Height};{Style}")">
+    <div class="echart" @ref="_chartRef"></div>
+</div>
+
+@code {
+    [Parameter]
+    public DailyPnlChartOptions? Config { get; set; }
+
+    [Parameter]
+    public string Height { get; set; } = "320px";
+
+    [Parameter]
+    public string? Class { get; set; }
+
+    [Parameter]
+    public string? Style { get; set; }
+
+    [Inject]
+    private IJSRuntime JS { get; set; } = default!;
+
+    private ElementReference _chartRef;
+    private bool _needsRender;
+
+    protected override void OnParametersSet()
+    {
+        _needsRender = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_needsRender || Config is null)
+        {
+            return;
+        }
+
+        _needsRender = false;
+        await JS.InvokeVoidAsync("dailyPnlChart.render", _chartRef, Config);
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        return JS.InvokeVoidAsync("dailyPnlChart.dispose", _chartRef);
+    }
+}
