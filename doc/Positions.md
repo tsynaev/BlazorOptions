@@ -42,3 +42,7 @@ The Positions feature lets you build, manage, and visualize option strategies an
 2) Add legs using quick input or manual entry.
 3) Visualize payoff and adjust settings (visibility, included legs).
 4) Changes sync automatically when authenticated.
+
+## UI updates
+- The legacy tabs were replaced with a borderless dropdown so selecting positions works on mobile and still keeps the URL in sync via `/positions/{positionId}` links.
+- Switching positions now updates the route, preserves the previously opened chart after a refresh, and shows an error alert with recovery actions when someone navigates to a nonexistent position ID.
