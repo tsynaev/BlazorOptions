@@ -1,7 +1,9 @@
 @page "/positions"
+@page "/positions/{PositionId:guid?}"
 @implements IAsyncDisposable
 @inject PositionBuilderViewModel ViewModel
 @inject IDialogService DialogService
+@inject NavigationManager NavigationManager
 @using System.Linq
 @using Microsoft.AspNetCore.Components.Web
 @using BlazorOptions.Shared
@@ -9,53 +11,54 @@
 
 <PageTitle>Positions</PageTitle>
 
-<MudStack>
-    <MudCard>
+@if (_routeErrorMessage is not null)
+{
+    <MudStack Spacing="2" Class="route-error-panel">
+        <MudAlert Severity="Severity.Error" Variant="Variant.Filled">
+            @_routeErrorMessage
+        </MudAlert>
+        <MudStack Row="true" Spacing="1">
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="NavigateToFirstPosition">Open first available position</MudButton>
+            <MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="CreatePosition">Create new position</MudButton>
+        </MudStack>
+    </MudStack>
+}
+else
+{
+    <MudStack>
+        <MudCard>
         <MudCardContent>
             <MudStack Spacing="2">
                 <MudStack Spacing="1">
                     <MudText Typo="Typo.h4">Positions</MudText>
                     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
-                        <MudSwipeArea Class="position-swipe-area" OnSwipeEnd="OnSwipeEnd">
-                            <MudTabs Class="position-tabs"
-                                             ActivePanelIndex="@_activeTabIndex"
-                                             ActivePanelIndexChanged="OnTabChanged"
-                                             AlwaysShowScrollButtons="false"
-                                           
-                                             Elevation="0"
-                                             >
-                                @for (var i = 0; i < ViewModel.Positions.Count; i++)
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="position-select-row">
+                            <MudSelect T="Guid?" Class="position-select"
+                                       Value="@ViewModel.SelectedPosition?.Position?.Id"
+                                       ValueChanged="HandlePositionChange"
+                                       Variant="Variant.Text"
+                                       Adornment="Adornment.Start"
+                                       AdornmentIcon="@Icons.Material.Filled.ListAlt">
+                                @foreach (var pos in ViewModel.Positions)
                                 {
-                                    var position = ViewModel.Positions[i];
-
-                                    <MudTabPanel @key="position.Id" Text="@position.Id.ToString()">
-                                        <TabContent>
-                                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="tab-header">
-                                                <MudText Class="tab-name-label">@position.Name</MudText>
-                                            </MudStack>
-                                        </TabContent>
-                                    </MudTabPanel>
+                                    <MudSelectItem T="Guid?" Value="@pos.Id">@pos.Name</MudSelectItem>
                                 }
-                            </MudTabs>
-                        </MudSwipeArea>
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                            <MudTooltip Text="Add position">
-                                <MudIconButton Icon="@Icons.Material.Filled.AddCircle" Color="Color.Primary" OnClick="CreatePosition" />
-                            </MudTooltip>
-                            <MudMenu Icon="@Icons.Material.Filled.MoreVert"
-                                     Disabled="@(!HasActivePosition)"
-                                     Dense="true"
-                                     AnchorOrigin="Origin.BottomCenter"
-                                     TransformOrigin="Origin.TopCenter"
-                                     ListClass="tab-actions-menu">
-                                <MudMenuItem Disabled="@(!HasActivePosition)" OnClick="OpenRenameDialogAsync">
-                                    <MudIcon Icon="@Icons.Material.Filled.Edit" Class="mr-2" /> Edit position
-                                </MudMenuItem>
-                                <MudMenuItem Disabled="@(!HasActivePosition)" OnClick="async () => await ConfirmAndRemovePositionAsync(ViewModel.SelectedPosition)">
-                                    <MudIcon Icon="@Icons.Material.Filled.Delete" Class="mr-2" /> Delete position
-                                </MudMenuItem>
-                            </MudMenu>
+                            </MudSelect>
+                            <MudIconButton Icon="@Icons.Material.Filled.AddCircle" Color="Color.Primary" OnClick="CreatePosition" />
                         </MudStack>
+                        <MudMenu Icon="@Icons.Material.Filled.MoreVert"
+                                 Disabled="@(!HasActivePosition)"
+                                 Dense="true"
+                                 AnchorOrigin="Origin.BottomCenter"
+                                 TransformOrigin="Origin.TopCenter"
+                                 ListClass="tab-actions-menu">
+                            <MudMenuItem Disabled="@(!HasActivePosition)" OnClick="OpenRenameDialogAsync">
+                                <MudIcon Icon="@Icons.Material.Filled.Edit" Class="mr-2" /> Edit position
+                            </MudMenuItem>
+                            <MudMenuItem Disabled="@(!HasActivePosition)" OnClick="async () => await ConfirmAndRemovePositionAsync(ViewModel.SelectedPosition)">
+                                <MudIcon Icon="@Icons.Material.Filled.Delete" Class="mr-2" /> Delete position
+                            </MudMenuItem>
+                        </MudMenu>
                     </MudStack>
                 </MudStack>
             </MudStack>
@@ -111,11 +114,12 @@
         </MudCardContent>
     </MudCard>
 
-    @if (ViewModel.SelectedPosition is not null)
-    {
-        <PositionPanel ViewModel="@ViewModel.SelectedPosition" />
-    }
-</MudStack>
+        @if (ViewModel.SelectedPosition is not null)
+        {
+            <PositionPanel ViewModel="@ViewModel.SelectedPosition" />
+        }
+    </MudStack>
+}
 
 <style>
     .position-swipe-area {
@@ -171,24 +175,59 @@
     .quick-leg-input {
         width: 220px;
     }
+    .position-select-row {
+        flex-wrap: wrap;
+        gap: 8px;
+        width: 100%;
+    }
+    .position-select-row .mud-select-root {
+        flex: 1;
+        min-width: 0;
+    }
+    .position-select .mud-input-root {
+        border: none;
+        box-shadow: none;
+    }
+    .position-select .mud-input-root:focus-within {
+        box-shadow: none;
+    }
+    .route-error-panel {
+        padding: 24px;
+    }
 </style>
 
 @code {
     private int _activeTabIndex;
     private PayoffChart? _chart;
     private bool HasActivePosition => ViewModel.SelectedPosition?.Position is not null;
+    private bool _viewModelReady;
+    private Guid? _pendingRoutePositionId;
+    private string? _routeErrorMessage;
+    [Parameter] public Guid? PositionId { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
         ViewModel.OnChange += HandleViewModelChanged;
         await ViewModel.InitializeAsync();
-        SyncActiveTabIndex();
+        _viewModelReady = true;
+        await ApplyRouteAsync(_pendingRoutePositionId);
     }
 
     public async ValueTask DisposeAsync()
     {
         ViewModel.OnChange -= HandleViewModelChanged;
         await ViewModel.DisposeAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await base.OnParametersSetAsync();
+        _pendingRoutePositionId = PositionId;
+        if (_viewModelReady)
+        {
+            await ApplyRouteAsync(PositionId);
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private async Task HandleChartPriceSelected(decimal price)
@@ -217,6 +256,27 @@
         {
             await OnTabChanged(nextIndex);
         }
+    }
+
+    private async Task HandlePositionChange(Guid? positionId)
+    {
+        if (!positionId.HasValue)
+        {
+            _routeErrorMessage = null;
+            SyncActiveTabIndex();
+            return;
+        }
+
+        var matched = ViewModel.Positions.FirstOrDefault(p => p.Id == positionId.Value);
+        if (matched is null)
+        {
+            _routeErrorMessage = $"Position {positionId.Value} not found.";
+            _activeTabIndex = -1;
+            return;
+        }
+
+        var index = ViewModel.Positions.IndexOf(matched);
+        await OnTabChanged(index);
     }
 
     private async Task OnTemporaryPriceChanged(decimal? price)
@@ -299,6 +359,10 @@
         }
         _activeTabIndex = Math.Max(0, ViewModel.Positions.Count - 1);
         await RefreshChartAsync();
+        if (ViewModel.SelectedPosition?.Position?.Id is Guid newId && newId != Guid.Empty)
+        {
+            UpdateUrl(newId);
+        }
     }
 
     private void SyncActiveTabIndex()
@@ -329,7 +393,13 @@
         {
             _activeTabIndex = index;
             await RefreshChartAsync();
+            _routeErrorMessage = null;
+            UpdateUrl(positionId);
+            return;
         }
+
+        _routeErrorMessage = $"Position {positionId} no longer exists.";
+        _activeTabIndex = -1;
     }
 
     private async Task OpenRenameDialogAsync()
@@ -403,4 +473,53 @@
         return InvokeAsync(StateHasChanged);
     }
 
+    private async Task ApplyRouteAsync(Guid? routePositionId)
+    {
+        _routeErrorMessage = null;
+
+        if (!routePositionId.HasValue)
+        {
+            SyncActiveTabIndex();
+            return;
+        }
+
+        if (ViewModel.SelectedPosition?.Position?.Id == routePositionId.Value)
+        {
+            SyncActiveTabIndex();
+            return;
+        }
+
+        if (!await ViewModel.SelectPositionAsync(routePositionId.Value))
+        {
+            _routeErrorMessage = $"Position {routePositionId.Value} not found.";
+            _activeTabIndex = -1;
+            return;
+        }
+
+        SyncActiveTabIndex();
+        await RefreshChartAsync();
+        UpdateUrl(routePositionId.Value);
+    }
+
+    private void UpdateUrl(Guid positionId)
+    {
+        var targetUri = $"/positions/{positionId}";
+        var absoluteTarget = NavigationManager.ToAbsoluteUri(targetUri).ToString();
+
+        if (!string.Equals(NavigationManager.Uri, absoluteTarget, StringComparison.OrdinalIgnoreCase))
+        {
+            NavigationManager.NavigateTo(targetUri);
+        }
+    }
+
+    private void NavigateToFirstPosition()
+    {
+        if (ViewModel.Positions.Count == 0)
+        {
+            NavigationManager.NavigateTo("/positions");
+            return;
+        }
+
+        UpdateUrl(ViewModel.Positions[0].Id);
+    }
 }
