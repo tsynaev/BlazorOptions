@@ -1,3 +1,4 @@
+@using System.Globalization
 @using BlazorOptions.ViewModels
 @using Microsoft.AspNetCore.Components.Web
 
@@ -10,8 +11,7 @@
                     <MudCheckBox T="bool"
                                  Value="@ViewModel.IsVisible"
                                  ValueChanged="async visible => await ViewModel.SetVisibilityAsync(visible)"/>
-                    <MudPaper Class="portfolio-color-swatch" Style="@($"background-color:{ViewModel.Color};")" Elevation="0"/>
-                    <MudText Typo="Typo.h6">@ViewModel.Name</MudText>
+                    <MudText Typo="Typo.h6" Style="@($"color:{ViewModel.Color};")">@ViewModel.Name</MudText>
                 </MudStack>
                 <MudSpacer/>
                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
@@ -46,22 +46,25 @@
 
         </MudCardHeader>
         <MudCardContent>
-            <MudTable Items="@ViewModel.Legs" Dense="true" Hover="true" Class="leg-table">
-                <HeaderContent>
-                    <MudTh>Include</MudTh>
-                    <MudTh>Type</MudTh>
-                    <MudTh>Strike</MudTh>
-                    <MudTh>Expiration</MudTh>
-                    <MudTh>Size</MudTh>
-                    <MudTh>Price</MudTh>
-                    <MudTh>Temp P/L</MudTh>
-                    <MudTh Class="iv-column">IV</MudTh>
-                    <MudTh></MudTh>
-                </HeaderContent>
-                <RowTemplate>
-                    <LegRow ViewModel="context" />
-                </RowTemplate>
-            </MudTable>
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.caption" Class="leg-greeks-total">
+                    Δ @FormatGreek(ViewModel.TotalDelta) · Γ @FormatGreek(ViewModel.TotalGamma) · ν @FormatGreek(ViewModel.TotalVega) · Θ @FormatGreek(ViewModel.TotalTheta)
+                </MudText>
+                @foreach (var group in GroupedLegs)
+                {
+                    <MudStack Spacing="1" Class="leg-group">
+                        <MudText Typo="Typo.subtitle2" Class="leg-group-title">@FormatExpiration(group.Key)</MudText>
+                        <MudGrid Class="leg-grid">
+                            @foreach (var leg in group.OrderBy(leg => leg.Leg.Strike ?? decimal.MaxValue))
+                            {
+                                <MudItem xs="12" sm="6" md="4" lg="3">
+                                    <LegCard ViewModel="leg" />
+                                </MudItem>
+                            }
+                        </MudGrid>
+                    </MudStack>
+                }
+            </MudStack>
             <MudCardActions>
                 <QuickAddPanel ViewModel="ViewModel.QuickAdd"/>
             </MudCardActions>
@@ -71,6 +74,21 @@
 
 @code {
     [Parameter, EditorRequired] public LegsCollectionViewModel ViewModel { get; set; }
+
+    private IEnumerable<IGrouping<DateTime?, LegViewModel>> GroupedLegs =>
+        ViewModel.Legs
+            .OrderBy(leg => leg.Leg.ExpirationDate ?? DateTime.MaxValue)
+            .GroupBy(leg => leg.Leg.ExpirationDate?.Date);
+
+    private static string FormatExpiration(DateTime? date)
+    {
+        return date.HasValue ? date.Value.ToString("dd.MM.yy") : "No expiration";
+    }
+
+    private static string FormatGreek(decimal value)
+    {
+        return value.ToString("0.###", CultureInfo.InvariantCulture);
+    }
 }
 
 <style>
@@ -119,5 +137,19 @@
         display: block;
         margin-top: 2px;
         line-height: 1.1;
+    }
+
+    .leg-group-title {
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        opacity: 0.8;
+    }
+
+    .leg-grid {
+        width: 100%;
+    }
+
+    .leg-greeks-total {
+        opacity: 0.8;
     }
 </style>

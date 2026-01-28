@@ -151,10 +151,16 @@
         <MudStack Spacing="1">
             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                 <MudStack Spacing="0">
+                    <MudText Typo="Typo.caption" Class="mobile-leg-symbol">@GetSymbolLabel()</MudText>
                     <MudText Typo="Typo.subtitle2">@BuildLegSummary()</MudText>
                     <MudText Typo="Typo.overline" Class="mobile-leg-subtitle">@BuildLegSubtitle()</MudText>
                 </MudStack>
                 <MudSpacer />
+                <MudCheckBox T="bool"
+                             Value="@ViewModel.Leg.IsIncluded"
+                             ValueChanged="ViewModel.UpdateLegIncludedAsync"
+                             Color="Color.Primary"
+                             Class="leg-card-include" />
                 <MudIconButton Icon="@Icons.Material.Filled.Edit"
                                Color="Color.Primary"
                                Size="Size.Medium"
@@ -205,8 +211,9 @@
         ViewModel.Removed -= HandleViewModelRemoved;
     }
 
-    private void HandleViewModelChanged()
+    private void HandleViewModelChanged(LegsCollectionUpdateKind updateKind)
     {
+        _ = updateKind;
         _ = InvokeAsync(StateHasChanged);
     }
 
@@ -282,6 +289,12 @@
             : "No expiration";
     }
 
+    private string GetSymbolLabel()
+    {
+        var symbol = ViewModel.Leg.Symbol;
+        return string.IsNullOrWhiteSpace(symbol) ? "No symbol" : symbol.ToUpperInvariant();
+    }
+
     private static string FormatIv(decimal? value)
     {
         return value.HasValue ? $"{value.Value:0.##}%" : "-";
@@ -332,6 +345,11 @@
         padding: 12px;
     }
 
+    .leg-card-include {
+        margin: 0;
+        padding: 0;
+    }
+
     .mobile-leg-card .price-chain {
         display: flex;
         flex-wrap: wrap;
@@ -339,50 +357,26 @@
         margin-top: 4px;
     }
 
-    .leg-mobile-cell {
+    .leg-table thead,
+    .leg-table th {
         display: none;
+    }
+
+    .leg-table tr {
+        display: block;
+    }
+
+    .leg-table td {
+        display: none;
+    }
+
+    .leg-table td.leg-mobile-cell {
+        display: table-cell;
         padding: 0;
     }
 
-    @@media (max-width: 960px) {
-        .leg-table thead,
-        .leg-table th {
-            display: none;
-        }
-
-        .leg-table tr {
-            display: block;
-        }
-
-        .leg-table td {
-            display: none;
-        }
-
-        .leg-table td.leg-mobile-cell {
-            display: table-cell;
-        }
-
-        .leg-mobile-cell .mud-paper-root {
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .leg-table .leg-desktop {
-            display: none;
-        }
-    }
-
-    @@media (min-width: 961px) {
-        .leg-mobile-cell {
-            display: none;
-        }
-
-        .leg-table tr {
-            display: table-row;
-        }
-
-        .leg-table td.leg-mobile-cell {
-            display: none;
-        }
+    .leg-mobile-cell .mud-paper-root {
+        border: 1px solid rgba(255, 255, 255, 0.1);
     }
 </style>
 

@@ -77,6 +77,11 @@
         return JS.InvokeVoidAsync("payoffChart.clearRanges", positionId.ToString());
     }
 
+    public ValueTask UpdateTemporaryPriceAsync(decimal? price)
+    {
+        return JS.InvokeVoidAsync("payoffChart.updateTempPrice", _chartRef, price);
+    }
+
     public ValueTask DisposeAsync()
     {
         _dotNetRef?.Dispose();

@@ -126,9 +126,17 @@ public sealed class LegsCollectionViewModel : IDisposable
 
     public QuickAddViewModel QuickAdd { get; }
 
+    public decimal TotalDelta => SumDelta();
+
+    public decimal TotalGamma => SumGreek(static leg => leg.Gamma);
+
+    public decimal TotalVega => SumGreek(static leg => leg.Vega);
+
+    public decimal TotalTheta => SumGreek(static leg => leg.Theta);
+
     public event Func<LegModel, Task>? LegAdded;
     public event Func<LegModel, Task>? LegRemoved;
-    public event Func<Task>? Updated;
+    public event Func<LegsCollectionUpdateKind, Task>? Updated;
 
     public string Name
     {
@@ -178,7 +186,7 @@ public sealed class LegsCollectionViewModel : IDisposable
             collection.Legs.Add(leg);
         }
 
-        await RaiseUpdatedAsync();
+        await RaiseUpdatedAsync(LegsCollectionUpdateKind.TickerRefresh);
     }
 
     public async Task AddQuickLegAsync()
@@ -292,7 +300,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         }
 
         SyncLegViewModels();
-        await RaiseUpdatedAsync();
+        await RaiseUpdatedAsync(LegsCollectionUpdateKind.TickerRefresh);
     }
 
     internal LegModel? CreateLegFromBybitPosition(BybitPosition position, string baseAsset, string category)
@@ -411,7 +419,7 @@ public sealed class LegsCollectionViewModel : IDisposable
     {
         Collection.IsVisible = isVisible;
 
-        await RaiseUpdatedAsync();
+        await RaiseUpdatedAsync(LegsCollectionUpdateKind.ChartDataChanged);
     }
 
     public async Task SetColorAsync(string color)
@@ -422,7 +430,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         }
 
         Collection.Color = color;
-        await RaiseUpdatedAsync();
+        await RaiseUpdatedAsync(LegsCollectionUpdateKind.ChartDataChanged);
     }
 
     public async Task SetNameAsync(string name)
@@ -433,7 +441,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         }
 
         Collection.Name = name.Trim();
-        await RaiseUpdatedAsync();
+        await RaiseUpdatedAsync(LegsCollectionUpdateKind.ChartDataChanged);
     }
 
     public async Task OpenSettingsAsync()
@@ -450,16 +458,16 @@ public sealed class LegsCollectionViewModel : IDisposable
 
         Collection.Legs.Remove(leg);
         RemoveLegViewModel(leg);
-        await RaiseUpdatedAsync();
+        await RaiseUpdatedAsync(LegsCollectionUpdateKind.TickerRefresh);
         await RaiseLegRemovedAsync(leg);
     }
 
 
 
 
-    private Task RaiseUpdatedAsync()
+    private Task RaiseUpdatedAsync(LegsCollectionUpdateKind updateKind)
     {
-        return Updated?.Invoke() ?? Task.CompletedTask;
+        return Updated?.Invoke(updateKind) ?? Task.CompletedTask;
     }
 
     private Task RaiseLegRemovedAsync(LegModel leg)
@@ -476,7 +484,7 @@ public sealed class LegsCollectionViewModel : IDisposable
     private async Task HandleQuickAddLegCreated(LegModel leg)
     {
         SyncLegViewModels();
-        await RaiseUpdatedAsync();
+        await RaiseUpdatedAsync(LegsCollectionUpdateKind.TickerRefresh);
         await RaiseLegAddedAsync(leg);
     }
 
@@ -582,8 +590,9 @@ public sealed class LegsCollectionViewModel : IDisposable
         return Task.CompletedTask;
     }
 
-    private void HandleLegViewModelChanged()
+    private void HandleLegViewModelChanged(LegsCollectionUpdateKind updateKind)
     {
+        _ = RaiseUpdatedAsync(updateKind);
     }
 
     private void EnsureLegSymbol(LegModel leg)
@@ -596,16 +605,50 @@ public sealed class LegsCollectionViewModel : IDisposable
         leg.Symbol = _exchangeService.FormatSymbol(leg, Position?.Position.BaseAsset, Position?.Position.QuoteAsset);
 
     }
+
+    private decimal SumDelta()
+    {
+        decimal total = 0;
+        foreach (var leg in _legs)
+        {
+            if (!leg.Leg.IsIncluded)
+            {
+                continue;
+            }
+
+            if (leg.Leg.Type == LegType.Future)
+            {
+                total += leg.Leg.Size;
+                continue;
+            }
+
+            var value = leg.Delta;
+            if (value.HasValue)
+            {
+                total += value.Value * leg.Leg.Size;
+            }
+        }
+
+        return total;
+    }
+
+    private decimal SumGreek(Func<LegViewModel, decimal?> selector)
+    {
+        decimal total = 0;
+        foreach (var leg in _legs)
+        {
+            if (!leg.Leg.IsIncluded || leg.Leg.Type == LegType.Future)
+            {
+                continue;
+            }
+
+            var value = selector(leg);
+            if (value.HasValue)
+            {
+                total += value.Value * leg.Leg.Size;
+            }
+        }
+
+        return total;
+    }
 }
-
-
-
-
-
-
-
-
-
-
-
-

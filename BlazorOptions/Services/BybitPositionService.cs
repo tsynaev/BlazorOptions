@@ -15,6 +15,7 @@ public class BybitPositionService : BybitApiService
     private readonly IOptions<BybitSettings> _bybitSettingsOptions;
 
     private const string DefaultSettleCoin = "USDT";
+    private const int PageSize = 200;
 
     private List<string> _settleCoins = new() { DefaultSettleCoin };
 
@@ -43,60 +44,85 @@ public class BybitPositionService : BybitApiService
     public async Task<IReadOnlyList<BybitPosition>> GetPositionsAsync(string category, string? settleCoin, CancellationToken cancellationToken = default)
     {
         var settings = _bybitSettingsOptions.Value;
-        var queryParameters = BuildQueryParameters(category, settleCoin);
-        var queryString = BuildQueryString(queryParameters.ToDictionary(p => p.Key, p => (string?)p.Value, StringComparer.Ordinal));
-        var payload = await SendSignedRequestAsync(
-            HttpMethod.Get,
-            RequestPath,
-            settings,
-            queryString,
-            cancellationToken: cancellationToken);
-
-        using var document = JsonDocument.Parse(payload);
-        ThrowIfRetCodeError(document.RootElement);
-        if (!document.RootElement.TryGetProperty("result", out var resultElement))
-        {
-            return [];
-        }
-
-        if (!resultElement.TryGetProperty("list", out var listElement) || listElement.ValueKind != JsonValueKind.Array)
-        {
-            return [];
-        }
-
         var positions = new List<BybitPosition>();
+        string? cursor = null;
 
-        foreach (var entry in listElement.EnumerateArray())
+        while (true)
         {
-            if (!TryReadString(entry, "symbol", out var symbol))
+            var queryParameters = BuildQueryParameters(category, settleCoin, cursor);
+            var queryString = BuildQueryString(queryParameters.ToDictionary(p => p.Key, p => (string?)p.Value, StringComparer.Ordinal));
+            var payload = await SendSignedRequestAsync(
+                HttpMethod.Get,
+                RequestPath,
+                settings,
+                queryString,
+                cancellationToken: cancellationToken);
+
+            using var document = JsonDocument.Parse(payload);
+            ThrowIfRetCodeError(document.RootElement);
+            if (!document.RootElement.TryGetProperty("result", out var resultElement))
             {
-                continue;
+                return positions;
             }
 
-            TryReadString(entry, "side", out var side);
+            if (resultElement.TryGetProperty("list", out var listElement) && listElement.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var entry in listElement.EnumerateArray())
+                {
+                    if (!TryReadString(entry, "symbol", out var symbol))
+                    {
+                        continue;
+                    }
 
-            var size = ReadDecimal(entry, "size");
-            var avgPrice = ReadDecimal(entry, "avgPrice");
+                    TryReadString(entry, "side", out var side);
 
-            positions.Add(new BybitPosition(symbol, side, category, size, avgPrice));
+                    var size = ReadDecimal(entry, "size");
+                    var avgPrice = ReadDecimal(entry, "avgPrice");
+
+                    positions.Add(new BybitPosition(symbol, side, category, size, avgPrice));
+                }
+            }
+
+            cursor = GetNextCursor(resultElement);
+            if (string.IsNullOrWhiteSpace(cursor) || string.Equals(cursor, "0", StringComparison.OrdinalIgnoreCase))
+            {
+                break;
+            }
         }
 
         return positions;
     }
 
-    private static List<KeyValuePair<string, string>> BuildQueryParameters(string category, string? settleCoin)
+    private static List<KeyValuePair<string, string>> BuildQueryParameters(string category, string? settleCoin, string? cursor)
     {
         var parameters = new List<KeyValuePair<string, string>>
         {
-            new("category", category)
+            new("category", category),
+            new("limit", PageSize.ToString(CultureInfo.InvariantCulture))
         };
 
         if (!string.IsNullOrEmpty(settleCoin))
         {
             parameters.Add(new KeyValuePair<string, string>("settleCoin", settleCoin));
         }
+
+        if (!string.IsNullOrWhiteSpace(cursor))
+        {
+            parameters.Add(new KeyValuePair<string, string>("cursor", cursor));
+        }
         
         return parameters;
+    }
+
+    private static string? GetNextCursor(JsonElement resultElement)
+    {
+        if (resultElement.TryGetProperty("nextPageCursor", out var cursorElement)
+            && cursorElement.ValueKind == JsonValueKind.String)
+        {
+            return cursorElement.GetString();
+        }
+
+        return null;
     }
 
     private static bool TryReadString(JsonElement element, string propertyName, out string value)

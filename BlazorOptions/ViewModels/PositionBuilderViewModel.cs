@@ -17,6 +17,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
     private readonly LegsCollectionViewModelFactory _collectionFactory;
     private readonly ClosedPositionsViewModelFactory _closedPositionsFactory;
     private readonly INotifyUserService _notifyUserService;
+    private readonly ITelemetryService _telemetryService;
     private bool _isInitialized;
     private bool _suppressSync;
     private IReadOnlyList<TradingHistoryEntry> _tradingHistoryEntries = Array.Empty<TradingHistoryEntry>();
@@ -24,6 +25,9 @@ public class PositionBuilderViewModel : IAsyncDisposable
     private CancellationTokenSource? _persistQueueCts;
     private PositionModel? _queuedPersistPosition;
     private static readonly TimeSpan PersistQueueDelay = TimeSpan.FromMilliseconds(250);
+    private readonly object _chartUpdateLock = new();
+    private CancellationTokenSource? _chartUpdateCts;
+    private static readonly TimeSpan ChartUpdateDelay = TimeSpan.FromMilliseconds(75);
 
 
 
@@ -43,6 +47,8 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     public string DaysToExpiryLabel => $"{SelectedDayOffset} days";
 
+    public event Action<decimal?>? LivePriceChanged;
+
     public PositionBuilderViewModel(
         OptionsService optionsService,
         PositionStorageService storageService,
@@ -53,7 +59,8 @@ public class PositionBuilderViewModel : IAsyncDisposable
         PositionSyncService positionSyncService,
         LegsCollectionViewModelFactory collectionFactory,
         ClosedPositionsViewModelFactory closedPositionsFactory,
-        INotifyUserService notifyUserService)
+        INotifyUserService notifyUserService,
+        ITelemetryService telemetryService)
     {
         _optionsService = optionsService;
         _storageService = storageService;
@@ -65,6 +72,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         _collectionFactory = collectionFactory;
         _closedPositionsFactory = closedPositionsFactory;
         _notifyUserService = notifyUserService;
+        _telemetryService = telemetryService;
     }
 
     public ObservableCollection<PositionModel> Positions { get; } = new();
@@ -170,6 +178,24 @@ public class PositionBuilderViewModel : IAsyncDisposable
         UpdateLegTickerSubscription();
     }
 
+    public async Task UpdateNotesAsync(PositionModel position, string notes)
+    {
+        if (position is null)
+        {
+            return;
+        }
+
+        var normalized = notes ?? string.Empty;
+        if (string.Equals(position.Notes, normalized, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        position.Notes = normalized;
+        await QueuePersistPositionsAsync(position);
+        NotifyStateChanged();
+    }
+
     public async Task AddCollectionAsync()
     {
         if (SelectedPosition is null)
@@ -226,6 +252,9 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     public async Task PersistPositionsAsync(PositionModel? changedPosition = null)
     {
+        using var activity =
+            _telemetryService.StartActivity($"{nameof(PositionBuilderViewModel)}.{nameof(PersistPositionsAsync)}");
+
         await _storageService.SavePositionsAsync(Positions);
         if (!_suppressSync)
         {
@@ -265,6 +294,38 @@ public class PositionBuilderViewModel : IAsyncDisposable
         }
 
         return Task.CompletedTask;
+    }
+
+    public void QueueChartUpdate()
+    {
+        lock (_chartUpdateLock)
+        {
+            _chartUpdateCts?.Cancel();
+            _chartUpdateCts?.Dispose();
+            _chartUpdateCts = new CancellationTokenSource();
+            var token = _chartUpdateCts.Token;
+            _ = RunChartUpdateAsync(token);
+        }
+    }
+
+    internal void NotifyLivePriceChanged(decimal? price)
+    {
+        LivePriceChanged?.Invoke(price);
+    }
+
+    private async Task RunChartUpdateAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(ChartUpdateDelay, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        UpdateChart();
+        OnChange?.Invoke();
     }
 
     private async Task RunPersistQueueAsync(CancellationToken cancellationToken)
@@ -681,6 +742,13 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     private decimal ResolveLegEntryPrice(LegViewModel leg)
     {
+        if (leg.Leg.Type == LegType.Future && !leg.Leg.Price.HasValue)
+        {
+            return leg.CurrentPrice
+                ?? leg.MarkPrice
+                ?? 0;
+        }
+
         return leg.Leg.Price
             ?? leg.PlaceholderPrice
             ?? leg.MarkPrice
@@ -898,6 +966,8 @@ public class PositionBuilderViewModel : IAsyncDisposable
         await _positionSyncService.DisposeAsync();
         _persistQueueCts?.Cancel();
         _persistQueueCts?.Dispose();
+        _chartUpdateCts?.Cancel();
+        _chartUpdateCts?.Dispose();
     }
 
     private async Task ApplyServerSnapshotAsync(PositionSnapshotPayload payload, DateTime occurredUtc)

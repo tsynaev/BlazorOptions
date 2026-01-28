@@ -114,7 +114,7 @@ public sealed class PositionViewModel : IDisposable
         Position.Collections.Add(collection);
         Collections.Add(CreateCollectionViewModel(collection));
 
-        await HandleCollectionUpdatedAsync();
+        await HandleCollectionUpdatedAsync(LegsCollectionUpdateKind.ChartDataChanged);
     }
 
     public async Task DuplicateCollectionAsync(LegsCollectionModel source)
@@ -123,7 +123,7 @@ public sealed class PositionViewModel : IDisposable
         Position.Collections.Add(collection);
         Collections.Add(CreateCollectionViewModel(collection));
 
-        await HandleCollectionUpdatedAsync();
+        await HandleCollectionUpdatedAsync(LegsCollectionUpdateKind.TickerRefresh);
     }
 
     public async Task<bool> RemoveCollectionAsync(LegsCollectionModel collection)
@@ -146,7 +146,7 @@ public sealed class PositionViewModel : IDisposable
             Collections.Remove(viewModel);
         }
 
-        await HandleCollectionUpdatedAsync();
+        await HandleCollectionUpdatedAsync(LegsCollectionUpdateKind.TickerRefresh);
         return true;
     }
 
@@ -203,16 +203,18 @@ public sealed class PositionViewModel : IDisposable
         return viewModel;
     }
 
-    private async Task HandleCollectionUpdatedAsync()
+    private async Task HandleCollectionUpdatedAsync(LegsCollectionUpdateKind updateKind)
     {
-        await HandleCollectionUpdatedAsync(updateChart: true, refreshTicker: true);
+        var updateChart = updateKind != LegsCollectionUpdateKind.CardOnly;
+        var refreshTicker = updateKind == LegsCollectionUpdateKind.TickerRefresh;
+        await HandleCollectionUpdatedAsync(updateChart: updateChart, refreshTicker: refreshTicker);
     }
 
     private async Task HandleCollectionUpdatedAsync(bool updateChart, bool refreshTicker)
     {
         if (updateChart)
         {
-            _positionBuilder.UpdateChart();
+            _positionBuilder.QueueChartUpdate();
         }
 
         await _positionBuilder.QueuePersistPositionsAsync(Position);
@@ -220,7 +222,10 @@ public sealed class PositionViewModel : IDisposable
         {
             _positionBuilder.RefreshLegTickerSubscription();
         }
-        _positionBuilder.NotifyStateChanged();
+        if (!updateChart)
+        {
+            _positionBuilder.NotifyStateChanged();
+        }
     }
 
     public void Dispose()
@@ -283,8 +288,7 @@ public sealed class PositionViewModel : IDisposable
 
         if (updated)
         {
-            _positionBuilder.UpdateChart();
-            _positionBuilder.NotifyStateChanged();
+            _positionBuilder.QueueChartUpdate();
         }
     }
 
@@ -411,8 +415,7 @@ public sealed class PositionViewModel : IDisposable
         }
 
         SetLivePrice(update.Price);
-        _positionBuilder.UpdateChart();
-        _positionBuilder.NotifyStateChanged();
+        _positionBuilder.NotifyLivePriceChanged(update.Price);
 
         return Task.CompletedTask;
     }

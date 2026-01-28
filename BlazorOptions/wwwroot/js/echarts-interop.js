@@ -32,6 +32,12 @@ window.payoffChart = {
             element.__payoffInstance = null;
         }
 
+        const interactionHoldMs = 200;
+        const lastInteractionAt = element.__payoffLastInteractionAt || 0;
+        if (element.__payoffIsInteracting || (Date.now() - lastInteractionAt) < interactionHoldMs) {
+            return;
+        }
+
         const chart = element.__payoffInstance || echarts.init(element);
         element.__payoffInstance = chart;
 
@@ -97,7 +103,6 @@ window.payoffChart = {
 
         const priceRange = loadRange(priceRangeKey);
         const pnlRange = loadRange(pnlRangeKey);
-        const axisPointerValue = Number.isFinite(tempPrice) ? Number(tempPrice) : undefined;
 
         const ensureAxisRangeState = () => {
             if (!element.__payoffAxisRange) {
@@ -143,7 +148,7 @@ window.payoffChart = {
             type: 'inside',
             xAxisIndex: 0,
             filterMode: 'filter',
-            zoomOnMouseWheel: true,
+            zoomOnMouseWheel: false,
             moveOnMouseMove: true,
             startValue: priceRange?.start,
             endValue: priceRange?.end
@@ -153,7 +158,7 @@ window.payoffChart = {
             type: 'inside',
             yAxisIndex: 0,
             filterMode: 'none',
-            zoomOnMouseWheel: true,
+            zoomOnMouseWheel: false,
             moveOnMouseMove: true,
             zoomLock: false,
             startValue: pnlRange?.start ?? paddedYMin,
@@ -199,6 +204,8 @@ window.payoffChart = {
             || visibleCollections[0]
             || collections.find(collection => String(collection.collectionId) === activeCollectionKey)
             || collections[0];
+        element.__payoffActiveCollectionId = activeCollection ? String(activeCollection.collectionId) : null;
+        element.__payoffFormatPrice = formatPrice;
 
         const buildPoints = (values) => numericPrices.map((price, index) => {
             const value = values && values.length > index ? values[index] : null;
@@ -504,7 +511,6 @@ window.payoffChart = {
                 axisPointer: {
                     show: true,
                     snap: true,
-                    value: axisPointerValue,
                     label: {
                         show: true,
                         formatter: function (params) {
@@ -584,7 +590,9 @@ window.payoffChart = {
 
         chart.off('dataZoom');
         chart.on('dataZoom', () => {
-            element.__payoffLastZoomAt = Date.now();
+            const now = Date.now();
+            element.__payoffLastZoomAt = now;
+            element.__payoffLastInteractionAt = now;
             const zoomState = chart.getOption().dataZoom || [];
             const priceZoom = zoomState.find(z => z.xAxisIndex !== undefined);
             const pnlZoom = zoomState.find(z => z.yAxisIndex !== undefined);
@@ -827,6 +835,7 @@ window.payoffChart = {
                 startRange: currentRange,
                 isDragging: true
             };
+            element.__payoffIsInteracting = true;
         };
 
         const setCursor = (value) => {
@@ -879,6 +888,8 @@ window.payoffChart = {
             if (!dragState || !dragState.isDragging) {
                 return;
             }
+
+            element.__payoffLastInteractionAt = Date.now();
             const activeRect = dragState.rect || rect || getGridRect();
             if (!activeRect) return;
 
@@ -920,6 +931,8 @@ window.payoffChart = {
             if (element.__payoffAxisDragState) {
                 element.__payoffAxisDragState.isDragging = false;
             }
+            element.__payoffIsInteracting = false;
+            element.__payoffLastInteractionAt = Date.now();
         };
 
         chart.getZr().on('mouseup', clearAxisDrag);
@@ -942,6 +955,53 @@ window.payoffChart.clearRanges = function (positionId) {
         localStorage.removeItem(`payoffChart:${positionId}:priceRange`);
         localStorage.removeItem(`payoffChart:${positionId}:pnlRange`);
     } catch { /* ignore */ }
+};
+
+window.payoffChart.updateTempPrice = function (element, tempPrice) {
+    if (!element || !element.__payoffInstance || element.__payoffInstance.isDisposed?.()) {
+        return;
+    }
+
+    const chart = element.__payoffInstance;
+    const price = Number(tempPrice);
+    const formatPrice = element.__payoffFormatPrice || (value => String(value));
+    const activeCollectionId = element.__payoffActiveCollectionId;
+
+    const markLine = Number.isFinite(price)
+        ? {
+            silent: true,
+            symbol: 'none',
+            z: 3,
+            lineStyle: { color: '#9E9E9E', width: 1.5, type: 'dashed' },
+            label: {
+                show: true,
+                formatter: function () { return `Future: ${formatPrice(price)}`; },
+                rotate: 90,
+                position: 'insideEndTop',
+                align: 'center',
+                verticalAlign: 'top',
+                distance: 10,
+                fontSize: 9,
+                color: '#CCCCCC'
+            },
+            data: [
+                { xAxis: Number(price) }
+            ]
+        }
+        : undefined;
+
+    const seriesUpdate = [];
+    if (activeCollectionId) {
+        seriesUpdate.push({
+            id: `${activeCollectionId}:expiry`,
+            markLine: markLine
+        });
+    }
+
+    chart.setOption({
+        series: seriesUpdate
+    });
+
 };
 
 window.dailyPnlChart = {

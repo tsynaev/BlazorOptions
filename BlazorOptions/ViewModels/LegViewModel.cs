@@ -57,7 +57,7 @@ public sealed class LegViewModel : IDisposable
 
     public IEnumerable<LegType> LegTypes => Enum.GetValues<LegType>();
 
-    public event Action? Changed;
+    public event Action<LegsCollectionUpdateKind>? Changed;
     public event Func<Task>? Removed;
 
     public decimal? PlaceholderPrice => Leg.Price.HasValue ? null : GetEntryPriceSuggestion();
@@ -70,6 +70,14 @@ public sealed class LegViewModel : IDisposable
     public decimal? ChainIv { get; private set; }
 
     public decimal? TempPnl { get; private set; }
+
+    public decimal? Delta { get; private set; }
+
+    public decimal? Gamma { get; private set; }
+
+    public decimal? Vega { get; private set; }
+
+    public decimal? Theta { get; private set; }
 
  
 
@@ -93,7 +101,7 @@ public sealed class LegViewModel : IDisposable
 
             CalculateLegTheoreticalProfit();
 
-            Changed?.Invoke();
+            Changed?.Invoke(LegsCollectionUpdateKind.ChartDataChanged);
         }
     }
 
@@ -118,7 +126,7 @@ public sealed class LegViewModel : IDisposable
                 CalculateLegTheoreticalProfit();
                 _ = RefreshSubscriptionAsync();
             }
-            Changed?.Invoke();
+            Changed?.Invoke(LegsCollectionUpdateKind.ChartDataChanged);
         }
     }
 
@@ -135,7 +143,7 @@ public sealed class LegViewModel : IDisposable
             _valuationDate = value;
 
             CalculateLegTheoreticalProfit();
-            Changed?.Invoke();
+            Changed?.Invoke(LegsCollectionUpdateKind.ChartDataChanged);
         }
     }
 
@@ -148,6 +156,7 @@ public sealed class LegViewModel : IDisposable
         }
 
         Leg.ImpliedVolatility = iv;
+        Changed?.Invoke(LegsCollectionUpdateKind.ChartDataChanged);
     }
 
 
@@ -155,7 +164,7 @@ public sealed class LegViewModel : IDisposable
     {
         using var activity = _telemetryService.StartActivity("LegViewModel.UpdateIncluded");
         Leg.IsIncluded = include;
-        Changed?.Invoke();
+        Changed?.Invoke(LegsCollectionUpdateKind.ChartDataChanged);
     }
 
     public void UpdateLegTypeAsync(LegType type)
@@ -167,8 +176,10 @@ public sealed class LegViewModel : IDisposable
         }
 
         Leg.Type = type;
+        ResetGreeks();
+        SyncLegSymbol();
         RefreshExpDatesAndStrikes();
-        Changed?.Invoke();
+        Changed?.Invoke(LegsCollectionUpdateKind.ChartDataChanged);
     }
 
     public void UpdateLegStrikeAsync(decimal? strike)
@@ -180,7 +191,9 @@ public sealed class LegViewModel : IDisposable
         }
 
         Leg.Strike = strike;
-        Changed?.Invoke();
+        ResetGreeks();
+        SyncLegSymbol();
+        Changed?.Invoke(LegsCollectionUpdateKind.ChartDataChanged);
     }
 
     public void UpdateLegSizeAsync(decimal size)
@@ -192,7 +205,7 @@ public sealed class LegViewModel : IDisposable
         }
 
         Leg.Size = size;
-        Changed?.Invoke();
+        Changed?.Invoke(LegsCollectionUpdateKind.ChartDataChanged);
     }
 
     public void UpdateLegExpirationAsync(DateTime? date)
@@ -209,8 +222,10 @@ public sealed class LegViewModel : IDisposable
             Leg.ExpirationDate = date.Value;
         }
 
+        ResetGreeks();
+        SyncLegSymbol();
         RefreshExpDatesAndStrikes();
-        Changed?.Invoke();
+        Changed?.Invoke(LegsCollectionUpdateKind.ChartDataChanged);
     }
 
     public async Task UpdateLegPriceAsync(decimal? price)
@@ -223,7 +238,7 @@ public sealed class LegViewModel : IDisposable
 
         Leg.Price = price;
 
-        Changed?.Invoke();
+        Changed?.Invoke(LegsCollectionUpdateKind.ChartDataChanged);
     }
 
     public async Task RemoveLegAsync()
@@ -239,6 +254,7 @@ public sealed class LegViewModel : IDisposable
     public void UpdateLeg(LegModel leg)
     {
         _leg = leg;
+        ResetGreeks();
 
         _ = RefreshSubscriptionAsync();
     }
@@ -284,7 +300,7 @@ public sealed class LegViewModel : IDisposable
 
         if (updated)
         {
-            Changed?.Invoke();
+            Changed?.Invoke(LegsCollectionUpdateKind.ChartDataChanged);
         }
 
         return updated;
@@ -343,7 +359,7 @@ public sealed class LegViewModel : IDisposable
 
         TempPnl = ResolveFuturesPnl(e.Price);
 
-        Changed?.Invoke();
+        Changed?.Invoke(LegsCollectionUpdateKind.CardOnly);
 
         return Task.CompletedTask;
     }
@@ -358,6 +374,10 @@ public sealed class LegViewModel : IDisposable
         Bid = ticker.BidPrice > 0 ? ticker.BidPrice : null;
         Ask = ticker.AskPrice > 0 ? ticker.AskPrice : null;
         MarkPrice = ticker.MarkPrice > 0 ? ticker.MarkPrice : null;
+        Delta = ticker.Delta;
+        Gamma = ticker.Gamma;
+        Vega = ticker.Vega;
+        Theta = ticker.Theta;
         ChainIv = NormalizeIv(ticker.MarkIv)
             ?? NormalizeIv(ticker.BidIv)
             ?? NormalizeIv(ticker.AskIv);
@@ -372,9 +392,16 @@ public sealed class LegViewModel : IDisposable
 
         TempPnl = ResolveOptionTempPnl(ticker.UnderlyingPrice);
 
-        Changed?.Invoke();
+
+        Changed?.Invoke(LegsCollectionUpdateKind.CardOnly);
     }
 
+    private void SyncLegSymbol()
+    {
+        var baseAsset = _collectionViewModel.Position?.Position.BaseAsset;
+        var quoteAsset = _collectionViewModel.Position?.Position.QuoteAsset;
+        Leg.Symbol = _exchangeService.FormatSymbol(Leg, baseAsset, quoteAsset);
+    }
 
 
     private void RefreshExpDatesAndStrikes()
@@ -768,5 +795,13 @@ public sealed class LegViewModel : IDisposable
         }
 
         return magnitude;
+    }
+
+    private void ResetGreeks()
+    {
+        Delta = null;
+        Gamma = null;
+        Vega = null;
+        Theta = null;
     }
 }

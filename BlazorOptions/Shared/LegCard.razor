@@ -1,0 +1,188 @@
+@using System.Globalization
+@using BlazorOptions.ViewModels
+@using MudBlazor
+@inject IDialogService DialogService
+
+<MudPaper Elevation="1" Class="leg-card">
+    <MudStack Spacing="1">
+        <MudStack Row="true" AlignItems="AlignItems.Start" Spacing="1">
+            <MudStack Spacing="0">
+                <MudText Typo="Typo.caption" Class="leg-card-symbol">@GetSymbolLabel()</MudText>
+                <MudText Typo="Typo.subtitle2">@BuildLegSummary()</MudText>
+                <MudText Typo="Typo.overline" Class="leg-card-subtitle">@BuildLegSubtitle()</MudText>
+            </MudStack>
+            <MudSpacer />
+            <MudCheckBox T="bool"
+                         Value="@ViewModel.Leg.IsIncluded"
+                         ValueChanged="ViewModel.UpdateLegIncludedAsync"
+                         Color="Color.Primary"
+                         Class="leg-card-include" />
+        </MudStack>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudText Typo="Typo.caption">
+                Price: @FormatPrice(GetDisplayPrice())
+            </MudText>
+            <MudText Typo="Typo.caption">
+                Value: @FormatPrice(CalculateValue(GetDisplayPrice(), ViewModel.Leg.Size))
+            </MudText>
+            @if (ViewModel.Leg.Type != LegType.Future)
+            {
+                <MudText Typo="Typo.caption">
+                    IV: @FormatIv(ViewModel.Leg.ImpliedVolatility ?? ViewModel.ChainIv)
+                </MudText>
+            }
+        </MudStack>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudText Typo="Typo.caption" Color="@(ViewModel.TempPnl >= 0 ? Color.Success : Color.Error)">
+                Temp P/L: @FormatPrice(ViewModel.TempPnl)
+            </MudText>
+            @if (ViewModel.TempPnlPercent.HasValue)
+            {
+                <MudText Typo="Typo.caption">
+                    (@($"{ViewModel.TempPnlPercent.Value:0.00}%"))
+                </MudText>
+            }
+            @if (ViewModel.IsLive && (ViewModel.Bid.HasValue || ViewModel.Ask.HasValue))
+            {
+                <MudText Typo="Typo.caption">
+                    Bid: @FormatPrice(ViewModel.Bid) | Ask: @FormatPrice(ViewModel.Ask)
+                </MudText>
+            }
+        </MudStack>
+        @if (ViewModel.Leg.Type != LegType.Future)
+        {
+            <MudText Typo="Typo.caption" Class="leg-card-greeks">
+                Δ @FormatGreek(ViewModel.Delta) · Γ @FormatGreek(ViewModel.Gamma) · ν @FormatGreek(ViewModel.Vega) · Θ @FormatGreek(ViewModel.Theta)
+            </MudText>
+        }
+        <MudStack Row="true" AlignItems="AlignItems.Center" Class="leg-card-actions">
+            <MudSpacer />
+            @if (!ViewModel.Leg.IsReadOnly)
+            {
+                <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                               Color="Color.Primary"
+                               Size="Size.Small"
+                               Class="leg-card-icon"
+                               OnClick="OpenEditDialogAsync" />
+            }
+            <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                           Color="Color.Error"
+                           Size="Size.Small"
+                           Class="leg-card-icon"
+                           OnClick="async () => await ViewModel.RemoveLegAsync()" />
+        </MudStack>
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public LegViewModel ViewModel { get; set; } = default!;
+
+    private static string FormatPrice(decimal? price)
+    {
+        return price.HasValue ? price.Value.ToString("0.00") : "-";
+    }
+
+    private static decimal? CalculateValue(decimal? price, decimal size)
+    {
+        return price.HasValue ? price.Value * size : null;
+    }
+
+    private decimal? GetDisplayPrice()
+    {
+        if (ViewModel.Leg.Type == LegType.Future && !ViewModel.Leg.Price.HasValue)
+        {
+            return ViewModel.CurrentPrice ?? ViewModel.PlaceholderPrice;
+        }
+
+        return ViewModel.Leg.Price ?? ViewModel.PlaceholderPrice;
+    }
+
+    private async Task OpenEditDialogAsync()
+    {
+        var parameters = new DialogParameters
+        {
+            { nameof(LegEditDialog.ViewModel), ViewModel }
+        };
+
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Medium,
+            FullWidth = true,
+            CloseButton = true
+        };
+
+        await DialogService.ShowAsync<LegEditDialog>("Edit leg", parameters, options);
+    }
+
+    private string BuildLegSummary()
+    {
+        var direction = ViewModel.Leg.Size >= 0 ? "Buy" : "Sell";
+        var typeLabel = ViewModel.Leg.Type.ToString().ToUpperInvariant();
+        var size = Math.Abs(ViewModel.Leg.Size);
+        if (ViewModel.Leg.Type == LegType.Future)
+        {
+            return $"{direction} {size:0.##} {typeLabel}";
+        }
+
+        var strike = ViewModel.Leg.Strike.HasValue
+            ? Math.Round(ViewModel.Leg.Strike.Value).ToString("0", CultureInfo.InvariantCulture)
+            : "ATM";
+        return $"{direction} {size:0.##} {typeLabel} {strike}";
+    }
+
+    private string BuildLegSubtitle()
+    {
+        return ViewModel.Leg.ExpirationDate.HasValue
+            ? ViewModel.Leg.ExpirationDate.Value.ToString("dd.MM.yy")
+            : "No expiration";
+    }
+
+    private string GetSymbolLabel()
+    {
+        var symbol = ViewModel.Leg.Symbol;
+        return string.IsNullOrWhiteSpace(symbol) ? "No symbol" : symbol.ToUpperInvariant();
+    }
+
+    private static string FormatIv(decimal? value)
+    {
+        return value.HasValue ? $"{value.Value:0.##}%" : "-";
+    }
+
+    private static string FormatGreek(decimal? value)
+    {
+        return value.HasValue ? value.Value.ToString("0.###", CultureInfo.InvariantCulture) : "-";
+    }
+}
+
+<style>
+    .leg-card {
+        background-color: rgba(255, 255, 255, 0.02);
+        border-radius: 12px;
+        padding: 12px;
+        width: 100%;
+        min-height: 150px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .leg-card-include {
+        margin: 0;
+        padding: 0;
+    }
+
+    .leg-card-include .mud-icon-button {
+        margin: 0;
+        padding: 0;
+    }
+
+    .leg-card-greeks {
+        opacity: 0.8;
+    }
+
+    .leg-card-icon .mud-icon-button {
+        padding: 4px;
+    }
+
+    .leg-card-actions {
+        margin-top: 2px;
+    }
+</style>

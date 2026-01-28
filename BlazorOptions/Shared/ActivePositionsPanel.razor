@@ -47,29 +47,31 @@
     {
         <MudText Typo="Typo.caption" Color="Color.Error">@ViewModel.LoadError</MudText>
     }
-    <MudTable Items="@ViewModel.Positions" Dense="true" Hover="true" Bordered="true">
-        <HeaderContent>
-            <MudTh />
-            <MudTh>Symbol</MudTh>
-            <MudTh>Side</MudTh>
-            <MudTh align="right">Size</MudTh>
-            <MudTh align="right">Avg price</MudTh>
-        </HeaderContent>
-        <RowTemplate Context="position">
-            <MudTd>
-                <MudCheckBox T="bool"
-                             Value="@ViewModel.GetSelection(position)"
-                             ValueChanged="@(checkedValue => ViewModel.SetSelection(position, checkedValue))" />
-            </MudTd>
-            <MudTd>
-                <MudText Typo="Typo.body2">@position.Symbol</MudText>
-                <MudText Typo="Typo.caption" Class="bybit-category">@position.Category</MudText>
-            </MudTd>
-            <MudTd>@position.Side</MudTd>
-            <MudTd align="right">@ActivePositionsPanelViewModel.FormatSignedSize(position)</MudTd>
-            <MudTd align="right">@position.AvgPrice</MudTd>
-        </RowTemplate>
-    </MudTable>
+    <div class="active-positions-table">
+        <MudTable Items="@ViewModel.Positions" Dense="true" Hover="true" Bordered="true">
+            <HeaderContent>
+                <MudTh />
+                <MudTh>Symbol</MudTh>
+                <MudTh>Side</MudTh>
+                <MudTh align="right">Size</MudTh>
+                <MudTh align="right">Avg price</MudTh>
+            </HeaderContent>
+            <RowTemplate Context="position">
+                <MudTd>
+                    <MudCheckBox T="bool"
+                                 Value="@ViewModel.GetSelection(position)"
+                                 ValueChanged="@(checkedValue => ViewModel.SetSelection(position, checkedValue))" />
+                </MudTd>
+                <MudTd>
+                    <MudText Typo="Typo.body2">@position.Symbol</MudText>
+                    <MudText Typo="Typo.caption" Class="bybit-category">@position.Category</MudText>
+                </MudTd>
+                <MudTd>@position.Side</MudTd>
+                <MudTd align="right">@ActivePositionsPanelViewModel.FormatSignedSize(position)</MudTd>
+                <MudTd align="right">@position.AvgPrice</MudTd>
+            </RowTemplate>
+        </MudTable>
+    </div>
 </MudStack>
 
 @code {
@@ -96,5 +98,16 @@
     .bybit-category {
         color: rgba(0, 0, 0, 0.45);
         line-height: 1.2;
+    }
+
+    .active-positions-table {
+        max-height: 360px;
+        overflow-y: auto;
+    }
+
+    @@media (max-width: 600px) {
+        .active-positions-table {
+            max-height: 50vh;
+        }
     }
 </style>

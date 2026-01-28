@@ -64,53 +64,72 @@ else
             </MudStack>
         </MudCardContent>
         <MudCardContent Class="chart-container">
-            <MudPaper Class="chart-surface" Elevation="0">
-                <MudStack Spacing="2" Style="height:100%;">
-                    <PayoffChart Config="@ViewModel.ChartConfig"
-                                 PriceSelected="HandleChartPriceSelected"
-                                 LegendSelectionChanged="HandleLegendSelectionChanged"
-                                 Height="100%"
-                                 Style="flex:1; min-height:400px;"
-                                 @ref="_chart" />
-                    <MudStack Spacing="1">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                            <MudText Typo="Typo.subtitle2">Valuation date</MudText>
-                            <MudDatePicker Date="@ViewModel.ValuationDate"
-                                           DateChanged="OnValuationDateChanged"
-                                           DateFormat="yyyy-MM-dd"
-                                           Clearable="true"
-                                           MinDate="@DateTime.UtcNow.Date"
-                                           MaxDate="@ViewModel.MaxExpiryDate"
-                                           Class="valuation-date-picker" />
-                            <MudText Typo="Typo.caption">@ViewModel.DaysToExpiryLabel</MudText>
-                            <MudSpacer />
-                            <MudSwitch T="bool"
-                                       Color="Color.Primary"
-                                       Value="@ViewModel.IsLive"
-                                       ValueChanged="OnLivePriceChanged"
-                                       Label="Live" />
-                            <MudText Typo="Typo.caption" Class="ml-2">Index Price</MudText>
-                            <MudNumericField T="decimal?"
-                                             Value="@ViewModel.SelectedPrice"
-                                             ValueChanged="OnTemporaryPriceChanged"
-                                             Immediate="true"
-                                             Variant="Variant.Outlined"
-                                             Margin="Margin.Dense"
-                                             Adornment="Adornment.End"
-                                             AdornmentText="USDT"
-                                             Class="temp-price-field" />
+            <MudGrid Class="chart-grid" Spacing="2">
+                <MudItem xs="12" md="8">
+                    <MudPaper Class="chart-surface" Elevation="0">
+                        <MudStack Spacing="2" Style="height:100%;">
+                            <PayoffChart Config="@ViewModel.ChartConfig"
+                                         PriceSelected="HandleChartPriceSelected"
+                                         LegendSelectionChanged="HandleLegendSelectionChanged"
+                                         Height="100%"
+                                         Style="flex:1; min-height:400px;"
+                                         @ref="_chart" />
+                            <MudStack Spacing="1">
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                    <MudText Typo="Typo.subtitle2">Valuation date</MudText>
+                                    <MudDatePicker Date="@ViewModel.ValuationDate"
+                                                   DateChanged="OnValuationDateChanged"
+                                                   DateFormat="yyyy-MM-dd"
+                                                   Clearable="true"
+                                                   MinDate="@DateTime.UtcNow.Date"
+                                                   MaxDate="@ViewModel.MaxExpiryDate"
+                                                   Class="valuation-date-picker" />
+                                    <MudText Typo="Typo.caption">@ViewModel.DaysToExpiryLabel</MudText>
+                                    <MudSpacer />
+                                    <MudSwitch T="bool"
+                                               Color="Color.Primary"
+                                               Value="@ViewModel.IsLive"
+                                               ValueChanged="OnLivePriceChanged"
+                                               Label="Live" />
+                                    <MudText Typo="Typo.caption" Class="ml-2">Index Price</MudText>
+                                    <MudNumericField T="decimal?"
+                                                     Value="@ViewModel.SelectedPrice"
+                                                     ValueChanged="OnTemporaryPriceChanged"
+                                                     Immediate="true"
+                                                     Variant="Variant.Outlined"
+                                                     Margin="Margin.Dense"
+                                                     Adornment="Adornment.End"
+                                                     AdornmentText="USDT"
+                                                     Class="temp-price-field" />
+                                </MudStack>
+                                <MudSlider T="int"
+                                           Min="0"
+                                           Max="@ViewModel.MaxExpiryDays"
+                                           Step="1"
+                                           Value="@ViewModel.SelectedDayOffset"
+                                           ValueChanged="OnValuationDateOffsetChanged"
+                                           TickMarks="true"
+                                           Class="valuation-date-slider" />
+                            </MudStack>
                         </MudStack>
-                        <MudSlider T="int"
-                                   Min="0"
-                                   Max="@ViewModel.MaxExpiryDays"
-                                   Step="1"
-                                   Value="@ViewModel.SelectedDayOffset"
-                                   ValueChanged="OnValuationDateOffsetChanged"
-                                   TickMarks="true"
-                                   Class="valuation-date-slider" />
-                    </MudStack>
-                </MudStack>
-            </MudPaper>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudPaper Class="notes-panel" Elevation="0">
+                        <MudText Typo="Typo.subtitle2">Notes</MudText>
+                        <MudTextField T="string"
+                                      Value="@ViewModel.SelectedPosition?.Position?.Notes"
+                                      ValueChanged="OnNotesChanged"
+                                      Immediate="true"
+                                      DebounceInterval="300"
+                                      Variant="Variant.Outlined"
+                                      Margin="Margin.Dense"
+                                      Lines="16"
+                                      FullWidth="true"
+                                      Placeholder="Write notes about this position..." />
+                    </MudPaper>
+                </MudItem>
+            </MudGrid>
         </MudCardContent>
     </MudCard>
 
@@ -194,6 +213,16 @@ else
     .route-error-panel {
         padding: 24px;
     }
+    .notes-panel {
+        height: 100%;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+    .notes-panel .mud-input-root {
+        flex: 1;
+    }
 </style>
 
 @code {
@@ -208,6 +237,7 @@ else
     protected override async Task OnInitializedAsync()
     {
         ViewModel.OnChange += HandleViewModelChanged;
+        ViewModel.LivePriceChanged += HandleLivePriceChanged;
         await ViewModel.InitializeAsync();
         _viewModelReady = true;
         await ApplyRouteAsync(_pendingRoutePositionId);
@@ -216,6 +246,7 @@ else
     public async ValueTask DisposeAsync()
     {
         ViewModel.OnChange -= HandleViewModelChanged;
+        ViewModel.LivePriceChanged -= HandleLivePriceChanged;
         await ViewModel.DisposeAsync();
     }
 
@@ -281,8 +312,11 @@ else
 
     private async Task OnTemporaryPriceChanged(decimal? price)
     {
-        var refresh = !ViewModel.IsLive;
-        ViewModel.UpdateSelectedPrice(price, refresh);
+        ViewModel.UpdateSelectedPrice(price, refresh: false);
+        if (_chart is not null)
+        {
+            await _chart.UpdateTemporaryPriceAsync(price);
+        }
 
         await InvokeAsync(StateHasChanged);
     }
@@ -296,6 +330,16 @@ else
     private void HandleViewModelChanged()
     {
         _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleLivePriceChanged(decimal? price)
+    {
+        if (_chart is null)
+        {
+            return;
+        }
+
+        _ = InvokeAsync(() => _chart.UpdateTemporaryPriceAsync(price).AsTask());
     }
 
     private Task OnValuationDateChanged(DateTime? date)
@@ -316,6 +360,17 @@ else
     {
         ViewModel.SetValuationDateFromOffset(offset);
         return InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnNotesChanged(string? notes)
+    {
+        var position = ViewModel.SelectedPosition?.Position;
+        if (position is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return ViewModel.UpdateNotesAsync(position, notes ?? string.Empty);
     }
 
     private Task HandleLegendSelectionChanged(LegendSelectionChangedEventArgs args)

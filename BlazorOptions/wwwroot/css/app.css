@@ -111,6 +111,10 @@ code {
     color: #c02d76;
 }
 
+.mud-icon-button {
+    padding: 8px;
+}
+
 @media (max-width: 600px) {
     .mud-container--gutters {
         padding-left: 0 !important;
