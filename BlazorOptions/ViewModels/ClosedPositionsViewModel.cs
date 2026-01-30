@@ -1,41 +1,52 @@
 ﻿using System.Collections.ObjectModel;
-using System.Linq;
 using System.Text.Json;
 using BlazorOptions.Services;
 using Microsoft.AspNetCore.Components.Web;
 
 namespace BlazorOptions.ViewModels;
 
-public sealed class ClosedPositionsViewModel
+public sealed class ClosedPositionsViewModel: Bindable
 {
+
     private readonly PositionBuilderViewModel _positionBuilder;
     private readonly TradingHistoryStorageService _storageService;
-    private readonly PositionModel _position;
-    private IReadOnlyList<TradingHistoryEntry> _entries = Array.Empty<TradingHistoryEntry>();
+    private readonly ITelemetryService _telemetryService;
+    private readonly IExchangeService _exchangeService;
     private bool _isInitialized;
-    private IReadOnlyList<ClosedPositionSummary> _summaries = Array.Empty<ClosedPositionSummary>();
+    private ObservableCollection<ClosedPositionViewModel> _closedPositions;
+    private decimal _totalClosePnl;
+    private decimal _totalFee;
+    private decimal _totalNet;
+    private bool _includeInChart;
+    private ClosedModel _model;
 
     public ClosedPositionsViewModel(
         PositionBuilderViewModel positionBuilder,
         TradingHistoryStorageService storageService,
-        PositionModel position)
+        ITelemetryService telemetryService,
+        IExchangeService exchangeService)
     {
         _positionBuilder = positionBuilder;
         _storageService = storageService;
-        _position = position;
+        _telemetryService = telemetryService;
+        _exchangeService = exchangeService;
     }
 
-    public ObservableCollection<ClosedPositionModel> ClosedPositions => _position.ClosedPositions;
+    public ObservableCollection<ClosedPositionViewModel> ClosedPositions
+    {
+        get => _closedPositions;
+        set => _closedPositions = value;
+    }
 
-    public Guid PositionId => _position.Id;
 
-    public IReadOnlyList<ClosedPositionSummary> Summaries => _summaries;
+    public event Func<Task>? UpdatedCompleted;
+
 
     public string AddSymbolInput { get; set; } = string.Empty;
 
     public void SetAddSymbolInput(IEnumerable<string> symbols)
     {
-        var existing = SplitSymbols(AddSymbolInput ?? string.Empty);
+        var existing = SplitSymbols(AddSymbolInput);
         var combined = new List<string>(existing.Count + 8);
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -76,42 +87,37 @@ public sealed class ClosedPositionsViewModel
         _positionBuilder.NotifyStateChanged();
     }
 
-    public bool IncludeInChart
+ 
+    public ClosedModel Model
     {
-        get => _position.IncludeClosedPositions;
-        set => _ = SetIncludeInChartAsync(value);
-    }
-
-    public decimal TotalClosePnl => _summaries.Sum(item => item.ClosePnl);
-
-    public decimal TotalFee => _summaries.Sum(item => item.Fee);
-
-    public decimal TotalNet => TotalClosePnl + TotalFee;
-
-    public ClosedPositionSummary GetSummary(ClosedPositionModel? model)
-    {
-        if (model is null)
+        get => _model;
+        set
         {
-            return new ClosedPositionSummary(string.Empty, null, 0, 0, 0, 0, 0);
+            if (SetField(ref _model, value))
+            {
+                ObservableCollection<ClosedPositionViewModel> positions = new();
+
+                foreach (ClosedPositionModel model in _model.Positions)
+                {
+                    positions.Add(CreatePositionViewModel(model));
+                }
+
+                ClosedPositions = positions;
+            }
         }
-
-        var summary = _summaries.FirstOrDefault(item =>
-            string.Equals(item.Symbol, model.Symbol, StringComparison.OrdinalIgnoreCase));
-
-        return summary ?? new ClosedPositionSummary(model.Symbol, model.SinceDate, 0, 0, 0, 0, 0);
     }
 
-    public async Task InitializeAsync()
+
+    public Task InitializeAsync()
     {
         if (_isInitialized)
         {
-            return;
+            return Task.CompletedTask;
         }
 
-        _entries = await _positionBuilder.RefreshTradingHistoryAsync(ClosedPositions);
         _isInitialized = true;
-        RefreshSummaries();
-        NotifyChartRefresh();
+        _ = RecalculateAllAsync(forceFull: false);
+        return Task.CompletedTask;
     }
 
     public async Task OnAddSymbolKeyDown(KeyboardEventArgs args)
@@ -133,7 +139,7 @@ public sealed class ClosedPositionsViewModel
         }
 
         var existing = new HashSet<string>(
-            ClosedPositions.Select(item => item.Symbol),
+            ClosedPositions.Select(item => item.Model.Symbol),
             StringComparer.OrdinalIgnoreCase);
 
         var added = 0;
@@ -144,12 +150,14 @@ public sealed class ClosedPositionsViewModel
                 continue;
             }
 
-            var closedPosition = new ClosedPositionModel
-            {
-                Symbol = symbol.ToUpperInvariant()
-            };
+            var model = new ClosedPositionModel { Symbol = symbol.ToUpperInvariant() };
+            Model.Positions.Add(model);
+
+            ClosedPositionViewModel closedPosition = CreatePositionViewModel(model);
+            
 
             ClosedPositions.Add(closedPosition);
+        
             existing.Add(symbol);
             added++;
         }
@@ -157,65 +165,75 @@ public sealed class ClosedPositionsViewModel
         AddSymbolInput = string.Empty;
         if (added > 0)
         {
-            await PersistAndRefreshAsync();
+            foreach (var symbol in symbols)
+            {
+                var viewModel = ClosedPositions.FirstOrDefault(item =>
+                    string.Equals(item.Model.Symbol, symbol, StringComparison.OrdinalIgnoreCase));
+                if (viewModel is not null)
+                {
+                    _ = viewModel.RecalculateAsync(forceFull: false);
+                }
+            }
         }
+
+        await RaiseUpdateCompleted();
     }
 
-    public async Task RemoveClosedPositionAsync(ClosedPositionModel closedPosition)
+    internal ClosedPositionViewModel CreatePositionViewModel(ClosedPositionModel model)
     {
+        var closedPosition =
+            new ClosedPositionViewModel(_storageService, _telemetryService, _exchangeService)
+            {
+                Model = model
+            };
 
-        if (ClosedPositions.Contains(closedPosition))
+        closedPosition.UpdateCompleted += OnPositionUpdated;
+        closedPosition.Removed += OnPositionRemoved;
+
+        return closedPosition;
+    }
+
+    private async Task OnPositionRemoved(ClosedPositionViewModel viewModel)
+    {
+        viewModel.UpdateCompleted -= OnPositionUpdated;
+        viewModel.Removed -= OnPositionRemoved;
+
+        ClosedPositions.Remove(viewModel);
+        Model.Positions.Remove(viewModel.Model);
+
+        UpdateTotal();
+
+        await RaiseUpdateCompleted();
+    }
+
+
+    private async Task RaiseUpdateCompleted()
+    {
+        if (UpdatedCompleted != null)
         {
-            ClosedPositions.Remove(closedPosition);
-            await PersistAndRefreshAsync();
-        }
+            await UpdatedCompleted.Invoke();
+        } 
     }
+   
 
-    public async Task SetSinceDateAsync(ClosedPositionModel closedPosition, DateTime? sinceDate)
+    private async Task OnPositionUpdated()
     {
+        UpdateTotal();
 
-        if (closedPosition.SinceDate == sinceDate)
-        {
-            return;
-        }
-
-        closedPosition.SinceDate = sinceDate;
-        await PersistAndRefreshAsync();
+        await RaiseUpdateCompleted();
     }
 
-    public Task SetSinceDatePartAsync(ClosedPositionModel closedPosition, DateTime? datePart)
+    private void UpdateTotal()
     {
-
-        var timePart = closedPosition.SinceDate?.TimeOfDay ?? TimeSpan.Zero;
-        var combined = datePart.HasValue ? datePart.Value.Date + timePart : (DateTime?)null;
-        return SetSinceDateAsync(closedPosition, combined);
+        Model.TotalClosePnl = ClosedPositions.Sum(item => item.Model.Realized);
+        Model.TotalFee = ClosedPositions.Sum(item => item.Model.FeeTotal); 
     }
-
-    public Task SetSinceTimePartAsync(ClosedPositionModel closedPosition, TimeSpan? timePart)
-    {
-
-        var datePart = closedPosition.SinceDate?.Date;
-        if (!datePart.HasValue && timePart.HasValue)
-        {
-            datePart = DateTime.Today;
-        }
-
-        var combined = datePart.HasValue ? datePart.Value.Date + (timePart ?? TimeSpan.Zero) : (DateTime?)null;
-        return SetSinceDateAsync(closedPosition, combined);
-    }
-
-    public Task SetIncludeInChartAsync(bool include)
-    {
-        _position.IncludeClosedPositions = include;
-        return PersistAndRefreshAsync();
-    }
-
 
     public async Task<IReadOnlyList<TradingHistoryEntry>> GetTradesForSymbolAsync(string symbol)
     {
         if (string.IsNullOrWhiteSpace(symbol))
         {
-            return Array.Empty<TradingHistoryEntry>();
+            return [];
         }
 
         var entries = await _storageService.LoadBySymbolAsync(symbol);
@@ -268,25 +286,20 @@ public sealed class ClosedPositionsViewModel
         return JsonSerializer.Serialize(payload, options);
     }
 
-    private async Task PersistAndRefreshAsync()
+
+
+    private async Task RecalculateAllAsync(bool forceFull)
     {
-        await _positionBuilder.PersistPositionsAsync(_position);
-        _entries = await _positionBuilder.RefreshTradingHistoryAsync(ClosedPositions);
-        RefreshSummaries();
-        NotifyChartRefresh();
+        foreach (var model in ClosedPositions)
+        {
+            await model.RecalculateAsync(forceFull);
+            await Task.Yield();
+        }
     }
 
-    private void RefreshSummaries()
-    {
-        _summaries = ClosedPositionCalculator.BuildSummaries(ClosedPositions, _entries);
-        _position.ClosedPositionsNetTotal = TotalNet;
-    }
 
-    private void NotifyChartRefresh()
-    {
-        _positionBuilder.UpdateChart();
-        _positionBuilder.NotifyStateChanged();
-    }
+
+
 
     private static IReadOnlyList<string> SplitSymbols(string input)
     {

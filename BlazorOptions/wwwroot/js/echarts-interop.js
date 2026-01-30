@@ -630,6 +630,15 @@ window.payoffChart = {
             }
         });
 
+        chart.off('showTip');
+        chart.off('hideTip');
+        chart.on('showTip', () => {
+            element.__payoffIsTooltipVisible = true;
+        });
+        chart.on('hideTip', () => {
+            element.__payoffIsTooltipVisible = false;
+        });
+
         chart.off('click');
         chart.getZr().off('click');
         chart.getZr().off('mousedown');
@@ -938,6 +947,7 @@ window.payoffChart = {
         chart.getZr().on('mouseup', clearAxisDrag);
         chart.getZr().on('pointerup', clearAxisDrag);
         chart.getZr().on('globalout', () => {
+            element.__payoffIsTooltipVisible = false;
             setCursor('');
             clearAxisDrag();
         });
@@ -959,6 +969,9 @@ window.payoffChart.clearRanges = function (positionId) {
 
 window.payoffChart.updateTempPrice = function (element, tempPrice) {
     if (!element || !element.__payoffInstance || element.__payoffInstance.isDisposed?.()) {
+        return;
+    }
+    if (element.__payoffIsTooltipVisible) {
         return;
     }
 
@@ -1000,6 +1013,9 @@ window.payoffChart.updateTempPrice = function (element, tempPrice) {
 
     chart.setOption({
         series: seriesUpdate
+    }, {
+        lazyUpdate: true,
+        silent: true
     });
 
 };

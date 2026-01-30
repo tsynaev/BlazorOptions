@@ -238,7 +238,7 @@ else
     {
         ViewModel.OnChange += HandleViewModelChanged;
         ViewModel.LivePriceChanged += HandleLivePriceChanged;
-        await ViewModel.InitializeAsync();
+        await ViewModel.InitializeAsync(PositionId);
         _viewModelReady = true;
         await ApplyRouteAsync(_pendingRoutePositionId);
     }

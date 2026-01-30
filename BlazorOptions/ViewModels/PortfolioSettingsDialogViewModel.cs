@@ -66,7 +66,7 @@ public sealed class PortfolioSettingsDialogViewModel
             collection.Collection.Color = Color;
         }
 
-        await _positionBuilder.PersistPositionsAsync();
+        await _positionBuilder.SelectedPosition.PersistPositionAsync();
         _positionBuilder.UpdateChart();
         _positionBuilder.NotifyStateChanged();
     }

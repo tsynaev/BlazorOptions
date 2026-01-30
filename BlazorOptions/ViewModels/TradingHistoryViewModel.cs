@@ -570,6 +570,12 @@ public class TradingHistoryViewModel
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
+        var size = raw.Qty ?? raw.Size ?? 0m;
+        var price = raw.TradePrice ?? 0m;
+        var fee = raw.Fee ?? 0m;
+        var change = raw.Change ?? 0m;
+        var cashFlow = raw.CashFlow ?? 0m;
+
         return new TradingHistoryEntry
         {
             Id = raw.UniqueKey,
@@ -578,12 +584,12 @@ public class TradingHistoryViewModel
             Category = raw.Category,
             TransactionType = raw.TransactionType,
             Side = raw.Side,
-            Size = raw.Qty,
-            Price = raw.TradePrice,
-            Fee = raw.Fee,
+            Size = size,
+            Price = price,
+            Fee = fee,
             Currency = raw.Currency,
-            Change = raw.Change,
-            CashFlow = raw.CashFlow,
+            Change = change,
+            CashFlow = cashFlow,
             OrderId = raw.OrderId,
             OrderLinkId = raw.OrderLinkId,
             TradeId = raw.TradeId,
@@ -612,10 +618,10 @@ public class TradingHistoryViewModel
             }
 
             value.Trades += 1;
-            value.Qty += ParseDecimal(entry.Size) ?? 0m;
-            value.Value += (ParseDecimal(entry.Price) ?? 0m) * (ParseDecimal(entry.Size) ?? 0m);
-            value.Fees += ParseDecimal(entry.Fee) ?? 0m;
-            value.Realized += ParseDecimal(entry.Calculated?.RealizedPnl) ?? 0m;
+            value.Qty += entry.Size;
+            value.Value += entry.Price * entry.Size;
+            value.Fees += entry.Fee;
+            value.Realized += ParseDecimal(entry.Calculated?.RealizedPnl);
             summary[key] = value;
 
             if (!totals.TryGetValue(settleCoin, out var pnlTotals))
@@ -623,8 +629,8 @@ public class TradingHistoryViewModel
                 pnlTotals = (0m, 0m);
             }
 
-            pnlTotals.Realized += ParseDecimal(entry.Calculated?.RealizedPnl) ?? 0m;
-            pnlTotals.Fees += ParseDecimal(entry.Fee) ?? 0m;
+            pnlTotals.Realized += ParseDecimal(entry.Calculated?.RealizedPnl);
+            pnlTotals.Fees += entry.Fee;
             totals[settleCoin] = pnlTotals;
         }
 
@@ -689,9 +695,9 @@ public class TradingHistoryViewModel
                 };
             }
 
-            var qty = ParseDecimal(entry.Size) ?? 0m;
-            var price = ParseDecimal(entry.Price) ?? 0m;
-            var fee = ParseDecimal(entry.Fee) ?? 0m;
+            var qty = entry.Size;
+            var price = entry.Price;
+            var fee = entry.Fee;
 
             summary.TotalSize += qty;
             summary.TotalValue += qty * price;
@@ -739,7 +745,7 @@ public class TradingHistoryViewModel
             }
 
             var settleCoin = GetSettleCoin(entry.Currency);
-            var realized = ParseDecimal(entry.Calculated?.RealizedPnl) ?? 0m;
+            var realized = ParseDecimal(entry.Calculated?.RealizedPnl);
 
             totals.TryGetValue(settleCoin, out var current);
             totals[settleCoin] = current + realized;
@@ -823,9 +829,9 @@ public class TradingHistoryViewModel
     {
         foreach (var entry in entries)
         {
-            var qty = Round10(ParseDecimal(entry.Size) ?? 0m);
-            var price = ParseDecimal(entry.Price) ?? 0m;
-            var fee = ParseDecimal(entry.Fee) ?? 0m;
+            var qty = Round10(entry.Size);
+            var price = entry.Price;
+            var fee = entry.Fee;
             var side = (entry.Side ?? string.Empty).Trim();
             var type = (entry.TransactionType ?? string.Empty).Trim();
 
@@ -1031,16 +1037,16 @@ public class TradingHistoryViewModel
         return string.IsNullOrWhiteSpace(settleCoin) ? "_unknown" : settleCoin;
     }
 
-    private static decimal? ParseDecimal(string? value)
+    private static decimal ParseDecimal(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
-            return null;
+            return 0m;
         }
 
         return decimal.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
             ? parsed
-            : null;
+            : 0m;
     }
 
     private static string FormatDecimal(decimal value)

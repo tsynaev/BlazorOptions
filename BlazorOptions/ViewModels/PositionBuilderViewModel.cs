@@ -9,7 +9,6 @@ public class PositionBuilderViewModel : IAsyncDisposable
 {
     private readonly OptionsService _optionsService;
     private readonly PositionStorageService _storageService;
-    private readonly TradingHistoryStorageService _tradingHistoryStorageService;
     private readonly ExchangeTickerService _exchangeTickerService;
     private readonly OptionsChainService _optionsChainService;
     private readonly ActivePositionsService _activePositionsService;
@@ -20,7 +19,6 @@ public class PositionBuilderViewModel : IAsyncDisposable
     private readonly ITelemetryService _telemetryService;
     private bool _isInitialized;
     private bool _suppressSync;
-    private IReadOnlyList<TradingHistoryEntry> _tradingHistoryEntries = Array.Empty<TradingHistoryEntry>();
     private readonly object _persistQueueLock = new();
     private CancellationTokenSource? _persistQueueCts;
     private PositionModel? _queuedPersistPosition;
@@ -29,6 +27,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
     private CancellationTokenSource? _chartUpdateCts;
     private static readonly TimeSpan ChartUpdateDelay = TimeSpan.FromMilliseconds(75);
 
+    private bool _isDisposed;
 
 
     public decimal? SelectedPrice => SelectedPosition?.SelectedPrice;
@@ -52,7 +51,6 @@ public class PositionBuilderViewModel : IAsyncDisposable
     public PositionBuilderViewModel(
         OptionsService optionsService,
         PositionStorageService storageService,
-        TradingHistoryStorageService tradingHistoryStorageService,
         ExchangeTickerService exchangeTickerService,
         OptionsChainService optionsChainService,
         ActivePositionsService activePositionsService,
@@ -64,7 +62,6 @@ public class PositionBuilderViewModel : IAsyncDisposable
     {
         _optionsService = optionsService;
         _storageService = storageService;
-        _tradingHistoryStorageService = tradingHistoryStorageService;
         _exchangeTickerService = exchangeTickerService;
         _optionsChainService = optionsChainService;
         _activePositionsService = activePositionsService;
@@ -83,7 +80,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     public EChartOptions ChartConfig { get; private set; } = new(Guid.Empty, Array.Empty<decimal>(), Array.Empty<string>(), null, Array.Empty<ChartCollectionSeries>(), 0, 0);
 
-    public async Task InitializeAsync()
+    public async Task InitializeAsync(Guid? preferredPositionId = null)
     {
         if (_isInitialized)
         {
@@ -93,7 +90,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         _isInitialized = true;
         var storedPositions = await _storageService.LoadPositionsAsync();
         var deletedPositionIds = await _storageService.LoadDeletedPositionsAsync();
-        _tradingHistoryEntries = [];
+
         await _activePositionsService.InitializeAsync();
 
         if (storedPositions.Count == 0)
@@ -104,7 +101,6 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
             UpdateChart();
 
-            await PersistPositionsAsync();
             UpdateLegTickerSubscription();
             await SelectedPosition!.EnsureLiveSubscriptionAsync();
             await _positionSyncService.QueueLocalSnapshotAsync(Positions, deletedPositionIds);
@@ -118,7 +114,11 @@ public class PositionBuilderViewModel : IAsyncDisposable
             Positions.Add(position);
         }
 
-        var selectedPosition = Positions.FirstOrDefault();
+        var selectedPosition = preferredPositionId.HasValue
+            ? Positions.FirstOrDefault(position => position.Id == preferredPositionId.Value)
+            : null;
+
+        selectedPosition ??= Positions.FirstOrDefault();
 
 
 
@@ -136,13 +136,13 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     public async Task AddPositionAsync(string? name = null, string? baseAsset = null, string? quoteAsset = null, bool includeSampleLegs = true)
     {
-        var position = CreateDefaultPosition(name ?? $"Position {Positions.Count + 1}", baseAsset, quoteAsset, includeSampleLegs);
+        PositionModel position = CreateDefaultPosition(name ?? $"Position {Positions.Count + 1}", baseAsset, quoteAsset, includeSampleLegs);
         Positions.Add(position);
         await SetSelectedPositionAsync(position);
 
         UpdateChart();
 
-        await PersistPositionsAsync();
+        await SelectedPosition.PersistPositionAsync();
         UpdateLegTickerSubscription();
         await SelectedPosition!.EnsureLiveSubscriptionAsync();
     }
@@ -170,7 +170,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
     public async Task UpdateNameAsync(PositionModel position, string name)
     {
         position.Name = name;
-        await PersistPositionsAsync(position);
+        await SelectedPosition.PersistPositionAsync();
         if (SelectedPosition?.Position?.Id == position.Id)
         {
         }
@@ -250,33 +250,17 @@ public class PositionBuilderViewModel : IAsyncDisposable
         return await SelectedPosition.RemoveCollectionAsync(collection.Collection);
     }
 
-    public async Task PersistPositionsAsync(PositionModel? changedPosition = null)
-    {
-        using var activity =
-            _telemetryService.StartActivity($"{nameof(PositionBuilderViewModel)}.{nameof(PersistPositionsAsync)}");
 
-        await _storageService.SavePositionsAsync(Positions);
-        if (!_suppressSync)
-        {
-            var positionToSync = changedPosition ?? SelectedPosition?.Position;
-            if (positionToSync is null)
-            {
-                return;
-            }
-
-            if (SelectedPosition?.Position?.Id != positionToSync.Id)
-            {
-                return;
-            }
-
-            await _positionSyncService.NotifyLocalChangeAsync(positionToSync);
-        }
-    }
 
     internal Task QueuePersistPositionsAsync(PositionModel? changedPosition = null)
     {
         lock (_persistQueueLock)
         {
+            if (_isDisposed)
+            {
+                return Task.CompletedTask;
+            }
+
             if (changedPosition is not null)
             {
                 _queuedPersistPosition = changedPosition;
@@ -300,6 +284,11 @@ public class PositionBuilderViewModel : IAsyncDisposable
     {
         lock (_chartUpdateLock)
         {
+            if (_isDisposed)
+            {
+                return;
+            }
+
             _chartUpdateCts?.Cancel();
             _chartUpdateCts?.Dispose();
             _chartUpdateCts = new CancellationTokenSource();
@@ -353,7 +342,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
         try
         {
-            await PersistPositionsAsync(target);
+            await SelectedPosition.PersistPositionAsync();
         }
         catch
         {
@@ -363,12 +352,14 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     public void UpdateChart()
     {
+        using var activity = _telemetryService.StartActivity($"{nameof(PositionBuilderViewModel)}.{nameof(UpdateChart)}");
+
         var position = SelectedPosition;
         var collections = position?.Collections ?? Enumerable.Empty<LegsCollectionViewModel>();
         var allLegs = collections.SelectMany(collection => collection.Legs).ToList();
         var visibleCollections = collections.Where(collection => collection.IsVisible).ToList();
         var rangeLegs = visibleCollections.SelectMany(collection => collection.Legs).ToList();
-        var closedPositionsTotal = GetClosedPositionsTotal(position);
+        var closedPositionsTotal = position.Position.Closed.Include ? position.Position.Closed.TotalNet : 0;
 
         if (rangeLegs.Count == 0)
         {
@@ -491,59 +482,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         ChartConfig = new EChartOptions(positionId, xs, labels, displayPrice, chartCollections, minProfit - padding, maxProfit + padding);
     }
 
-    public async Task<IReadOnlyList<TradingHistoryEntry>> RefreshTradingHistoryAsync(IEnumerable<ClosedPositionModel>? closedPositions = null)
-    {
-        if (closedPositions is null)
-        {
-            _tradingHistoryEntries = Array.Empty<TradingHistoryEntry>();
-            return _tradingHistoryEntries;
-        }
-
-        var models = closedPositions
-            .Where(position => position is not null && !string.IsNullOrWhiteSpace(position.Symbol))
-            .ToList();
-
-        if (models.Count == 0)
-        {
-            _tradingHistoryEntries = Array.Empty<TradingHistoryEntry>();
-            return _tradingHistoryEntries;
-        }
-
-        var entries = new List<TradingHistoryEntry>();
-        var addedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var model in models)
-        {
-            var symbol = model.Symbol.Trim();
-            if (string.IsNullOrWhiteSpace(symbol))
-            {
-                continue;
-            }
-
-            var symbolEntries = await _tradingHistoryStorageService.LoadBySymbolAsync(symbol);
-            foreach (var entry in symbolEntries)
-            {
-                var key = entry.Id;
-                if (string.IsNullOrWhiteSpace(key) || addedKeys.Add(key))
-                {
-                    entries.Add(entry);
-                }
-            }
-        }
-
-        _tradingHistoryEntries = entries;
-        return _tradingHistoryEntries;
-    }
-
-    private decimal GetClosedPositionsTotal(PositionViewModel? position)
-    {
-        if (position is null || !position.Position.IncludeClosedPositions || position.Position.ClosedPositions is null)
-        {
-            return 0;
-        }
-
-        return position.Position.ClosedPositionsNetTotal;
-    }
+  
 
     public decimal? GetLegMarkIv(LegModel leg, string? baseAsset = null)
     {
@@ -653,7 +592,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
         UpdateChart();
 
-        await PersistPositionsAsync();
+        await SelectedPosition.PersistPositionAsync();
         await _positionSyncService.NotifyLocalChangeAsync(position, true);
         return true;
     }
@@ -703,9 +642,9 @@ public class PositionBuilderViewModel : IAsyncDisposable
             position.Collections.Add(PositionViewModel.CreateCollection(position, PositionViewModel.GetNextCollectionName(position)));
         }
 
-        if (position.ClosedPositions is null)
+        if (position.Closed is null)
         {
-            position.ClosedPositions = new ObservableCollection<ClosedPositionModel>();
+            position.Closed = new ClosedModel();
         }
     }
 
@@ -726,12 +665,15 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
         SelectedPosition = new PositionViewModel(
                 this,
+                _storageService,
+                _positionSyncService,
                 _collectionFactory,
                 _closedPositionsFactory,
                 _notifyUserService,
+                _telemetryService,
                 _exchangeTickerService,
-                _activePositionsService,
-                _optionsChainService)
+                _activePositionsService
+                )
             {
                 Position = position
             };
@@ -959,15 +901,22 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        _isDisposed = true;
         if (SelectedPosition is not null)
         {
             await SelectedPosition.StopTickerAsync();
         }
         await _positionSyncService.DisposeAsync();
-        _persistQueueCts?.Cancel();
-        _persistQueueCts?.Dispose();
-        _chartUpdateCts?.Cancel();
-        _chartUpdateCts?.Dispose();
+        lock (_persistQueueLock)
+        {
+            _persistQueueCts?.Cancel();
+            _persistQueueCts?.Dispose();
+        }
+        lock (_chartUpdateLock)
+        {
+            _chartUpdateCts?.Cancel();
+            _chartUpdateCts?.Dispose();
+        }
     }
 
     private async Task ApplyServerSnapshotAsync(PositionSnapshotPayload payload, DateTime occurredUtc)
@@ -999,7 +948,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
             await SetSelectedPositionAsync(Positions.FirstOrDefault());
 
             UpdateChart();
-            await PersistPositionsAsync();
+            await SelectedPosition.PersistPositionAsync();
             UpdateLegTickerSubscription();
             OnChange?.Invoke();
             await PruneDeletedPositionsAsync();
@@ -1056,7 +1005,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
             OnChange?.Invoke();
             try
             {
-                await PersistPositionsAsync();
+                await SelectedPosition.PersistPositionAsync();
             }
             catch
             {

@@ -186,7 +186,7 @@ public sealed class LegsCollectionViewModel : IDisposable
             collection.Legs.Add(leg);
         }
 
-        await RaiseUpdatedAsync(LegsCollectionUpdateKind.TickerRefresh);
+        await RaiseUpdatedAsync(LegsCollectionUpdateKind.CollectionChanged);
     }
 
     public async Task AddQuickLegAsync()
@@ -300,7 +300,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         }
 
         SyncLegViewModels();
-        await RaiseUpdatedAsync(LegsCollectionUpdateKind.TickerRefresh);
+        await RaiseUpdatedAsync(LegsCollectionUpdateKind.CollectionChanged);
     }
 
     internal LegModel? CreateLegFromBybitPosition(BybitPosition position, string baseAsset, string category)
@@ -419,7 +419,7 @@ public sealed class LegsCollectionViewModel : IDisposable
     {
         Collection.IsVisible = isVisible;
 
-        await RaiseUpdatedAsync(LegsCollectionUpdateKind.ChartDataChanged);
+        await RaiseUpdatedAsync(LegsCollectionUpdateKind.LegModelChanged);
     }
 
     public async Task SetColorAsync(string color)
@@ -430,7 +430,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         }
 
         Collection.Color = color;
-        await RaiseUpdatedAsync(LegsCollectionUpdateKind.ChartDataChanged);
+        await RaiseUpdatedAsync(LegsCollectionUpdateKind.LegModelChanged);
     }
 
     public async Task SetNameAsync(string name)
@@ -441,7 +441,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         }
 
         Collection.Name = name.Trim();
-        await RaiseUpdatedAsync(LegsCollectionUpdateKind.ChartDataChanged);
+        await RaiseUpdatedAsync(LegsCollectionUpdateKind.LegModelChanged);
     }
 
     public async Task OpenSettingsAsync()
@@ -458,7 +458,7 @@ public sealed class LegsCollectionViewModel : IDisposable
 
         Collection.Legs.Remove(leg);
         RemoveLegViewModel(leg);
-        await RaiseUpdatedAsync(LegsCollectionUpdateKind.TickerRefresh);
+        await RaiseUpdatedAsync(LegsCollectionUpdateKind.CollectionChanged);
         await RaiseLegRemovedAsync(leg);
     }
 
@@ -484,7 +484,7 @@ public sealed class LegsCollectionViewModel : IDisposable
     private async Task HandleQuickAddLegCreated(LegModel leg)
     {
         SyncLegViewModels();
-        await RaiseUpdatedAsync(LegsCollectionUpdateKind.TickerRefresh);
+        await RaiseUpdatedAsync(LegsCollectionUpdateKind.CollectionChanged);
         await RaiseLegAddedAsync(leg);
     }
 

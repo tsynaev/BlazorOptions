@@ -331,6 +331,140 @@ window.tradingHistoryDb = (function () {
         });
     }
 
+    async function fetchBySymbolSince(symbolKey, categoryKey, sinceTimestamp) {
+        const results = [];
+        const since = Number.isFinite(sinceTimestamp) ? Number(sinceTimestamp) : 0;
+        return withStore(TRADE_STORE, 'readonly', (store) => {
+            return new Promise((resolve, reject) => {
+                let index = store.index('symbol_timestamp');
+                let range = null;
+
+                if (categoryKey) {
+                    index = store.index('symbol_category_timestamp');
+                    range = IDBKeyRange.bound([symbolKey, categoryKey, since], [symbolKey, categoryKey, Number.MAX_SAFE_INTEGER]);
+                } else {
+                    range = IDBKeyRange.bound([symbolKey, since], [symbolKey, Number.MAX_SAFE_INTEGER]);
+                }
+
+                const request = index.openCursor(range, 'prev');
+                request.onsuccess = function (event) {
+                    const cursor = event.target.result;
+                    if (!cursor) {
+                        resolve(results);
+                        return;
+                    }
+                    const value = cursor.value;
+                    if (value && !value.id && (value.uniqueKey || value.UniqueKey)) {
+                        value.id = value.uniqueKey || value.UniqueKey;
+                    }
+                    results.push(value);
+                    cursor.continue();
+                };
+                request.onerror = function () {
+                    reject(request.error);
+                };
+            });
+        });
+    }
+
+    function normalizeTradeSummary(value) {
+        if (!value) {
+            return null;
+        }
+
+        const id = value.id || value.Id || value.uniqueKey || value.UniqueKey || '';
+        let timestamp = value.timestamp || value.Timestamp || value.timeStamp || value.TimeStamp || value.time || value.Time || 0;
+        timestamp = Number.isFinite(timestamp) ? timestamp : Number(timestamp || 0);
+        const symbol = value.symbol || value.Symbol || '';
+        const transactionType = value.transactionType || value.TransactionType || value.type || value.Type || '';
+        const side = value.side || value.Side || '';
+        const size = value.size ?? value.Size ?? value.qty ?? value.Qty ?? 0;
+        const price = value.price ?? value.Price ?? value.tradePrice ?? value.TradePrice ?? 0;
+        const fee = value.fee ?? value.Fee ?? 0;
+        const currency = value.currency || value.Currency || '';
+
+        return {
+            Id: id,
+            Timestamp: timestamp,
+            Symbol: symbol,
+            TransactionType: transactionType,
+            Side: side,
+            Size: size,
+            Price: price,
+            Fee: fee,
+            Currency: currency
+        };
+    }
+
+    async function fetchBySymbolSummary(symbolKey, categoryKey) {
+        const results = [];
+        return withStore(TRADE_STORE, 'readonly', (store) => {
+            return new Promise((resolve, reject) => {
+                let index = store.index('symbol_timestamp');
+                let range = null;
+
+                if (categoryKey) {
+                    index = store.index('symbol_category_timestamp');
+                    range = IDBKeyRange.bound([symbolKey, categoryKey, 0], [symbolKey, categoryKey, Number.MAX_SAFE_INTEGER]);
+                } else {
+                    range = IDBKeyRange.bound([symbolKey, 0], [symbolKey, Number.MAX_SAFE_INTEGER]);
+                }
+
+                const request = index.openCursor(range, 'prev');
+                request.onsuccess = function (event) {
+                    const cursor = event.target.result;
+                    if (!cursor) {
+                        resolve(results);
+                        return;
+                    }
+                    const summary = normalizeTradeSummary(cursor.value);
+                    if (summary) {
+                        results.push(summary);
+                    }
+                    cursor.continue();
+                };
+                request.onerror = function () {
+                    reject(request.error);
+                };
+            });
+        });
+    }
+
+    async function fetchBySymbolSummarySince(symbolKey, categoryKey, sinceTimestamp) {
+        const results = [];
+        const since = Number.isFinite(sinceTimestamp) ? Number(sinceTimestamp) : 0;
+        return withStore(TRADE_STORE, 'readonly', (store) => {
+            return new Promise((resolve, reject) => {
+                let index = store.index('symbol_timestamp');
+                let range = null;
+
+                if (categoryKey) {
+                    index = store.index('symbol_category_timestamp');
+                    range = IDBKeyRange.bound([symbolKey, categoryKey, since], [symbolKey, categoryKey, Number.MAX_SAFE_INTEGER]);
+                } else {
+                    range = IDBKeyRange.bound([symbolKey, since], [symbolKey, Number.MAX_SAFE_INTEGER]);
+                }
+
+                const request = index.openCursor(range, 'prev');
+                request.onsuccess = function (event) {
+                    const cursor = event.target.result;
+                    if (!cursor) {
+                        resolve(results);
+                        return;
+                    }
+                    const summary = normalizeTradeSummary(cursor.value);
+                    if (summary) {
+                        results.push(summary);
+                    }
+                    cursor.continue();
+                };
+                request.onerror = function () {
+                    reject(request.error);
+                };
+            });
+        });
+    }
+
     async function fetchAllAsc() {
         const results = [];
         return withStore(TRADE_STORE, 'readonly', (store) => {
@@ -369,6 +503,9 @@ window.tradingHistoryDb = (function () {
         fetchAny,
         fetchBefore,
         fetchBySymbol,
-        fetchAllAsc
+        fetchAllAsc,
+        fetchBySymbolSince,
+        fetchBySymbolSummary,
+        fetchBySymbolSummarySince
     };
 })();

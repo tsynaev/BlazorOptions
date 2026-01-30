@@ -1,7 +1,10 @@
+using BlazorOptions.Pages;
+using BlazorOptions.Services;
 using System;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Linq;
-using BlazorOptions.Services;
 
 namespace BlazorOptions.ViewModels;
 
@@ -21,12 +24,13 @@ public sealed class PositionViewModel : IDisposable
     };
 
     private readonly PositionBuilderViewModel _positionBuilder;
+    private readonly PositionStorageService _storageService;
+    private readonly PositionSyncService _positionSyncService;
     private readonly LegsCollectionViewModelFactory _collectionFactory;
     private readonly ClosedPositionsViewModelFactory _closedPositionsFactory;
     private readonly INotifyUserService _notifyUserService;
     private readonly ExchangeTickerService _exchangeTickerService;
     private readonly ActivePositionsService _activePositionsService;
-    private readonly OptionsChainService _optionsChainService;
     private decimal? _currentPrice;
     private DateTime _valuationDate = DateTime.UtcNow;
     private decimal? _selectedPrice;
@@ -35,23 +39,29 @@ public sealed class PositionViewModel : IDisposable
     private IDisposable? _tickerSubscription;
     private string? _currentSymbol;
     private PositionModel _position;
+    private readonly ITelemetryService _telemetryService;
+    private bool _suppressSync;
 
     public PositionViewModel(
         PositionBuilderViewModel positionBuilder,
+        PositionStorageService storageService,
+        PositionSyncService positionSyncService,
         LegsCollectionViewModelFactory collectionFactory,
         ClosedPositionsViewModelFactory closedPositionsFactory,
         INotifyUserService notifyUserService,
+        ITelemetryService telemetryService,
         ExchangeTickerService exchangeTickerService,
-        ActivePositionsService activePositionsService,
-        OptionsChainService optionsChainService)
+        ActivePositionsService activePositionsService)
     {
         _positionBuilder = positionBuilder;
+        _storageService = storageService;
+        _positionSyncService = positionSyncService;
         _collectionFactory = collectionFactory;
         _closedPositionsFactory = closedPositionsFactory;
         _notifyUserService = notifyUserService;
+        _telemetryService = telemetryService;
         _exchangeTickerService = exchangeTickerService;
         _activePositionsService = activePositionsService;
-        _optionsChainService = optionsChainService;
        
   
     }
@@ -66,9 +76,9 @@ public sealed class PositionViewModel : IDisposable
             {
                 _position.Collections.Add(CreateCollection(_position, GetNextCollectionName(_position)));
             }
-            if (_position.ClosedPositions is null)
+            if (_position.Closed is null)
             {
-                _position.ClosedPositions = new ObservableCollection<ClosedPositionModel>();
+                _position.Closed = new ClosedModel();
             }
             Collections = new ObservableCollection<LegsCollectionViewModel>();
 
@@ -77,9 +87,30 @@ public sealed class PositionViewModel : IDisposable
                 Collections.Add(CreateCollectionViewModel(collection));
             }
 
-            ClosedPositions = _closedPositionsFactory.Create(_positionBuilder, _position);
+            ClosedPositions = _closedPositionsFactory.Create(_positionBuilder, _telemetryService, _position);
 
-  
+            ClosedPositions.Model.PropertyChanged += OnClosedPositionsChanged;
+            ClosedPositions.UpdatedCompleted += OnClosedPositionsUpdated;
+
+
+        }
+    }
+
+    private async Task OnClosedPositionsUpdated()
+    {
+        await PersistPositionAsync();
+        _positionBuilder.QueueChartUpdate();
+    }
+
+
+    private void OnClosedPositionsChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        switch (e.PropertyName)
+        {
+            case nameof(ClosedModel.TotalNet):
+            case nameof(ClosedModel.Include):
+                _positionBuilder.QueueChartUpdate();
+                break;
         }
     }
 
@@ -114,7 +145,7 @@ public sealed class PositionViewModel : IDisposable
         Position.Collections.Add(collection);
         Collections.Add(CreateCollectionViewModel(collection));
 
-        await HandleCollectionUpdatedAsync(LegsCollectionUpdateKind.ChartDataChanged);
+        await HandleCollectionUpdatedAsync(LegsCollectionUpdateKind.CollectionChanged);
     }
 
     public async Task DuplicateCollectionAsync(LegsCollectionModel source)
@@ -123,7 +154,7 @@ public sealed class PositionViewModel : IDisposable
         Position.Collections.Add(collection);
         Collections.Add(CreateCollectionViewModel(collection));
 
-        await HandleCollectionUpdatedAsync(LegsCollectionUpdateKind.TickerRefresh);
+        await HandleCollectionUpdatedAsync(LegsCollectionUpdateKind.CollectionChanged);
     }
 
     public async Task<bool> RemoveCollectionAsync(LegsCollectionModel collection)
@@ -146,7 +177,7 @@ public sealed class PositionViewModel : IDisposable
             Collections.Remove(viewModel);
         }
 
-        await HandleCollectionUpdatedAsync(LegsCollectionUpdateKind.TickerRefresh);
+        await HandleCollectionUpdatedAsync(LegsCollectionUpdateKind.CollectionChanged);
         return true;
     }
 
@@ -205,19 +236,21 @@ public sealed class PositionViewModel : IDisposable
 
     private async Task HandleCollectionUpdatedAsync(LegsCollectionUpdateKind updateKind)
     {
-        var updateChart = updateKind != LegsCollectionUpdateKind.CardOnly;
-        var refreshTicker = updateKind == LegsCollectionUpdateKind.TickerRefresh;
-        await HandleCollectionUpdatedAsync(updateChart: updateChart, refreshTicker: refreshTicker);
-    }
+        var updateChart = updateKind != LegsCollectionUpdateKind.ViewModelDataUpdated;
+        var refreshTicker = updateKind == LegsCollectionUpdateKind.CollectionChanged;
+        var persist = updateKind == LegsCollectionUpdateKind.LegModelChanged
+            || updateKind == LegsCollectionUpdateKind.CollectionChanged;
 
-    private async Task HandleCollectionUpdatedAsync(bool updateChart, bool refreshTicker)
-    {
+
         if (updateChart)
         {
             _positionBuilder.QueueChartUpdate();
         }
 
-        await _positionBuilder.QueuePersistPositionsAsync(Position);
+        if (persist)
+        {
+            await _positionBuilder.QueuePersistPositionsAsync(Position);
+        }
         if (refreshTicker)
         {
             _positionBuilder.RefreshLegTickerSubscription();
@@ -225,6 +258,24 @@ public sealed class PositionViewModel : IDisposable
         if (!updateChart)
         {
             _positionBuilder.NotifyStateChanged();
+        }
+    }
+
+    public async Task PersistPositionAsync()
+    {
+        using var activity =
+            _telemetryService.StartActivity($"{nameof(PositionViewModel)}.{nameof(PersistPositionAsync)}");
+
+        await _storageService.SavePositionAsync(Position);
+        if (!_suppressSync)
+        {
+            var positionToSync = Position;
+            if (positionToSync is null)
+            {
+                return;
+            }
+
+            await _positionSyncService.NotifyLocalChangeAsync(positionToSync);
         }
     }
 

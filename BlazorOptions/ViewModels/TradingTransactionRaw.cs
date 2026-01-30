@@ -12,19 +12,19 @@ public record TradingTransactionRaw
     public string TransactionType { get; init; } = string.Empty;
     public string TransSubType { get; init; } = string.Empty;
     public string Side { get; init; } = string.Empty;
-    public string Funding { get; init; } = string.Empty;
+    public decimal? Funding { get; init; }
     public string OrderLinkId { get; init; } = string.Empty;
     public string OrderId { get; init; } = string.Empty;
-    public string Fee { get; init; } = string.Empty;
-    public string Change { get; init; } = string.Empty;
-    public string CashFlow { get; init; } = string.Empty;
-    public string FeeRate { get; init; } = string.Empty;
-    public string BonusChange { get; init; } = string.Empty;
-    public string Size { get; init; } = string.Empty;
-    public string Qty { get; init; } = string.Empty;
-    public string CashBalance { get; init; } = string.Empty;
+    public decimal? Fee { get; init; }
+    public decimal? Change { get; init; } 
+    public decimal? CashFlow { get; init; } 
+    public decimal? FeeRate { get; init; } 
+    public decimal? BonusChange { get; init; }
+    public decimal? Size { get; init; } 
+    public decimal? Qty { get; init; } 
+    public decimal? CashBalance { get; init; } 
     public string Currency { get; init; } = string.Empty;
-    public string TradePrice { get; init; } = string.Empty;
+    public decimal? TradePrice { get; init; } 
     public string TradeId { get; init; } = string.Empty;
     public string ExtraFees { get; init; } = string.Empty;
 }

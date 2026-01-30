@@ -343,19 +343,9 @@
         }
     }
 
-    private static string FormatValue(string? qty, string? price)
+    private static string FormatValue(decimal qty, decimal price)
     {
-        if (!decimal.TryParse(qty, NumberStyles.Any, CultureInfo.InvariantCulture, out var qtyValue))
-        {
-            qtyValue = 0m;
-        }
-
-        if (!decimal.TryParse(price, NumberStyles.Any, CultureInfo.InvariantCulture, out var priceValue))
-        {
-            priceValue = 0m;
-        }
-
-        return (qtyValue * priceValue).ToString("0.##########", CultureInfo.InvariantCulture);
+        return (qty * price).ToString("0.##########", CultureInfo.InvariantCulture);
     }
 
     private readonly TableGroupDefinition<TradingSummaryRow> _summaryGroupDefinition =

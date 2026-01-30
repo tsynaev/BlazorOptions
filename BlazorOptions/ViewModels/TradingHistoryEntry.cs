@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json.Serialization;
 
 namespace BlazorOptions.ViewModels;
 
@@ -16,17 +17,27 @@ public sealed class TradingHistoryEntry
 
     public string Side { get; set; } = string.Empty;
 
-    public string Size { get; set; } = string.Empty;
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+    [JsonConverter(typeof(SafeDecimalConverter))]
+    public decimal Size { get; set; } 
 
-    public string Price { get; set; } = string.Empty;
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+    [JsonConverter(typeof(SafeDecimalConverter))]
+    public decimal Price { get; set; } 
 
-    public string Fee { get; set; } = string.Empty;
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+    [JsonConverter(typeof(SafeDecimalConverter))]
+    public decimal Fee { get; set; } 
 
     public string Currency { get; set; } = string.Empty;
 
-    public string Change { get; set; } = string.Empty;
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+    [JsonConverter(typeof(SafeDecimalConverter))]
+    public decimal Change { get; set; }
 
-    public string CashFlow { get; set; } = string.Empty;
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+    [JsonConverter(typeof(SafeDecimalConverter))]
+    public decimal CashFlow { get; set; }
 
     public string OrderId { get; set; } = string.Empty;
 

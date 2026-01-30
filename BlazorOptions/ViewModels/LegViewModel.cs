@@ -101,7 +101,7 @@ public sealed class LegViewModel : IDisposable
 
             CalculateLegTheoreticalProfit();
 
-            Changed?.Invoke(LegsCollectionUpdateKind.ChartDataChanged);
+            Changed?.Invoke(LegsCollectionUpdateKind.PricingContextUpdated);
         }
     }
 
@@ -126,7 +126,7 @@ public sealed class LegViewModel : IDisposable
                 CalculateLegTheoreticalProfit();
                 _ = RefreshSubscriptionAsync();
             }
-            Changed?.Invoke(LegsCollectionUpdateKind.ChartDataChanged);
+            Changed?.Invoke(LegsCollectionUpdateKind.PricingContextUpdated);
         }
     }
 
@@ -143,7 +143,7 @@ public sealed class LegViewModel : IDisposable
             _valuationDate = value;
 
             CalculateLegTheoreticalProfit();
-            Changed?.Invoke(LegsCollectionUpdateKind.ChartDataChanged);
+            Changed?.Invoke(LegsCollectionUpdateKind.PricingContextUpdated);
         }
     }
 
@@ -156,7 +156,7 @@ public sealed class LegViewModel : IDisposable
         }
 
         Leg.ImpliedVolatility = iv;
-        Changed?.Invoke(LegsCollectionUpdateKind.ChartDataChanged);
+        Changed?.Invoke(LegsCollectionUpdateKind.LegModelChanged);
     }
 
 
@@ -164,7 +164,7 @@ public sealed class LegViewModel : IDisposable
     {
         using var activity = _telemetryService.StartActivity("LegViewModel.UpdateIncluded");
         Leg.IsIncluded = include;
-        Changed?.Invoke(LegsCollectionUpdateKind.ChartDataChanged);
+        Changed?.Invoke(LegsCollectionUpdateKind.LegModelChanged);
     }
 
     public void UpdateLegTypeAsync(LegType type)
@@ -179,7 +179,7 @@ public sealed class LegViewModel : IDisposable
         ResetGreeks();
         SyncLegSymbol();
         RefreshExpDatesAndStrikes();
-        Changed?.Invoke(LegsCollectionUpdateKind.ChartDataChanged);
+        Changed?.Invoke(LegsCollectionUpdateKind.LegModelChanged);
     }
 
     public void UpdateLegStrikeAsync(decimal? strike)
@@ -193,7 +193,7 @@ public sealed class LegViewModel : IDisposable
         Leg.Strike = strike;
         ResetGreeks();
         SyncLegSymbol();
-        Changed?.Invoke(LegsCollectionUpdateKind.ChartDataChanged);
+        Changed?.Invoke(LegsCollectionUpdateKind.LegModelChanged);
     }
 
     public void UpdateLegSizeAsync(decimal size)
@@ -205,7 +205,7 @@ public sealed class LegViewModel : IDisposable
         }
 
         Leg.Size = size;
-        Changed?.Invoke(LegsCollectionUpdateKind.ChartDataChanged);
+        Changed?.Invoke(LegsCollectionUpdateKind.LegModelChanged);
     }
 
     public void UpdateLegExpirationAsync(DateTime? date)
@@ -225,7 +225,7 @@ public sealed class LegViewModel : IDisposable
         ResetGreeks();
         SyncLegSymbol();
         RefreshExpDatesAndStrikes();
-        Changed?.Invoke(LegsCollectionUpdateKind.ChartDataChanged);
+        Changed?.Invoke(LegsCollectionUpdateKind.LegModelChanged);
     }
 
     public async Task UpdateLegPriceAsync(decimal? price)
@@ -238,7 +238,7 @@ public sealed class LegViewModel : IDisposable
 
         Leg.Price = price;
 
-        Changed?.Invoke(LegsCollectionUpdateKind.ChartDataChanged);
+        Changed?.Invoke(LegsCollectionUpdateKind.LegModelChanged);
     }
 
     public async Task RemoveLegAsync()
@@ -300,7 +300,7 @@ public sealed class LegViewModel : IDisposable
 
         if (updated)
         {
-            Changed?.Invoke(LegsCollectionUpdateKind.ChartDataChanged);
+            Changed?.Invoke(LegsCollectionUpdateKind.LegModelChanged);
         }
 
         return updated;
@@ -359,7 +359,7 @@ public sealed class LegViewModel : IDisposable
 
         TempPnl = ResolveFuturesPnl(e.Price);
 
-        Changed?.Invoke(LegsCollectionUpdateKind.CardOnly);
+        Changed?.Invoke(LegsCollectionUpdateKind.ViewModelDataUpdated);
 
         return Task.CompletedTask;
     }
@@ -393,7 +393,7 @@ public sealed class LegViewModel : IDisposable
         TempPnl = ResolveOptionTempPnl(ticker.UnderlyingPrice);
 
 
-        Changed?.Invoke(LegsCollectionUpdateKind.CardOnly);
+        Changed?.Invoke(LegsCollectionUpdateKind.ViewModelDataUpdated);
     }
 
     private void SyncLegSymbol()

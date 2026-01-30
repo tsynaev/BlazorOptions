@@ -168,20 +168,20 @@ public class BybitTransactionService : BybitApiService
         var type = ReadString(entry, "type");
         var transSubType = ReadString(entry, "transSubType");
         var side = ReadString(entry, "side");
-        var funding = ReadString(entry, "funding");
+        var funding = ReadNullableDecimal(entry, "funding");
         var orderLinkId = ReadString(entry, "orderLinkId");
-        var bonusChange = ReadString(entry, "bonusChange");
-        var size = ReadString(entry, "size");
-        var cashBalance = ReadString(entry, "cashBalance");
+        var bonusChange = ReadNullableDecimal(entry, "bonusChange");
+        var size = ReadNullableDecimal(entry, "size");
+        var cashBalance = ReadNullableDecimal(entry, "cashBalance");
         var tradeId = ReadString(entry, "tradeId");
         var extraFees = ReadString(entry, "extraFees");
-        var feeRate = ReadString(entry, "feeRate");
-        var qty = ReadString(entry, "qty");
-        var price = ReadString(entry, "tradePrice");
-        var fee = ReadString(entry, "fee");
+        var feeRate = ReadNullableDecimal(entry, "feeRate");
+        var qty = ReadNullableDecimal(entry, "qty");
+        var price = ReadNullableDecimal(entry, "tradePrice");
+        var fee = ReadNullableDecimal(entry, "fee");
         var currency = ReadString(entry, "currency");
-        var change = ReadString(entry, "change");
-        var cashFlow = ReadString(entry, "cashFlow");
+        var change = ReadNullableDecimal(entry, "change");
+        var cashFlow = ReadNullableDecimal(entry, "cashFlow");
 
         var uniqueKey = BuildUniqueKey(entry, categoryFallback);
 
@@ -277,18 +277,18 @@ public class BybitTransactionService : BybitApiService
         var side = ReadString(primary, "side");
         var type = ReadString(primary, "type");
         var transSubType = ReadString(primary, "transSubType");
-        var funding = ReadString(primary, "funding");
+        var funding = ReadNullableDecimal(primary, "funding");
         var orderLinkId = ReadString(primary, "orderLinkId");
         var orderId = ReadString(primary, "orderId");
-        var bonusChange = ReadString(primary, "bonusChange");
-        var size = ReadString(primary, "size");
-        var cashBalance = ReadString(primary, "cashBalance");
+        var bonusChange = ReadNullableDecimal(primary, "bonusChange");
+        var size = ReadNullableDecimal(primary, "size");
+        var cashBalance = ReadNullableDecimal(primary, "cashBalance");
         var tradeId = ReadString(primary, "tradeId");
         var extraFees = ReadString(primary, "extraFees");
         var timestamp = ReadTimestamp(primary, "transactionTime");
         _ = ReadTimestamp(primary, "transactionTime");
         var tradePrice = ReadString(primary, "tradePrice");
-        var tradePriceValue = TryParseDecimal(tradePrice) ?? 0m;
+        var tradePriceValue = ReadNullableDecimal(primary, "tradePrice") ?? 0m;
 
         var currencies = entries
             .Select(entry => ReadString(entry, "currency"))
@@ -355,16 +355,16 @@ public class BybitTransactionService : BybitApiService
             Funding = funding,
             OrderLinkId = orderLinkId,
             OrderId = orderId,
-            Fee = FormatDecimal(feeTotal),
-            Change = string.Empty,
-            CashFlow = string.Empty,
-            FeeRate = ReadString(primary, "feeRate"),
+            Fee = feeTotal,
+            Change = null,
+            CashFlow = null,
+            FeeRate = ReadNullableDecimal(primary, "feeRate"),
             BonusChange = bonusChange,
             Size = size,
-            Qty = execQty,
+            Qty = baseQty,
             CashBalance = cashBalance,
             Currency = quote ?? string.Empty,
-            TradePrice = tradePrice,
+            TradePrice = tradePriceValue,
             TradeId = tradeId,
             ExtraFees = extraFees,
             Timestamp = timestamp,
@@ -464,6 +464,35 @@ public class BybitTransactionService : BybitApiService
         }
 
         return 0m;
+    }
+
+    private static decimal? ReadNullableDecimal(JsonElement element, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (!element.TryGetProperty(name, out var value)
+                || value.ValueKind == JsonValueKind.Null
+                || value.ValueKind == JsonValueKind.Undefined)
+            {
+                continue;
+            }
+
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetDecimal(out var number))
+            {
+                return number;
+            }
+
+            if (value.ValueKind == JsonValueKind.String)
+            {
+                var raw = value.GetString();
+                if (decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
+                {
+                    return parsed;
+                }
+            }
+        }
+
+        return null;
     }
 
     private static long? ReadLong(JsonElement element, params string[] names)

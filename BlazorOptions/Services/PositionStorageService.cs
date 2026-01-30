@@ -1,5 +1,6 @@
-using System.Text.Json;
+using BlazorOptions.Pages;
 using BlazorOptions.ViewModels;
+using System.Text.Json;
 
 namespace BlazorOptions.Services;
 
@@ -43,6 +44,22 @@ public class PositionStorageService
         return _localStorageService.SetItemAsync(StorageKey, payload).AsTask();
     }
 
+    public async Task SavePositionAsync(PositionModel position)
+    {
+        var positions = await LoadPositionsAsync();
+
+        var index = positions.FindIndex(x => x.Id == position.Id);
+
+        if (index >= 0)
+        {
+            positions[index] = position;
+        }
+
+        var payload = JsonSerializer.Serialize(positions, _serializerOptions);
+
+        await _localStorageService.SetItemAsync(StorageKey, payload);
+    }
+
     public async Task<IReadOnlyList<Guid>> LoadDeletedPositionsAsync()
     {
         var stored = await _localStorageService.GetItemAsync(DeletedKey);
@@ -83,10 +100,6 @@ public class PositionStorageService
         await SaveDeletedPositionsAsync(existing);
     }
 
-    public Task ClearDeletedPositionsAsync()
-    {
-        return _localStorageService.SetItemAsync(DeletedKey, string.Empty).AsTask();
-    }
 
     private Task SaveDeletedPositionsAsync(IEnumerable<Guid> positionIds)
     {

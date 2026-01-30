@@ -1,0 +1,80 @@
+@using BlazorOptions.ViewModels
+@using MudBlazor
+
+@code {
+    [Parameter, EditorRequired] public ClosedPositionViewModel ViewModel { get; set; } = default!;
+    [Parameter] public Func<string, DateTime?, Task>? OnOpenSymbolDialog { get; set; }
+
+    protected override void OnInitialized()
+    {
+        ViewModel.PropertyChanged += (_, _) => InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OpenSymbolAsync()
+    {
+        if (OnOpenSymbolDialog is null)
+        {
+            return;
+        }
+
+        await OnOpenSymbolDialog(ViewModel.Model.Symbol, ViewModel.Model.SinceDate);
+    }
+}
+
+<MudTd DataLabel="Since">
+    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+        <MudDatePicker Date="@ViewModel.Model.SinceDate"
+                       DateChanged="async value => await ViewModel.SetSinceDateAsync(value)"
+                       DateFormat="yyyy-MM-dd"
+                       Clearable="true"
+                       Variant="Variant.Outlined"
+                       Margin="Margin.Dense"
+                       Class="closed-positions-since-date" />
+        <MudTimePicker Time="@ViewModel.Model.SinceDate?.TimeOfDay"
+                       TimeChanged="async value => await ViewModel.SetSinceTimeAsync(value)"
+                       Clearable="true"
+                       Variant="Variant.Outlined"
+                       Margin="Margin.Dense"
+                       Class="closed-positions-since-time" />
+    </MudStack>
+</MudTd>
+<MudTd DataLabel="Symbol">
+    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+        @if (ViewModel.IsCalculating)
+        {
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" Color="Color.Primary" />
+        }
+        else
+        {
+            <MudIconButton Icon="@Icons.Material.Filled.Autorenew"
+                           Size="Size.Small"
+                           Color="Color.Default"
+                           OnClick="async () => await ViewModel.RecalculateAsync(true)" />
+        }
+        <MudLink OnClick="OpenSymbolAsync">
+            @ViewModel.Model.Symbol
+        </MudLink>
+    </MudStack>
+</MudTd>
+<MudTd DataLabel="Size">
+    <MudText Typo="Typo.body2">@ViewModel.Model.CloseQty.ToString("0.##")</MudText>
+</MudTd>
+<MudTd DataLabel="Avg. Entry Price">
+    <MudText Typo="Typo.body2">@ViewModel.Model.AvgEntryPrice.ToString("0.##")</MudText>
+</MudTd>
+<MudTd DataLabel="Avg. Close Price">
+    <MudText Typo="Typo.body2">@ViewModel.Model.AvgClosePrice.ToString("0.##")</MudText>
+</MudTd>
+<MudTd DataLabel="Close P&amp;L">
+    <MudText Typo="Typo.body2" Color="@(ViewModel.Model.Realized >= 0 ? Color.Success : Color.Error)">
+        @ViewModel.Model.Realized.ToString("0.##")
+    </MudText>
+</MudTd>
+<MudTd DataLabel="Fee">
+    <MudText Typo="Typo.body2">@ViewModel.Model.FeeTotal.ToString("0.##")</MudText>
+</MudTd>
+<MudTd DataLabel="Actions" Style="text-align:right;">
+    <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                   Color="Color.Error"
+                   OnClick="async () => await ViewModel.RemoveClosedPositionAsync()" />
+</MudTd>

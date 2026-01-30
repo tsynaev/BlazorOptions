@@ -15,6 +15,10 @@ The Trading History feature pulls and analyzes Bybit transaction logs, with pagi
 - As you scroll, the next 100 records are loaded incrementally.
 - Calculated fields are stored so reloading is fast.
 
+## Decimal parsing
+- Some provider values (for example, `change`) can exceed decimal range.
+- Trading history values are parsed with a safe decimal converter that falls back to `0` on overflow or invalid data to avoid UI crashes.
+
 ## Persistence and sync
 - Client keeps a local cache for offline access.
 - When authenticated, new trades are published as events to the server.
