@@ -41,6 +41,7 @@ public sealed class PositionViewModel : IDisposable
     private PositionModel _position;
     private readonly ITelemetryService _telemetryService;
     private bool _suppressSync;
+    private bool _suppressNotesPersist;
 
     public PositionViewModel(
         PositionBuilderViewModel positionBuilder,
@@ -71,6 +72,11 @@ public sealed class PositionViewModel : IDisposable
         get => _position;
         set
         {
+            if (_position is not null)
+            {
+                throw new InvalidOperationException("Position is already set.");
+            }
+
             _position = value;
             if (_position.Collections.Count == 0)
             {
@@ -92,7 +98,7 @@ public sealed class PositionViewModel : IDisposable
             ClosedPositions.Model.PropertyChanged += OnClosedPositionsChanged;
             ClosedPositions.UpdatedCompleted += OnClosedPositionsUpdated;
 
-
+            _position.PropertyChanged += HandlePositionPropertyChanged;
         }
     }
 
@@ -236,9 +242,12 @@ public sealed class PositionViewModel : IDisposable
 
     private async Task HandleCollectionUpdatedAsync(LegsCollectionUpdateKind updateKind)
     {
-        var updateChart = updateKind != LegsCollectionUpdateKind.ViewModelDataUpdated;
+        var updateChart = updateKind == LegsCollectionUpdateKind.LegModelChanged
+            || updateKind == LegsCollectionUpdateKind.PricingContextUpdated
+            || updateKind == LegsCollectionUpdateKind.CollectionChanged;
         var refreshTicker = updateKind == LegsCollectionUpdateKind.CollectionChanged;
         var persist = updateKind == LegsCollectionUpdateKind.LegModelChanged
+            || updateKind == LegsCollectionUpdateKind.LegModelDataChanged
             || updateKind == LegsCollectionUpdateKind.CollectionChanged;
 
 
@@ -276,6 +285,37 @@ public sealed class PositionViewModel : IDisposable
             }
 
             await _positionSyncService.NotifyLocalChangeAsync(positionToSync);
+        }
+    }
+
+    private void HandlePositionPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_suppressNotesPersist)
+        {
+            return;
+        }
+
+        if (e.PropertyName == nameof(PositionModel.Notes))
+        {
+            _ = PersistNotesAsync();
+        }
+    }
+
+    private async Task PersistNotesAsync()
+    {
+        if (Position is null)
+        {
+            return;
+        }
+
+        _suppressNotesPersist = true;
+        try
+        {
+            await _positionBuilder.QueuePersistPositionsAsync(Position);
+        }
+        finally
+        {
+            _suppressNotesPersist = false;
         }
     }
 
@@ -318,7 +358,6 @@ public sealed class PositionViewModel : IDisposable
             return;
         }
 
-        var updated = false;
         var collections = Collections;
         if (collections is null)
         {
@@ -329,19 +368,11 @@ public sealed class PositionViewModel : IDisposable
         {
             foreach (var legViewModel in collection.Legs)
             {
-                if (legViewModel.Update(position))
-                {
-                    updated = true;
-                }
+                legViewModel.Update(position);
             }
         }
-
-
-        if (updated)
-        {
-            _positionBuilder.QueueChartUpdate();
-        }
     }
+
 
     internal void SetSelectedPrice(decimal? price)
     {

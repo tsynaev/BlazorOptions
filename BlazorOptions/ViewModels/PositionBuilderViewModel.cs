@@ -178,44 +178,6 @@ public class PositionBuilderViewModel : IAsyncDisposable
         UpdateLegTickerSubscription();
     }
 
-    public async Task UpdateNotesAsync(PositionModel position, string notes)
-    {
-        if (position is null)
-        {
-            return;
-        }
-
-        var normalized = notes ?? string.Empty;
-        if (string.Equals(position.Notes, normalized, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        position.Notes = normalized;
-        await QueuePersistPositionsAsync(position);
-        NotifyStateChanged();
-    }
-
-    public async Task AddCollectionAsync()
-    {
-        if (SelectedPosition is null)
-        {
-            return;
-        }
-
-        await SelectedPosition.AddCollectionAsync();
-    }
-
-    public async Task DuplicateCollectionAsync()
-    {
-        if (SelectedPosition is null || SelectedPosition.Collections.Count == 0)
-        {
-            return;
-        }
-
-        var collection = SelectedPosition.Collections.First().Collection;
-        await SelectedPosition.DuplicateCollectionAsync(collection);
-    }
 
 
     public async Task UpdateCollectionVisibilityAsync(Guid collectionId, bool isVisible)

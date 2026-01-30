@@ -114,21 +114,22 @@ else
                         </MudStack>
                     </MudPaper>
                 </MudItem>
-                <MudItem xs="12" md="4">
-                    <MudPaper Class="notes-panel" Elevation="0">
-                        <MudText Typo="Typo.subtitle2">Notes</MudText>
-                        <MudTextField T="string"
-                                      Value="@ViewModel.SelectedPosition?.Position?.Notes"
-                                      ValueChanged="OnNotesChanged"
-                                      Immediate="true"
-                                      DebounceInterval="300"
-                                      Variant="Variant.Outlined"
-                                      Margin="Margin.Dense"
-                                      Lines="16"
-                                      FullWidth="true"
-                                      Placeholder="Write notes about this position..." />
-                    </MudPaper>
-                </MudItem>
+                @if (ViewModel.SelectedPosition != null)
+                {
+                    <MudItem xs="12" md="4">
+                        <MudPaper Class="notes-panel" Elevation="0">
+                            <MudText Typo="Typo.subtitle2">Notes</MudText>
+                            <MudTextField T="string"
+                                          @bind-Value="@ViewModel.SelectedPosition.Position.Notes"
+
+                                          Variant="Variant.Outlined"
+                                          Margin="Margin.Dense"
+                                          Lines="16"
+                                          FullWidth="true"
+                                          Placeholder="Write notes about this position..."/>
+                        </MudPaper>
+                    </MudItem>
+                }
             </MudGrid>
         </MudCardContent>
     </MudCard>
@@ -362,16 +363,7 @@ else
         return InvokeAsync(StateHasChanged);
     }
 
-    private Task OnNotesChanged(string? notes)
-    {
-        var position = ViewModel.SelectedPosition?.Position;
-        if (position is null)
-        {
-            return Task.CompletedTask;
-        }
 
-        return ViewModel.UpdateNotesAsync(position, notes ?? string.Empty);
-    }
 
     private Task HandleLegendSelectionChanged(LegendSelectionChangedEventArgs args)
     {
@@ -577,4 +569,5 @@ else
 
         UpdateUrl(ViewModel.Positions[0].Id);
     }
+
 }

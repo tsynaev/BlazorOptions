@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 namespace BlazorOptions.ViewModels;
 
 public enum LegType
@@ -8,27 +8,78 @@ public enum LegType
     Future
 }
 
-public class LegModel
+public class LegModel : Bindable
 {
-    public string Id { get; set; } = Guid.NewGuid().ToString();
+    private string _id = Guid.NewGuid().ToString();
+    private bool _isIncluded = true;
+    private bool _isReadOnly;
+    private LegType _type = LegType.Call;
+    private decimal? _strike;
+    private DateTime? _expirationDate;
+    private decimal _size = 1;
+    private decimal? _price;
+    private decimal? _impliedVolatility;
+    private string? _symbol;
 
-    public bool IsIncluded { get; set; } = true;
+    public string Id
+    {
+        get => _id;
+        set => SetField(ref _id, value);
+    }
 
-    public bool IsReadOnly { get; set; }
+    public bool IsIncluded
+    {
+        get => _isIncluded;
+        set => SetField(ref _isIncluded, value);
+    }
 
-    public LegType Type { get; set; } = LegType.Call;
+    public bool IsReadOnly
+    {
+        get => _isReadOnly;
+        set => SetField(ref _isReadOnly, value);
+    }
 
-    public decimal? Strike { get; set; } 
+    public LegType Type
+    {
+        get => _type;
+        set => SetField(ref _type, value);
+    }
 
-    public DateTime? ExpirationDate { get; set; }
+    public decimal? Strike
+    {
+        get => _strike;
+        set => SetField(ref _strike, value);
+    }
 
-    public decimal Size { get; set; } = 1;
+    public DateTime? ExpirationDate
+    {
+        get => _expirationDate;
+        set => SetField(ref _expirationDate, value);
+    }
 
-    public decimal? Price { get; set; }
+    public decimal Size
+    {
+        get => _size;
+        set => SetField(ref _size, value);
+    }
 
-    public decimal? ImpliedVolatility { get; set; }
+    public decimal? Price
+    {
+        get => _price;
+        set => SetField(ref _price, value);
+    }
 
-    public string? Symbol { get; set; }
+    public decimal? ImpliedVolatility
+    {
+        get => _impliedVolatility;
+        set => SetField(ref _impliedVolatility, value);
+    }
+
+    public string? Symbol
+    {
+        get => _symbol;
+        set => SetField(ref _symbol, value);
+    }
 
     public LegModel Clone()
     {
@@ -47,5 +98,3 @@ public class LegModel
         };
     }
 }
-
-

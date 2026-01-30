@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
@@ -24,6 +25,21 @@ public sealed class LegViewModel : IDisposable
     private List<DateTime?> _cachedExpirations = new List<DateTime?>();
     private IReadOnlyList<decimal> _cachedStrikes = Array.Empty<decimal>();
     private DateTime _valuationDate;
+    private bool _suppressLegNotifications;
+    private bool _pendingChartUpdate;
+    private bool _pendingDataUpdate;
+
+    // Keep chart updates tied only to leg fields that affect payoff calculations.
+    private static readonly HashSet<string> ChartRelevantLegProperties = new(StringComparer.Ordinal)
+    {
+        nameof(LegModel.IsIncluded),
+        nameof(LegModel.Type),
+        nameof(LegModel.Strike),
+        nameof(LegModel.ExpirationDate),
+        nameof(LegModel.Size),
+        nameof(LegModel.Price),
+        nameof(LegModel.ImpliedVolatility)
+    };
  
 
 
@@ -48,7 +64,13 @@ public sealed class LegViewModel : IDisposable
         get => _leg ?? throw new InvalidOperationException("Leg is not set.");
         set
         {
+            if (_leg is not null)
+            {
+                DetachLegModel(_leg);
+            }
+
             _leg = value;
+            AttachLegModel(_leg);
 
             RefreshExpDatesAndStrikes();
             _ = RefreshSubscriptionAsync();
@@ -155,16 +177,14 @@ public sealed class LegViewModel : IDisposable
             return;
         }
 
-        Leg.ImpliedVolatility = iv;
-        Changed?.Invoke(LegsCollectionUpdateKind.LegModelChanged);
+        RunLegUpdate(() => Leg.ImpliedVolatility = iv);
     }
 
 
     public void UpdateLegIncludedAsync(bool include)
     {
         using var activity = _telemetryService.StartActivity("LegViewModel.UpdateIncluded");
-        Leg.IsIncluded = include;
-        Changed?.Invoke(LegsCollectionUpdateKind.LegModelChanged);
+        RunLegUpdate(() => Leg.IsIncluded = include);
     }
 
     public void UpdateLegTypeAsync(LegType type)
@@ -175,11 +195,13 @@ public sealed class LegViewModel : IDisposable
             return;
         }
 
-        Leg.Type = type;
-        ResetGreeks();
-        SyncLegSymbol();
-        RefreshExpDatesAndStrikes();
-        Changed?.Invoke(LegsCollectionUpdateKind.LegModelChanged);
+        RunLegUpdate(() =>
+        {
+            Leg.Type = type;
+            ResetGreeks();
+            SyncLegSymbol();
+            RefreshExpDatesAndStrikes();
+        });
     }
 
     public void UpdateLegStrikeAsync(decimal? strike)
@@ -190,10 +212,12 @@ public sealed class LegViewModel : IDisposable
             return;
         }
 
-        Leg.Strike = strike;
-        ResetGreeks();
-        SyncLegSymbol();
-        Changed?.Invoke(LegsCollectionUpdateKind.LegModelChanged);
+        RunLegUpdate(() =>
+        {
+            Leg.Strike = strike;
+            ResetGreeks();
+            SyncLegSymbol();
+        });
     }
 
     public void UpdateLegSizeAsync(decimal size)
@@ -204,8 +228,7 @@ public sealed class LegViewModel : IDisposable
             return;
         }
 
-        Leg.Size = size;
-        Changed?.Invoke(LegsCollectionUpdateKind.LegModelChanged);
+        RunLegUpdate(() => Leg.Size = size);
     }
 
     public void UpdateLegExpirationAsync(DateTime? date)
@@ -217,15 +240,17 @@ public sealed class LegViewModel : IDisposable
             return;
         }
 
-        if (date.HasValue)
+        RunLegUpdate(() =>
         {
-            Leg.ExpirationDate = date.Value;
-        }
+            if (date.HasValue)
+            {
+                Leg.ExpirationDate = date.Value;
+            }
 
-        ResetGreeks();
-        SyncLegSymbol();
-        RefreshExpDatesAndStrikes();
-        Changed?.Invoke(LegsCollectionUpdateKind.LegModelChanged);
+            ResetGreeks();
+            SyncLegSymbol();
+            RefreshExpDatesAndStrikes();
+        });
     }
 
     public async Task UpdateLegPriceAsync(decimal? price)
@@ -236,9 +261,7 @@ public sealed class LegViewModel : IDisposable
             return;
         }
 
-        Leg.Price = price;
-
-        Changed?.Invoke(LegsCollectionUpdateKind.LegModelChanged);
+        RunLegUpdate(() => Leg.Price = price);
     }
 
     public async Task RemoveLegAsync()
@@ -253,7 +276,18 @@ public sealed class LegViewModel : IDisposable
 
     public void UpdateLeg(LegModel leg)
     {
+        if (ReferenceEquals(_leg, leg))
+        {
+            return;
+        }
+
+        if (_leg is not null)
+        {
+            DetachLegModel(_leg);
+        }
+
         _leg = leg;
+        AttachLegModel(_leg);
         ResetGreeks();
 
         _ = RefreshSubscriptionAsync();
@@ -280,39 +314,131 @@ public sealed class LegViewModel : IDisposable
         var updated = false;
         var signedSize = DetermineSignedSize(position);
 
-        if (Math.Abs(Leg.Size - signedSize) > 0.0001m)
+        _pendingChartUpdate = false;
+        _pendingDataUpdate = false;
+        _suppressLegNotifications = true;
+        try
         {
-            Leg.Size = signedSize;
-            updated = true;
+            if (Math.Abs(Leg.Size - signedSize) > 0.0001m)
+            {
+                Leg.Size = signedSize;
+                updated = true;
+            }
+
+            if (!Leg.Price.HasValue || Math.Abs(Leg.Price.Value - position.AvgPrice) > 0.0001m)
+            {
+                Leg.Price = position.AvgPrice;
+                updated = true;
+            }
+
+            if (string.IsNullOrWhiteSpace(Leg.Symbol))
+            {
+                Leg.Symbol = position.Symbol;
+                updated = true;
+            }
+        }
+        finally
+        {
+            _suppressLegNotifications = false;
         }
 
-        if (!Leg.Price.HasValue || Math.Abs(Leg.Price.Value - position.AvgPrice) > 0.0001m)
-        {
-            Leg.Price = position.AvgPrice;
-            updated = true;
-        }
-
-        if (string.IsNullOrWhiteSpace(Leg.Symbol))
-        {
-            Leg.Symbol = position.Symbol;
-            updated = true;
-        }
-
-        if (updated)
-        {
-            Changed?.Invoke(LegsCollectionUpdateKind.LegModelChanged);
-        }
+        FlushPendingLegNotifications(updated);
 
         return updated;
     }
 
     public void Dispose()
     {
+        if (_leg is not null)
+        {
+            DetachLegModel(_leg);
+        }
+
         _subscriptionRegistration?.Dispose();
     }
 
+    private void AttachLegModel(LegModel leg)
+    {
+        leg.PropertyChanged += HandleLegPropertyChanged;
+    }
 
-   
+    private void DetachLegModel(LegModel leg)
+    {
+        leg.PropertyChanged -= HandleLegPropertyChanged;
+    }
+
+    private void HandleLegPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        var isChartRelevant = IsChartRelevantProperty(e.PropertyName);
+        if (_suppressLegNotifications)
+        {
+            if (isChartRelevant)
+            {
+                _pendingChartUpdate = true;
+            }
+            else
+            {
+                _pendingDataUpdate = true;
+            }
+
+            return;
+        }
+
+        Changed?.Invoke(isChartRelevant
+            ? LegsCollectionUpdateKind.LegModelChanged
+            : LegsCollectionUpdateKind.LegModelDataChanged);
+    }
+
+    private static bool IsChartRelevantProperty(string? propertyName)
+    {
+        if (string.IsNullOrWhiteSpace(propertyName))
+        {
+            return true;
+        }
+
+        return ChartRelevantLegProperties.Contains(propertyName);
+    }
+
+    // Batch multiple leg property changes into a single collection update event.
+    private void RunLegUpdate(Action update)
+    {
+        _pendingChartUpdate = false;
+        _pendingDataUpdate = false;
+        _suppressLegNotifications = true;
+        try
+        {
+            update();
+        }
+        finally
+        {
+            _suppressLegNotifications = false;
+        }
+
+        FlushPendingLegNotifications(true);
+    }
+
+    private void FlushPendingLegNotifications(bool hasChanges)
+    {
+        if (!hasChanges)
+        {
+            _pendingChartUpdate = false;
+            _pendingDataUpdate = false;
+            return;
+        }
+
+        if (_pendingChartUpdate)
+        {
+            Changed?.Invoke(LegsCollectionUpdateKind.LegModelChanged);
+        }
+        else if (_pendingDataUpdate)
+        {
+            Changed?.Invoke(LegsCollectionUpdateKind.LegModelDataChanged);
+        }
+
+        _pendingChartUpdate = false;
+        _pendingDataUpdate = false;
+    }
+
     private async Task RefreshSubscriptionAsync()
     {
         using var activity = _telemetryService.StartActivity("LegViewModel.RefreshSubscription");

@@ -46,3 +46,5 @@ The Positions feature lets you build, manage, and visualize option strategies an
 ## UI updates
 - The legacy tabs were replaced with a borderless dropdown so selecting positions works on mobile and still keeps the URL in sync via `/positions/{positionId}` links.
 - Switching positions now updates the route, preserves the previously opened chart after a refresh, and shows an error alert with recovery actions when someone navigates to a nonexistent position ID.
+- Chart recalculation now runs only when a leg field used in charting changes (include/type/strike/expiry/size/price/IV); other leg edits persist without forcing a chart refresh.
+- Notes persist when the text field loses focus, instead of on every keystroke.
