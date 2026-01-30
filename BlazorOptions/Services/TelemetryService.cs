@@ -1,4 +1,4 @@
-using System;
+using BlazorOptions.Diagnostics;
 using System.Diagnostics;
 using System.Globalization;
 
@@ -11,16 +11,13 @@ public interface ITelemetryService
 
 public sealed class TelemetryService : ITelemetryService
 {
-    private const string ActivitySourceName = "BlazorOptions.Telemetry";
-    private readonly ActivitySource _activitySource;
     private readonly ActivityListener _listener;
 
     public TelemetryService()
     {
-        _activitySource = new(ActivitySourceName);
         _listener = new ActivityListener
         {
-            ShouldListenTo = source => string.Equals(source.Name, ActivitySourceName, StringComparison.Ordinal),
+            ShouldListenTo = source => string.Equals(source.Name, ActivitySources.Name, StringComparison.Ordinal),
             Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
             ActivityStopped = OnActivityStopped
         };
@@ -30,7 +27,7 @@ public sealed class TelemetryService : ITelemetryService
 
     public Activity? StartActivity(string name, ActivityKind kind = ActivityKind.Internal)
     {
-        return _activitySource.StartActivity(name, kind);
+        return ActivitySources.Telemetry.StartActivity(name, kind);
     }
 
     private static void OnActivityStopped(Activity activity)
