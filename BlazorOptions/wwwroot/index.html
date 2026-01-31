@@ -6,6 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BlazorOptions</title>
     <base href="/" />
+    <meta name="theme-color" content="#0b1f2a" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="apple-touch-icon" href="icon-192.png" />
     <link rel="stylesheet" href="css/app.css" />
     <link href="BlazorOptions.styles.css" rel="stylesheet" />
     <link rel="stylesheet" href="_content/MudBlazor/MudBlazor.min.css" />
@@ -30,6 +33,11 @@
 <script src="js/echarts-interop.js"></script>
 <script src="js/indexeddb-framework.js"></script>
 <script src="_framework/blazor.webassembly.js"></script>
+<script>
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/service-worker.js');
+    }
+</script>
 </body>
 
 </html>
