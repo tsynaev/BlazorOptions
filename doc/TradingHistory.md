@@ -21,6 +21,7 @@ The Trading History feature pulls and analyzes Bybit transaction logs, with pagi
 
 ## Persistence and sync
 - Client keeps a local cache for offline access.
+- Trading history now uses the `indexedDbFramework` (idb-based) helper for IndexedDB with range/index queries.
 - When authenticated, new trades are published as events to the server.
 - The server deduplicates trades by unique key to avoid duplicates from multiple devices.
 - Updates from other devices are delivered in real time via SignalR.

@@ -1,3 +1,4 @@
+using BlazorOptions.Diagnostics;
 using BlazorOptions.Services;
 using System.ComponentModel;
 
@@ -75,7 +76,9 @@ public sealed class ClosedPositionViewModel: Bindable
         Model.PropertyChanged += OnChanged;
         try
         {
-            using var activity = _telemetryService.StartActivity($"{nameof(ClosedPositionViewModel)}.{nameof(RecalculateAsync)}");
+
+            using var activity = ActivitySources.Telemetry.StartActivity($"{nameof(ClosedPositionViewModel)}.{nameof(RecalculateAsync)}");
+
             if (forceFull)
             {
                 Model.ResetCalculationCache();

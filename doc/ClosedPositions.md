@@ -15,3 +15,4 @@ Each closed position tracks:
 - cached calculation fields (size, averages, PnL, fees)
 
 On recalculation, only trades newer than the last processed timestamp are loaded, and the cached totals are updated incrementally.
+When the latest stored trade timestamp and ids match the cached snapshot, recalculation skips loading trades.
