@@ -67,7 +67,7 @@
 @code {
     [Parameter, EditorRequired] public ClosedPositionsViewModel ViewModel { get; set; } = default!;
 
-    [Inject] private IDialogService DialogService { get; set; } = default!;
+    [Inject] private INavigationService NavigationService { get; set; } = default!;
 
     private ClosedPositionsViewModel? _lastViewModel;
 
@@ -99,22 +99,8 @@
             return;
         }
 
-        var parameters = new DialogParameters
-        {
-            { nameof(TradingSymbolDialog.Symbol), symbol },
-            { nameof(TradingSymbolDialog.Category), string.Empty },
-            { nameof(TradingSymbolDialog.Trades), await ViewModel.GetTradesForSymbolAsync(symbol) },
-            { nameof(TradingSymbolDialog.RawJson), await ViewModel.GetRawJsonForSymbolAsync(symbol) },
-            { nameof(TradingSymbolDialog.SinceDateTime), sinceDate }
-        };
-
-        var options = new DialogOptions
-        {
-            MaxWidth = MaxWidth.ExtraLarge,
-            FullWidth = true
-        };
-
-        await DialogService.ShowAsync<TradingSymbolDialog>($"Trades for {symbol}", parameters, options);
+        await NavigationService.NavigateToAsync<TradingSymbolDialogViewModel>(viewModel =>
+            viewModel.LoadAsync(symbol, string.Empty, sinceDate));
     }
 }
 

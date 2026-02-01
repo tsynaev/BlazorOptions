@@ -1,18 +1,18 @@
-﻿using BlazorOptions.Services;
-using System.Collections.ObjectModel;
+using BlazorOptions.API.TradingHistory;
+using BlazorOptions.Services;
 
 namespace BlazorOptions.ViewModels;
 
 public sealed class ClosedPositionsViewModelFactory
 {
-    private readonly TradingHistoryStorageService _storageService;
+    private readonly ITradingHistoryPort _tradingHistoryPort;
     private readonly IExchangeService _exchangeService;
 
     public ClosedPositionsViewModelFactory(
-        TradingHistoryStorageService storageService,
+        ITradingHistoryPort tradingHistoryPort,
         IExchangeService exchangeService)
     {
-        _storageService = storageService;
+        _tradingHistoryPort = tradingHistoryPort;
         _exchangeService = exchangeService;
     }
 
@@ -20,7 +20,11 @@ public sealed class ClosedPositionsViewModelFactory
     {
 
         var viewModel =
-            new ClosedPositionsViewModel(positionBuilder, _storageService, telemetryService, _exchangeService);
+            new ClosedPositionsViewModel(
+                positionBuilder,
+                _tradingHistoryPort,
+                telemetryService,
+                _exchangeService);
 
         viewModel.Model = position.Closed;
 

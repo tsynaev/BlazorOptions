@@ -1,4 +1,4 @@
-# Sync & Events (Universal)
+Ôªø# Sync & Events (Universal)
 
 This document describes the universal sync pipeline used by all modules (Positions, Trading History, Settings, etc.).
 
@@ -9,7 +9,7 @@ This document describes the universal sync pipeline used by all modules (Positio
 - Changes from one device are broadcast to others in real time.
 
 ## High?level architecture
-- **Client outbox**: local append?only queue (IndexedDB) of events produced by UI actions.
+- **Client outbox**: local append?only queue of events produced by UI actions.
 - **SignalR hub**: bi?directional, real?time transport for sending/receiving events.
 - **Server event stream**: append?only log per user (SQLite).
 - **Conflict handling**: server deduplicates and applies events deterministically.
@@ -34,12 +34,12 @@ This document describes the universal sync pipeline used by all modules (Positio
 1) Server receives a batch of events.
 2) Each event is inserted into the **event stream** (append?only).
 3) If `EventId` already exists, the event is ignored (idempotent).
-4) Server applies the event to the userís persisted state.
+4) Server applies the event to the user‚Äôs persisted state.
 5) Accepted events are broadcast to other devices in the same user group.
 
 ## Conflict resolution (examples)
 - **Trades**: `trade.added` is deduplicated by `UniqueKey` (trade saved only once).
-- **Positions**: `position.snapshot` is treated as ìlatest?winsî using `OccurredUtc`.
+- **Positions**: `position.snapshot` is treated as ‚Äúlatest?wins‚Äù using `OccurredUtc`.
 
 ## Real?time updates
 - When device A sends an event, the server publishes it to device B via SignalR.
@@ -60,3 +60,4 @@ This document describes the universal sync pipeline used by all modules (Positio
 - Apply event on server in `UserDataStore`.
 - Broadcast to other devices via SignalR.
 - Add local apply logic on the client.
+

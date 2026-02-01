@@ -34,8 +34,10 @@ public sealed class TelemetryService : ITelemetryService
     {
         var depth = GetDepth(activity);
         var indent = depth == 0 ? string.Empty : new string(' ', depth * 2);
-        var elapsed = activity.Duration.TotalMilliseconds.ToString("0.##", CultureInfo.InvariantCulture);
-        Console.WriteLine($"{indent}{activity.DisplayName} => {elapsed}ms");
+        var tags = BuildTags(activity);
+        var tagSuffix = string.IsNullOrWhiteSpace(tags) ? string.Empty : $" [{tags}]";
+
+        Console.WriteLine($"{activity.StartTimeUtc.ToLocalTime():HH:mm:ms} ({activity.Duration}) {indent} => {activity.DisplayName}{tagSuffix}");
     }
 
     private static int GetDepth(Activity activity)
@@ -49,5 +51,32 @@ public sealed class TelemetryService : ITelemetryService
         }
 
         return depth;
+    }
+
+    private static string BuildTags(Activity activity)
+    {
+        if (activity.TagObjects is null)
+        {
+            return string.Empty;
+        }
+
+        var parts = new List<string>();
+        foreach (var tag in activity.TagObjects)
+        {
+            if (string.IsNullOrWhiteSpace(tag.Key))
+            {
+                continue;
+            }
+
+            var value = tag.Value is null ? string.Empty : Convert.ToString(tag.Value, CultureInfo.InvariantCulture);
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            parts.Add($"{tag.Key}={value}");
+        }
+
+        return string.Join(", ", parts);
     }
 }

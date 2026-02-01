@@ -1,4 +1,6 @@
 using BlazorOptions;
+using BlazorOptions.API.TradingHistory;
+using BlazorOptions.Shared;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using Microsoft.Extensions.Options;
@@ -33,7 +35,8 @@ builder.Services.AddScoped<PositionSyncService>();
 builder.Services.AddScoped<BybitPositionService>();
 builder.Services.AddScoped<ActivePositionsService>();
 builder.Services.AddScoped<BybitTransactionService>();
-builder.Services.AddScoped<TradingHistoryStorageService>();
+builder.Services.AddScoped<TradingHistoryPort>();
+builder.Services.AddScoped<ITradingHistoryPort>(sp => sp.GetRequiredService<TradingHistoryPort>());
 builder.Services.AddScoped<ExchangeTickerService>();
 builder.Services.AddSingleton<IExchangeService, ExchangeService>();
 builder.Services.AddScoped<IExchangeTickerClient, BybitTickerClient>();
@@ -53,6 +56,7 @@ builder.Services.AddTransient<ActivePositionsPanelViewModel>();
 builder.Services.AddTransient<OptionChainDialogViewModel>();
 builder.Services.AddTransient<PortfolioSettingsDialogViewModel>();
 builder.Services.AddScoped<TradingHistoryViewModel>();
+builder.Services.AddDialog<TradingSymbolDialog, TradingSymbolDialogViewModel>();
 builder.Services.AddMudServices();
 
 await builder.Build().RunAsync();

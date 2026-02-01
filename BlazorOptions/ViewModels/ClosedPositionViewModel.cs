@@ -1,41 +1,39 @@
+using System.ComponentModel;
+using BlazorOptions.API.TradingHistory;
 using BlazorOptions.Diagnostics;
 using BlazorOptions.Services;
-using System.ComponentModel;
 
 namespace BlazorOptions.ViewModels;
 
-public sealed class ClosedPositionViewModel: Bindable
+public sealed class ClosedPositionViewModel : Bindable
 {
-    private readonly TradingHistoryStorageService _storageService;
+    private readonly ITradingHistoryPort _tradingHistoryPort;
     private readonly ITelemetryService _telemetryService;
     private readonly IExchangeService _exchangeService;
     private readonly int _defaultLookbackDays = 180;
     private bool _isCalculating;
 
-    
     public Func<ClosedPositionViewModel, Task>? Removed;
     public Func<Task>? UpdateCompleted;
 
-
     private ClosedPositionModel _model;
 
-
     public ClosedPositionViewModel(
-        TradingHistoryStorageService storageService,
+        ITradingHistoryPort tradingHistoryPort,
         ITelemetryService telemetryService,
         IExchangeService exchangeService
        )
     {
-        _storageService = storageService;
+        _tradingHistoryPort = tradingHistoryPort;
         _telemetryService = telemetryService;
         _exchangeService = exchangeService;
        
     }
 
-    public ClosedPositionModel Model    
+    public ClosedPositionModel Model
     {
         get => _model;
-        init 
+        init
         {
             if (Equals(value, _model))
             {
@@ -70,40 +68,59 @@ public sealed class ClosedPositionViewModel: Bindable
         IsCalculating = true;
         bool changed = false;
 
-
         void OnChanged(object? sender, PropertyChangedEventArgs args) => changed = true;
 
         Model.PropertyChanged += OnChanged;
         try
         {
-
             using var activity = ActivitySources.Telemetry.StartActivity($"{nameof(ClosedPositionViewModel)}.{nameof(RecalculateAsync)}");
+            activity?.AddTag("Symbol", Model.Symbol);
 
             if (forceFull)
             {
                 Model.ResetCalculationCache();
             }
 
+            if (!forceFull && Model.LastProcessedTimestamp.HasValue)
+            {
+                var latestMeta = await _tradingHistoryPort.LoadLatestBySymbolMetaAsync(Model.Symbol, null);
+                if (latestMeta.Timestamp.HasValue && latestMeta.Timestamp.Value <= Model.LastProcessedTimestamp.Value)
+                {
+                    if (latestMeta.Timestamp.Value < Model.LastProcessedTimestamp.Value)
+                    {
+                        return;
+                    }
+
+                    var lastIds = Model.LastProcessedIdsAtTimestamp ?? new List<string>();
+                    if (latestMeta.Ids.Count == 0 || latestMeta.Ids.All(lastIds.Contains))
+                    {
+                        return;
+                    }
+                }
+            }
+
             var sinceTimestamp = ResolveSinceTimestamp(forceFull);
-            IReadOnlyList<TradingHistoryEntry> entries = sinceTimestamp.HasValue
-                ? await _storageService.LoadBySymbolSummarySinceAsync(Model.Symbol, sinceTimestamp.Value)
-                : await _storageService.LoadBySymbolSummaryAsync(Model.Symbol);
+            IReadOnlyList<TradingHistoryEntry> entries = await _tradingHistoryPort.LoadBySymbolAsync(
+                Model.Symbol,
+                null,
+                sinceTimestamp);
 
             ApplyEntries(entries, forceFull);
+            
         }
         finally
         {
             Model.PropertyChanged -= OnChanged;
             IsCalculating = false;
-            if (changed) await RaiseUpdateCompleted();
+            if (changed)
+            {
+                await RaiseUpdateCompleted();
+            }
         }
     }
 
-
-
     public async Task SetSinceDateAsync(DateTime? sinceDate)
     {
-
         if (Model.SinceDate == sinceDate)
         {
             return;
@@ -117,7 +134,6 @@ public sealed class ClosedPositionViewModel: Bindable
 
     public Task SetSinceTimeAsync(TimeSpan? timePart)
     {
-
         var datePart = Model.SinceDate?.Date;
         if (!datePart.HasValue && timePart.HasValue)
         {
@@ -134,7 +150,6 @@ public sealed class ClosedPositionViewModel: Bindable
         {
             await UpdateCompleted.Invoke();
         }
-        
     }
 
     private void ApplyEntries(IReadOnlyList<TradingHistoryEntry> entries, bool forceFull)
@@ -347,11 +362,9 @@ public sealed class ClosedPositionViewModel: Bindable
 
     public async Task RemoveClosedPositionAsync()
     {
-
         if (Removed != null)
         {
             await Removed.Invoke(this);
         }
     }
-
 }

@@ -11,6 +11,14 @@
 - Use ECharts for chart rendering.
 - Register new services or view models with dependency injection in `Program.cs`.
 
+## Coding
+
+- Write production-ready code with clear, concise comments.
+- Each comment should briefly explain why a specific solution or decision was chosen (not what the code does).
+- Keep comments short, consistent in style, and avoid redundancy.
+- Use SOLID principles in code.
+
+
 ## Task completion
 - Run `dotnet build --no-restore` before completing the task.
 - fix errors and warnings (if possible)

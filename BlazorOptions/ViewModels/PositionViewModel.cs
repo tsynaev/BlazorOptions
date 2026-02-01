@@ -35,7 +35,7 @@ public sealed class PositionViewModel : IDisposable
     private DateTime _valuationDate = DateTime.UtcNow;
     private decimal? _selectedPrice;
     private decimal? _livePrice;
-    private bool _isLive = true;
+    private bool _isLive = false;
     private IDisposable? _tickerSubscription;
     private string? _currentSymbol;
     private PositionModel _position;

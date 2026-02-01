@@ -1,5 +1,5 @@
-﻿using System.Collections.ObjectModel;
-using System.Text.Json;
+using System.Collections.ObjectModel;
+using BlazorOptions.API.TradingHistory;
 using BlazorOptions.Services;
 using Microsoft.AspNetCore.Components.Web;
 
@@ -9,7 +9,7 @@ public sealed class ClosedPositionsViewModel: Bindable
 {
 
     private readonly PositionBuilderViewModel _positionBuilder;
-    private readonly TradingHistoryStorageService _storageService;
+    private readonly ITradingHistoryPort _tradingHistoryPort;
     private readonly ITelemetryService _telemetryService;
     private readonly IExchangeService _exchangeService;
     private bool _isInitialized;
@@ -22,12 +22,12 @@ public sealed class ClosedPositionsViewModel: Bindable
 
     public ClosedPositionsViewModel(
         PositionBuilderViewModel positionBuilder,
-        TradingHistoryStorageService storageService,
+        ITradingHistoryPort tradingHistoryPort,
         ITelemetryService telemetryService,
         IExchangeService exchangeService)
     {
         _positionBuilder = positionBuilder;
-        _storageService = storageService;
+        _tradingHistoryPort = tradingHistoryPort;
         _telemetryService = telemetryService;
         _exchangeService = exchangeService;
     }
@@ -182,7 +182,7 @@ public sealed class ClosedPositionsViewModel: Bindable
     internal ClosedPositionViewModel CreatePositionViewModel(ClosedPositionModel model)
     {
         var closedPosition =
-            new ClosedPositionViewModel(_storageService, _telemetryService, _exchangeService)
+            new ClosedPositionViewModel(_tradingHistoryPort, _telemetryService, _exchangeService)
             {
                 Model = model
             };
@@ -228,65 +228,6 @@ public sealed class ClosedPositionsViewModel: Bindable
         Model.TotalClosePnl = ClosedPositions.Sum(item => item.Model.Realized);
         Model.TotalFee = ClosedPositions.Sum(item => item.Model.FeeTotal); 
     }
-
-    public async Task<IReadOnlyList<TradingHistoryEntry>> GetTradesForSymbolAsync(string symbol)
-    {
-        if (string.IsNullOrWhiteSpace(symbol))
-        {
-            return [];
-        }
-
-        var entries = await _storageService.LoadBySymbolAsync(symbol);
-        return TradingHistoryViewModel.RecalculateForSymbol(entries);
-    }
-
-    public async Task<string> GetRawJsonForSymbolAsync(string symbol)
-    {
-        if (string.IsNullOrWhiteSpace(symbol))
-        {
-            return string.Empty;
-        }
-
-        var entries = await _storageService.LoadBySymbolAsync(symbol);
-        if (entries.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        var payload = new List<JsonElement>();
-        foreach (var entry in entries)
-        {
-            if (string.IsNullOrWhiteSpace(entry.RawJson))
-            {
-                continue;
-            }
-
-            using var doc = JsonDocument.Parse(entry.RawJson);
-            var root = doc.RootElement;
-
-            if (root.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var item in root.EnumerateArray())
-                {
-                    payload.Add(item.Clone());
-                }
-            }
-            else if (root.ValueKind == JsonValueKind.Object)
-            {
-                payload.Add(root.Clone());
-            }
-        }
-
-        if (payload.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        var options = new JsonSerializerOptions { WriteIndented = true };
-        return JsonSerializer.Serialize(payload, options);
-    }
-
-
 
     private async Task RecalculateAllAsync(bool forceFull)
     {

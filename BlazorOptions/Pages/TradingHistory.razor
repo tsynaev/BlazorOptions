@@ -3,7 +3,7 @@
 @using BlazorOptions.Shared
 @using System.Globalization
 @inject TradingHistoryViewModel ViewModel
-@inject IDialogService DialogService
+@inject INavigationService NavigationService
 
 <PageTitle>Trading history</PageTitle>
 
@@ -74,12 +74,6 @@
                 <MudPaper Class="pa-6" Elevation="1">
                     <MudStack Spacing="2">
                         <MudText Typo="Typo.h6">Recent transactions</MudText>
-                        @if (ViewModel.TotalTransactionsCount == 0)
-                        {
-                            <MudText Typo="Typo.body2">No transactions loaded yet.</MudText>
-                        }
-                        else
-                        {
                             <MudDataGrid T="TradingHistoryEntry"
                                          @key="_gridVersion"
                                          VirtualizeServerData="ServerDataFunc"
@@ -126,8 +120,8 @@
                                     </TemplateColumn>
                                     <PropertyColumn Property="x => x.Calculated.SizeAfter" Title="Size after" />
                                     <PropertyColumn Property="x => x.Calculated.AvgPriceAfter" Title="Avg price after" />
-                                    <PropertyColumn Property="x => x.Calculated.RealizedPnl" Title="Realized PnL" />
-                                    <PropertyColumn Property="x => x.Calculated.CumulativePnl" Title="Cumulative PnL" />
+                                    <PropertyColumn Property="x => x.Calculated.RealizedPnl" Format="0.00" Title="Realized PnL" />
+                                    <PropertyColumn Property="x => x.Calculated.CumulativePnl" Format="0.00" Title="Cumulative PnL" />
                                 </Columns>
                                 <RowLoadingContent>
                                     <tr class="mud-table-row">
@@ -137,7 +131,6 @@
                                     </tr>
                                 </RowLoadingContent>
                             </MudDataGrid>
-                        }
                     </MudStack>
                 </MudPaper>
             </MudStack>
@@ -264,14 +257,16 @@
     {
         return ViewModel.SetRegistrationDateAsync(date);
     }
-    
+
     private async Task<GridData<TradingHistoryEntry>> ServerDataFunc(
         GridStateVirtualize<TradingHistoryEntry> state,
         CancellationToken cancellationToken)
     {
-        await ViewModel.EnsureRangeAsync(state.StartIndex, state.Count);
-        var items = ViewModel.GetRange(state.StartIndex, state.Count);
-        return new GridData<TradingHistoryEntry> { Items = items, TotalItems = ViewModel.TotalTransactionsCount };
+        int pageSize = state.Count;
+        if (pageSize <= 0) pageSize = 50;
+
+        var result = await ViewModel.LoadEntriesAsync(state.StartIndex, pageSize);
+        return new GridData<TradingHistoryEntry> { Items = result.Entries, TotalItems = result.TotalEntries };
     }
 
     private async Task OpenSymbolDialogAsync(string symbol, string? category = null)
@@ -281,21 +276,8 @@
             return;
         }
 
-        var parameters = new DialogParameters
-        {
-            { nameof(TradingSymbolDialog.Symbol), symbol },
-            { nameof(TradingSymbolDialog.Category), category ?? string.Empty },
-            { nameof(TradingSymbolDialog.Trades), await ViewModel.GetTradesForSymbolAsync(symbol, category) },
-            { nameof(TradingSymbolDialog.RawJson), await ViewModel.GetRawJsonForSymbolAsync(symbol, category) }
-        };
-
-        var options = new DialogOptions
-        {
-            MaxWidth = MaxWidth.ExtraLarge,
-            FullWidth = true
-        };
-
-        await DialogService.ShowAsync<TradingSymbolDialog>($"Trades for {symbol}", parameters, options);
+        await NavigationService.NavigateToAsync<TradingSymbolDialogViewModel>(viewModel =>
+            viewModel.LoadAsync(symbol, category, null));
     }
 
     private void HandleViewModelChanged()

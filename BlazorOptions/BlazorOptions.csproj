@@ -14,4 +14,8 @@
     <PackageReference Include="MudBlazor" Version="8.15.0" />
    </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\BlazorOptions.API\BlazorOptions.API.csproj" />
+  </ItemGroup>
+
 </Project>
