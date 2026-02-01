@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\BlazorOptions.API\BlazorOptions.API.csproj" />
+    <ProjectReference Include="..\BlazorOptions.Frontend\BlazorOptions.Frontend.csproj" />
   </ItemGroup>
 
 </Project>

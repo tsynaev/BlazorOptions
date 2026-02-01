@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using BlazorOptions.Services;
-using Microsoft.AspNetCore.Components.Web;
 
 namespace BlazorOptions.ViewModels;
 
@@ -41,9 +40,9 @@ public sealed class QuickAddViewModel
 
  
 
-    public async Task OnQuickLegKeyDown(KeyboardEventArgs args)
+    public async Task OnQuickLegKeyDown(string key)
     {
-        if (args.Key == "Enter")
+        if (string.Equals(key, "Enter", StringComparison.Ordinal))
         {
             await AddQuickLegAsync();
         }

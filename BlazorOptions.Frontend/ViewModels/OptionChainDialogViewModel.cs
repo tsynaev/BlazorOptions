@@ -7,7 +7,7 @@ public class OptionChainDialogViewModel : IDisposable
 {
     private const string StrikeWindowKey = "optionChainDialog:strikeWindow";
     private readonly OptionsChainService _optionsChainService;
-    private readonly LocalStorageService _localStorageService;
+    private readonly ILocalStorageService _localStorageService;
     private PositionModel? _position;
     private List<OptionChainTicker> _chainTickers = new();
     private string? _baseAsset;
@@ -18,7 +18,7 @@ public class OptionChainDialogViewModel : IDisposable
     private readonly Dictionary<string, IDisposable> _tickerSubscriptions = new(StringComparer.OrdinalIgnoreCase);
     private int _strikeWindowSize = 10;
 
-    public OptionChainDialogViewModel(OptionsChainService optionsChainService, LocalStorageService localStorageService)
+    public OptionChainDialogViewModel(OptionsChainService optionsChainService, ILocalStorageService localStorageService)
     {
         _optionsChainService = optionsChainService;
         _localStorageService = localStorageService;

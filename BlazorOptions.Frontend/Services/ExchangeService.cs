@@ -5,7 +5,7 @@ namespace BlazorOptions.Services;
 
 public interface IExchangeService
 {
-    string? FormatSymbol(LegModel leg, string? baseAsset = null, string settleAsset = null);
+    string? FormatSymbol(LegModel leg, string? baseAsset = null, string? settleAsset = null);
     bool TryParseSymbol(string symbol, out string baseAsset, out DateTime expiration, out decimal strike, out LegType type);
     bool TryCreateLeg(string symbol, decimal size, out LegModel leg);
 }
@@ -14,7 +14,7 @@ public sealed class ExchangeService : IExchangeService
 {
     private static readonly string[] ExpirationFormats = { "dMMMyy", "ddMMMyy", "ddMMMyyyy" };
 
-    public string? FormatSymbol(LegModel leg, string? baseAsset = null, string settleAsset = null)
+    public string? FormatSymbol(LegModel leg, string? baseAsset = null, string? settleAsset = null)
     {
         if (leg is null)
         {

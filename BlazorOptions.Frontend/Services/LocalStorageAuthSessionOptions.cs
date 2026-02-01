@@ -4,11 +4,11 @@ namespace BlazorOptions.Services;
 
 public sealed class LocalStorageAuthSessionOptions : IOptions<AuthSessionState>
 {
-    private readonly LocalStorageService _localStorageService;
+    private readonly ILocalStorageService _localStorageService;
     private readonly AuthSessionOptions _options;
 
     public LocalStorageAuthSessionOptions(
-        LocalStorageService localStorageService,
+        ILocalStorageService localStorageService,
         IOptions<AuthSessionOptions> options)
     {
         _localStorageService = localStorageService;

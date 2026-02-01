@@ -1,5 +1,4 @@
 using BlazorOptions.Services;
-using Microsoft.AspNetCore.Components.Web;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Text.RegularExpressions;
@@ -196,10 +195,10 @@ public sealed class LegsCollectionViewModel : IDisposable
         await QuickAdd.AddQuickLegAsync();
     }
 
-    public Task OnQuickLegKeyDown(KeyboardEventArgs args)
+    public Task OnQuickLegKeyDown(string key)
     {
         SyncQuickAddPrice();
-        return QuickAdd.OnQuickLegKeyDown(args);
+        return QuickAdd.OnQuickLegKeyDown(key);
     }
 
     public async Task DuplicateCollectionAsync()

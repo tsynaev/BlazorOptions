@@ -2,13 +2,13 @@ namespace BlazorOptions.Services;
 
 public class AuthSessionService
 {
-    private readonly LocalStorageService _localStorageService;
+    private readonly ILocalStorageService _localStorageService;
     private readonly AuthSessionOptions _options;
     private readonly Microsoft.Extensions.Options.IOptions<AuthSessionState> _stateOptions;
     private bool _initialized;
 
     public AuthSessionService(
-        LocalStorageService localStorageService,
+        ILocalStorageService localStorageService,
         Microsoft.Extensions.Options.IOptions<AuthSessionOptions> options,
         Microsoft.Extensions.Options.IOptions<AuthSessionState> stateOptions)
     {

@@ -1,7 +1,6 @@
 using System.Collections.ObjectModel;
 using BlazorOptions.API.TradingHistory;
 using BlazorOptions.Services;
-using Microsoft.AspNetCore.Components.Web;
 
 namespace BlazorOptions.ViewModels;
 
@@ -120,9 +119,9 @@ public sealed class ClosedPositionsViewModel: Bindable
         return Task.CompletedTask;
     }
 
-    public async Task OnAddSymbolKeyDown(KeyboardEventArgs args)
+    public async Task OnAddSymbolKeyDown(string key, bool ctrlKey, bool metaKey)
     {
-        if (args.Key == "Enter" && (args.CtrlKey || args.MetaKey))
+        if (string.Equals(key, "Enter", StringComparison.Ordinal) && (ctrlKey || metaKey))
         {
             await AddSymbolAsync();
         }

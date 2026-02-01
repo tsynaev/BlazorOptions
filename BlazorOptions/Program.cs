@@ -26,7 +26,7 @@ builder.Services.AddScoped(sp => sp.GetRequiredService<IHttpClientFactory>().Cre
 builder.Services.AddSingleton<BlackScholes>();
 builder.Services.AddSingleton<ITelemetryService, TelemetryService>();
 builder.Services.AddSingleton<OptionsService>();
-builder.Services.AddScoped<LocalStorageService>();
+builder.Services.AddScoped<ILocalStorageService, LocalStorageService>();
 builder.Services.AddScoped<DeviceIdentityService>();
 builder.Services.Configure<AuthSessionOptions>(builder.Configuration.GetSection(AuthSessionOptions.SectionName));
 builder.Services.AddScoped<LocalStorageAuthSessionOptions>();
@@ -46,6 +46,7 @@ builder.Services.AddScoped<IExchangeTickerClient, BybitTickerClient>();
 builder.Services.AddScoped<OptionsChainService>();
 builder.Services.AddScoped<IOptions<BybitSettings>, LocalStorageBybitSettingsOptions>();
 builder.Services.AddSingleton<ThemeService>();
+builder.Services.AddSingleton<IThemeService>(sp => sp.GetRequiredService<ThemeService>());
 builder.Services.AddScoped<MainLayoutViewModel>();
 builder.Services.AddTransient<AccountSettingsViewModel>();
 builder.Services.AddTransient<BybitSettingsViewModel>();

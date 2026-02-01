@@ -3,10 +3,10 @@ namespace BlazorOptions.Services;
 public class DeviceIdentityService
 {
     private const string DeviceKey = "blazor-options-device-id";
-    private readonly LocalStorageService _localStorageService;
+    private readonly ILocalStorageService _localStorageService;
     private string? _deviceId;
 
-    public DeviceIdentityService(LocalStorageService localStorageService)
+    public DeviceIdentityService(ILocalStorageService localStorageService)
     {
         _localStorageService = localStorageService;
     }

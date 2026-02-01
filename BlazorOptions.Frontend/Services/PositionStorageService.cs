@@ -1,4 +1,3 @@
-using BlazorOptions.Pages;
 using BlazorOptions.ViewModels;
 using System.Text.Json;
 
@@ -8,13 +7,13 @@ public class PositionStorageService
 {
     private const string StorageKey = "blazor-options-positions";
     private const string DeletedKey = "blazor-options-positions-deleted";
-    private readonly LocalStorageService _localStorageService;
+    private readonly ILocalStorageService _localStorageService;
     private readonly JsonSerializerOptions _serializerOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    public PositionStorageService(LocalStorageService localStorageService)
+    public PositionStorageService(ILocalStorageService localStorageService)
     {
         _localStorageService = localStorageService;
     }

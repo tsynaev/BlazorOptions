@@ -30,7 +30,7 @@
                                   Variant="Variant.Outlined"
                                   Margin="Margin.Dense"
                                   Immediate="true"
-                                  OnKeyDown="ViewModel.OnAddSymbolKeyDown"
+                                  OnKeyDown="HandleAddSymbolKeyDown"
                                   Lines="4"
                                   Class="closed-positions-symbol-input" />
                     <MudButton Variant="Variant.Filled"
@@ -89,6 +89,11 @@
     {
         ViewModel.PropertyChanged += (_, _) => InvokeAsync(StateHasChanged);
         ViewModel.ClosedPositions.CollectionChanged += (_, _) => InvokeAsync(StateHasChanged);
+    }
+
+    private Task HandleAddSymbolKeyDown(KeyboardEventArgs args)
+    {
+        return ViewModel.OnAddSymbolKeyDown(args.Key, args.CtrlKey, args.MetaKey);
     }
 
 

@@ -16,7 +16,7 @@ public sealed class ActivePositionsService : IAsyncDisposable
     private static readonly TimeSpan ReconnectDelay = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(20);
 
-    private readonly LocalStorageService _localStorageService;
+    private readonly ILocalStorageService _localStorageService;
     private readonly BybitPositionService _bybitPositionService;
     private readonly IOptions<BybitSettings> _bybitSettingsOptions;
     private readonly JsonSerializerOptions _serializerOptions = new(JsonSerializerDefaults.Web);
@@ -34,7 +34,7 @@ public sealed class ActivePositionsService : IAsyncDisposable
  
 
     public ActivePositionsService(
-        LocalStorageService localStorageService,
+        ILocalStorageService localStorageService,
         BybitPositionService bybitPositionService,
         IOptions<BybitSettings> bybitSettingsOptions)
     {

@@ -4,12 +4,12 @@ namespace BlazorOptions.ViewModels;
 
 public class AccountSettingsViewModel : IDisposable
 {
-    private readonly ThemeService _themeService;
+    private readonly IThemeService _themeService;
     private readonly AuthApiService _authApiService;
     private readonly AuthSessionService _sessionService;
 
     public AccountSettingsViewModel(
-        ThemeService themeService,
+        IThemeService themeService,
         AuthApiService authApiService,
         AuthSessionService sessionService)
     {

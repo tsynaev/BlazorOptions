@@ -5,9 +5,9 @@ namespace BlazorOptions.Services;
 
 public sealed class LocalStorageBybitSettingsOptions : IOptions<BybitSettings>
 {
-    private readonly LocalStorageService _localStorageService;
+    private readonly ILocalStorageService _localStorageService;
 
-    public LocalStorageBybitSettingsOptions(LocalStorageService localStorageService)
+    public LocalStorageBybitSettingsOptions(ILocalStorageService localStorageService)
     {
         _localStorageService = localStorageService;
     }

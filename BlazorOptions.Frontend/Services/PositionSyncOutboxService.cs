@@ -7,9 +7,9 @@ public class PositionSyncOutboxService
 {
     private const string OutboxKey = "blazor-options-position-outbox";
     private const string LastUpdatedKey = "blazor-options-position-last-updated";
-    private readonly LocalStorageService _localStorageService;
+    private readonly ILocalStorageService _localStorageService;
 
-    public PositionSyncOutboxService(LocalStorageService localStorageService)
+    public PositionSyncOutboxService(ILocalStorageService localStorageService)
     {
         _localStorageService = localStorageService;
     }

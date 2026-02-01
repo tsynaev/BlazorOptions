@@ -6,9 +6,9 @@ namespace BlazorOptions.ViewModels;
 public class BybitSettingsViewModel
 {
     private readonly IOptions<BybitSettings> _bybitSettingsOptions;
-    private readonly LocalStorageService _localStorageService;
+    private readonly ILocalStorageService _localStorageService;
 
-    public BybitSettingsViewModel(IOptions<BybitSettings> bybitSettingsOptions, LocalStorageService localStorageService)
+    public BybitSettingsViewModel(IOptions<BybitSettings> bybitSettingsOptions, ILocalStorageService localStorageService)
     {
         _bybitSettingsOptions = bybitSettingsOptions;
         _localStorageService = localStorageService;

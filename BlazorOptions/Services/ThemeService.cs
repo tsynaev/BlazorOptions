@@ -2,14 +2,7 @@ using Microsoft.JSInterop;
 
 namespace BlazorOptions.Services;
 
-public enum ThemeMode
-{
-    System,
-    Light,
-    Dark
-}
-
-public class ThemeService
+public class ThemeService : IThemeService
 {
     public event Action? OnChange;
 

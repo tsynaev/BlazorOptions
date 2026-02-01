@@ -2,7 +2,7 @@ using Microsoft.JSInterop;
 
 namespace BlazorOptions.Services;
 
-public class LocalStorageService
+public class LocalStorageService : ILocalStorageService
 {
     private readonly IJSRuntime _jsRuntime;
 
