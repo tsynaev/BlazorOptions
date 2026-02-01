@@ -84,10 +84,7 @@ public sealed class TradingSymbolDialogViewModel : Bindable
             var sinceTimestamp = GetSinceTimestamp(sinceDate);
             var categoryValue = string.IsNullOrWhiteSpace(Category) ? null : Category;
             var entries = await _tradingHistoryPort.LoadBySymbolAsync(Symbol, categoryValue, sinceTimestamp);
-            var ordered = entries
-                .OrderByDescending(entry => entry.Timestamp ?? 0)
-                .ThenByDescending(entry => entry.Id, StringComparer.Ordinal)
-                .ToList();
+            var ordered = BuildSymbolView(entries);
             Trades = ordered;
             RawJson = BuildRawJson(ordered);
         }
@@ -165,5 +162,39 @@ public sealed class TradingSymbolDialogViewModel : Bindable
         }
 
         return ex.Message;
+    }
+
+    private static IReadOnlyList<TradingHistoryEntry> BuildSymbolView(
+        IReadOnlyList<TradingHistoryEntry> entries)
+    {
+        if (entries.Count == 0)
+        {
+            return Array.Empty<TradingHistoryEntry>();
+        }
+
+        var orderedAsc = entries
+            .OrderBy(entry => entry.Timestamp ?? 0)
+            .ThenBy(entry => entry.Id, StringComparer.Ordinal)
+            .ToList();
+
+        var cumulativeByCoin = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in orderedAsc)
+        {
+            var settleCoin = string.IsNullOrWhiteSpace(entry.Currency) ? "_unknown" : entry.Currency;
+            cumulativeByCoin.TryGetValue(settleCoin, out var current);
+
+            var realized = entry.Calculated?.RealizedPnl ?? 0m;
+            var next = current + realized - entry.Fee;
+
+            entry.Calculated ??= new TradingTransactionCalculated();
+            entry.Calculated.CumulativePnl = next;
+
+            cumulativeByCoin[settleCoin] = next;
+        }
+
+        return orderedAsc
+            .OrderByDescending(entry => entry.Timestamp ?? 0)
+            .ThenByDescending(entry => entry.Id, StringComparer.Ordinal)
+            .ToList();
     }
 }
