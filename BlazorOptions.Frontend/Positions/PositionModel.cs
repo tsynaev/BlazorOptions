@@ -11,10 +11,7 @@ public class PositionModel : Bindable
     private string _name = "Position";
     private string _notes = string.Empty;
     private ObservableCollection<LegsCollectionModel> _collections = new();
-    private ObservableCollection<ClosedPositionModel> _closedPositions = new();
-    private bool _includeClosedPositions;
-    private decimal _closedPositionsNetTotal;
-    private ClosedModel _closed;
+    private ClosedModel _closed = new();
 
     public Guid Id
     {
@@ -62,7 +59,6 @@ public class PositionModel : Bindable
 public class ClosedModel: Bindable
 {
     private bool _include;
-    private decimal _totalNet;
     private ObservableCollection<ClosedPositionModel> _positions = new();
     private decimal _totalClosePnl;
     private decimal _totalFee;

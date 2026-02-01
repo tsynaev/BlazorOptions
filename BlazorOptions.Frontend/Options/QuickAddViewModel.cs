@@ -258,7 +258,7 @@ public sealed class QuickAddViewModel
             return Array.Empty<string>();
         }
 
-        var snapshot = _optionsChainService.GetTickersByBaseAsset(BaseAsset);
+        var snapshot = GetTickersSnapshot();
         var symbols = snapshot
             .Select(ticker => ticker.Symbol)
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -274,9 +274,19 @@ public sealed class QuickAddViewModel
         return ordered;
     }
 
+    private List<OptionChainTicker> GetTickersSnapshot(LegType? type = null)
+    {
+        if (string.IsNullOrWhiteSpace(BaseAsset))
+        {
+            return new List<OptionChainTicker>();
+        }
+
+        return _optionsChainService.GetTickersByBaseAsset(BaseAsset, type);
+    }
+
     private async Task<IReadOnlyList<OptionChainTicker>> LoadChainTickersAsync(string baseAsset)
     {
-        var snapshot = _optionsChainService.GetTickersByBaseAsset(BaseAsset);
+        var snapshot = GetTickersSnapshot();
 
         if (snapshot.Count > 0)
         {
@@ -284,7 +294,7 @@ public sealed class QuickAddViewModel
         }
 
         await _optionsChainService.RefreshAsync(baseAsset);
-        return _optionsChainService.GetTickersByBaseAsset(BaseAsset);
+        return GetTickersSnapshot();
 
     }
 
@@ -738,7 +748,7 @@ public sealed class QuickAddViewModel
             return null;
         }
 
-        var candidates = _optionsChainService.GetTickersByBaseAsset(BaseAsset, type)
+        var candidates = GetTickersSnapshot(type)
             .Where(ticker => ticker.ExpirationDate.Date == expirationDate.Date)
             .ToList();
 
@@ -776,7 +786,7 @@ public sealed class QuickAddViewModel
             return requestedDate;
         }
 
-        var expirations = _optionsChainService.GetTickersByBaseAsset(BaseAsset, type)
+        var expirations = GetTickersSnapshot(type)
             .Select(ticker => ticker.ExpirationDate.Date)
             .Distinct()
             .OrderBy(date => date)
@@ -804,7 +814,7 @@ public sealed class QuickAddViewModel
             return null;
         }
 
-        var match = _optionsChainService.GetTickersByBaseAsset(BaseAsset, type)
+        var match = GetTickersSnapshot(type)
             .FirstOrDefault(ticker => ticker.ExpirationDate.Date == expirationDate.Date
                                        && Math.Abs(ticker.Strike - strike.Value) < 0.01m);
 

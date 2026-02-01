@@ -13,10 +13,6 @@ public sealed class ClosedPositionsViewModel: Bindable
     private readonly IExchangeService _exchangeService;
     private bool _isInitialized;
     private ObservableCollection<ClosedPositionViewModel> _closedPositions;
-    private decimal _totalClosePnl;
-    private decimal _totalFee;
-    private decimal _totalNet;
-    private bool _includeInChart;
     private ClosedModel _model;
 
     public ClosedPositionsViewModel(
@@ -29,6 +25,8 @@ public sealed class ClosedPositionsViewModel: Bindable
         _tradingHistoryPort = tradingHistoryPort;
         _telemetryService = telemetryService;
         _exchangeService = exchangeService;
+        _closedPositions = new ObservableCollection<ClosedPositionViewModel>();
+        _model = new ClosedModel();
     }
 
     public ObservableCollection<ClosedPositionViewModel> ClosedPositions

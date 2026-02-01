@@ -97,7 +97,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
             UpdateLegTickerSubscription();
             await SelectedPosition!.EnsureLiveSubscriptionAsync();
-            await SelectedPosition.PersistPositionAsync();
+            await PersistPositionAsync(defaultPosition);
             return;
         }
 
@@ -133,7 +133,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
         UpdateChart();
 
-        await SelectedPosition.PersistPositionAsync();
+        await PersistPositionAsync(position);
         UpdateLegTickerSubscription();
         await SelectedPosition!.EnsureLiveSubscriptionAsync();
     }
@@ -161,7 +161,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
     public async Task UpdateNameAsync(PositionModel position, string name)
     {
         position.Name = name;
-        await SelectedPosition.PersistPositionAsync();
+        await PersistPositionAsync(position);
         if (SelectedPosition?.Position?.Id == position.Id)
         {
         }
@@ -295,7 +295,11 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
         try
         {
-            await SelectedPosition.PersistPositionAsync();
+            var position = target ?? SelectedPosition?.Position;
+            if (position is not null)
+            {
+                await PersistPositionAsync(position);
+            }
         }
         catch
         {
@@ -308,7 +312,12 @@ public class PositionBuilderViewModel : IAsyncDisposable
         using var activity = _telemetryService.StartActivity($"{nameof(PositionBuilderViewModel)}.{nameof(UpdateChart)}");
 
         var position = SelectedPosition;
-        var collections = position?.Collections ?? Enumerable.Empty<LegsCollectionViewModel>();
+        if (position?.Position is null)
+        {
+            return;
+        }
+
+        var collections = position.Collections ?? Enumerable.Empty<LegsCollectionViewModel>();
         var allLegs = collections.SelectMany(collection => collection.Legs).ToList();
         var visibleCollections = collections.Where(collection => collection.IsVisible).ToList();
         var rangeLegs = visibleCollections.SelectMany(collection => collection.Legs).ToList();
@@ -545,8 +554,17 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
         UpdateChart();
 
-        await SelectedPosition.PersistPositionAsync();
+        if (SelectedPosition?.Position is not null)
+        {
+            await PersistPositionAsync(SelectedPosition.Position);
+        }
         return true;
+    }
+
+    private Task PersistPositionAsync(PositionModel position)
+    {
+        var dto = PositionDtoMapper.ToDto(position);
+        return _positionsPort.SavePositionAsync(dto);
     }
 
     private PositionModel CreateDefaultPosition(string? name = null, string? baseAsset = null, string? quoteAsset = null, bool includeSampleLegs = true)
@@ -857,15 +875,38 @@ public class PositionBuilderViewModel : IAsyncDisposable
         {
             await SelectedPosition.StopTickerAsync();
         }
-        lock (_persistQueueLock)
+        CancelAndDispose(ref _persistQueueCts, _persistQueueLock);
+        CancelAndDispose(ref _chartUpdateCts, _chartUpdateLock);
+    }
+
+    private static void CancelAndDispose(ref CancellationTokenSource? source, object gate)
+    {
+        CancellationTokenSource? toDispose;
+        lock (gate)
         {
-            _persistQueueCts?.Cancel();
-            _persistQueueCts?.Dispose();
+            toDispose = source;
+            source = null;
         }
-        lock (_chartUpdateLock)
+
+        if (toDispose is null)
         {
-            _chartUpdateCts?.Cancel();
-            _chartUpdateCts?.Dispose();
+            return;
+        }
+
+        try
+        {
+            if (!toDispose.IsCancellationRequested)
+            {
+                toDispose.Cancel();
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            // ignore: racing disposal
+        }
+        finally
+        {
+            toDispose.Dispose();
         }
     }
 }

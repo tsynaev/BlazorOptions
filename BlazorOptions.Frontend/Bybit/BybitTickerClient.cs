@@ -17,7 +17,7 @@ public class BybitTickerClient : IExchangeTickerClient
 
     public string Exchange => "Bybit";
 
-    public event Func<ExchangePriceUpdate, Task> PriceUpdated;
+    public event Func<ExchangePriceUpdate, Task>? PriceUpdated;
 
     public async Task EnsureConnectedAsync(Uri webSocketUrl, CancellationToken cancellationToken)
     {
@@ -218,7 +218,11 @@ public class BybitTickerClient : IExchangeTickerClient
             if (TryExtractPrice(dataElement, out var price, out var symbol))
             {
                 var resolvedSymbol = string.IsNullOrWhiteSpace(symbol) ? topicSymbol : symbol;
-                await PriceUpdated?.Invoke(new ExchangePriceUpdate(Exchange, resolvedSymbol, price, DateTime.UtcNow));
+                var handler = PriceUpdated;
+                if (handler is not null)
+                {
+                    await handler.Invoke(new ExchangePriceUpdate(Exchange, resolvedSymbol, price, DateTime.UtcNow));
+                }
             }
         }
         catch

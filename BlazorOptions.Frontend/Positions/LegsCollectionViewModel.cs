@@ -12,7 +12,7 @@ public sealed class LegsCollectionViewModel : IDisposable
     private readonly LegViewModelFactory _legViewModelFactory;
     private readonly INotifyUserService _notifyUserService;
     private readonly ITelemetryService _telemetryService;
-    private string _baseAsset;
+    private string _baseAsset = string.Empty;
     private decimal? _currentPrice;
     private bool _isLive;
     private DateTime _valuationDate;

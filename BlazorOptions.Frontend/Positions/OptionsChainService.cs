@@ -267,8 +267,10 @@ public class OptionsChainService
         foreach (var entry in listElement.EnumerateArray())
         {
             var ticker = ReadTickerFromPayload(entry);
-           
-            tickers.Add(ticker);
+            if (ticker is not null)
+            {
+                tickers.Add(ticker);
+            }
         }
 
         return tickers;
@@ -633,19 +635,20 @@ public class OptionsChainService
 
     private OptionChainTicker? UpdateTickerFromPayload(JsonElement entry)
     {
-
         var ticker = ReadTickerFromPayload(entry);
+        if (ticker is null)
+        {
+            return null;
+        }
 
-
-        List<OptionChainTicker> tickers;
-        if (!_cachedTickers.TryGetValue(ticker.BaseAsset, out tickers))
+        if (!_cachedTickers.TryGetValue(ticker.BaseAsset, out var tickers))
         {
             tickers = new List<OptionChainTicker>();
             _cachedTickers.Add(ticker.BaseAsset, tickers);
         }
 
-        var index = tickers.FindIndex(ticker =>
-            string.Equals(ticker.Symbol, ticker.Symbol, StringComparison.OrdinalIgnoreCase));
+        var index = tickers.FindIndex(existing =>
+            string.Equals(existing.Symbol, ticker.Symbol, StringComparison.OrdinalIgnoreCase));
         if (index >= 0)
         {
             tickers[index] = ticker;
@@ -656,16 +659,21 @@ public class OptionsChainService
         }
 
         return ticker;
-
     }
 
 
     private OptionChainTicker? ReadTickerFromPayload(JsonElement entry)
     {
-        TryReadString(entry, "symbol", out string symbol);
+        if (!TryReadString(entry, "symbol", out var symbol) || string.IsNullOrWhiteSpace(symbol))
+        {
+            return null;
+        }
 
-        _exchangeService.TryParseSymbol(symbol, out string baseAsset, out DateTime expirationDate, out decimal strike,
-            out LegType legType);
+        if (!_exchangeService.TryParseSymbol(symbol, out var baseAsset, out var expirationDate, out var strike,
+                out var legType))
+        {
+            return null;
+        }
 
 
         var underlyingPrice = ReadDecimal(entry, "underlyingPrice");

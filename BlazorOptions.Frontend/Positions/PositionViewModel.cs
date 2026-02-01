@@ -37,7 +37,7 @@ public sealed class PositionViewModel : IDisposable
     private bool _isLive = false;
     private IDisposable? _tickerSubscription;
     private string? _currentSymbol;
-    private PositionModel _position;
+    private PositionModel _position = null!;
     private readonly ITelemetryService _telemetryService;
     private bool _suppressNotesPersist;
 
@@ -116,9 +116,9 @@ public sealed class PositionViewModel : IDisposable
         }
     }
 
-    public ObservableCollection<LegsCollectionViewModel> Collections { get; private set; }
+    public ObservableCollection<LegsCollectionViewModel> Collections { get; private set; } = new();
 
-    public ClosedPositionsViewModel ClosedPositions { get; private set; }
+    public ClosedPositionsViewModel ClosedPositions { get; private set; } = null!;
 
     public decimal? SelectedPrice => _selectedPrice;
 

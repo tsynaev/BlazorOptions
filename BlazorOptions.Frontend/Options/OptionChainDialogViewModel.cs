@@ -62,7 +62,7 @@ public class OptionChainDialogViewModel : IDisposable
             Legs.Add(CloneLeg(leg));
         }
 
-        _chainTickers = _optionsChainService.GetTickersByBaseAsset(_baseAsset).ToList();
+        _chainTickers = GetBaseAssetTickers().ToList();
         UpdateExpirations();
 
         if (Legs.Count > 0)
@@ -269,7 +269,7 @@ public class OptionChainDialogViewModel : IDisposable
         OnChange?.Invoke();
 
         await _optionsChainService.RefreshAsync(_baseAsset);
-        _chainTickers = _optionsChainService.GetTickersByBaseAsset(_baseAsset);
+        _chainTickers = GetBaseAssetTickers();
         UpdateExpirations();
         UpdateStrikes();
         IsRefreshing = false;
@@ -461,6 +461,16 @@ public class OptionChainDialogViewModel : IDisposable
         };
     }
 
+    private List<OptionChainTicker> GetBaseAssetTickers()
+    {
+        if (string.IsNullOrWhiteSpace(_baseAsset))
+        {
+            return new List<OptionChainTicker>();
+        }
+
+        return _optionsChainService.GetTickersByBaseAsset(_baseAsset);
+    }
+
     public void Dispose()
     {
         foreach (var subscription in _tickerSubscriptions.Values)
@@ -566,7 +576,7 @@ public class OptionChainDialogViewModel : IDisposable
 
     private async Task HandleTickerUpdated(OptionChainTicker ticker)
     {
-        _chainTickers = _optionsChainService.GetTickersByBaseAsset(_baseAsset);
+        _chainTickers = GetBaseAssetTickers();
         OnChange?.Invoke();
     }
 }

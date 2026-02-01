@@ -17,7 +17,7 @@
                 }
             </MudSelect>
 
-            <MudStack Row="true" RowAlign="AlignItems.Center" Spacing="2">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
                 <MudSelect T="DateTime?"
                            Label="Expiration"
                            Value="@ViewModel.Leg.ExpirationDate"
@@ -54,14 +54,14 @@
                              Label="Size"
                              Value="@ViewModel.Leg.Size"
                              ValueChanged="ViewModel.UpdateLegSizeAsync"
-                             Dense="true"
+                             Margin="Margin.Dense"
                              Disabled="@ViewModel.Leg.IsReadOnly" />
 
             <MudNumericField T="decimal?"
                              Label="Price"
                              Value="@ViewModel.Leg.Price"
                              ValueChanged="async value => await ViewModel.UpdateLegPriceAsync(value)"
-                             Dense="true"
+                             Margin="Margin.Dense"
                              Adornment="Adornment.End"
                              AdornmentText="USDT"
                              Placeholder="@FormatPrice(ViewModel.PlaceholderPrice)"
@@ -71,7 +71,7 @@
                              Label="IV"
                              Value="@ViewModel.Leg.ImpliedVolatility"
                              ValueChanged="ViewModel.UpdateLegIvAsync"
-                             Dense="true"
+                             Margin="Margin.Dense"
                              Adornment="Adornment.End"
                              AdornmentText="%"
                              Disabled="@ViewModel.Leg.IsReadOnly" />

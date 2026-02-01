@@ -27,6 +27,7 @@ public sealed class ClosedPositionViewModel : Bindable
         _tradingHistoryPort = tradingHistoryPort;
         _telemetryService = telemetryService;
         _exchangeService = exchangeService;
+        _model = new ClosedPositionModel();
        
     }
 
