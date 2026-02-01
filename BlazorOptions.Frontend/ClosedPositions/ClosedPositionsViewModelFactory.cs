@@ -27,6 +27,7 @@ public sealed class ClosedPositionsViewModelFactory
                 _exchangeService);
 
         viewModel.Model = position.Closed;
+        viewModel.BaseAsset = position.BaseAsset;
 
         return viewModel;
     }

@@ -61,6 +61,7 @@ builder.Services.AddTransient<OptionChainDialogViewModel>();
 builder.Services.AddTransient<PortfolioSettingsDialogViewModel>();
 builder.Services.AddScoped<TradingHistoryViewModel>();
 builder.Services.AddDialog<TradingSymbolDialog, TradingSymbolDialogViewModel>();
+builder.Services.AddDialog<TradingHistorySelectionDialog, TradingHistorySelectionDialogViewModel>();
 builder.Services.AddMudServices();
 
 await builder.Build().RunAsync();

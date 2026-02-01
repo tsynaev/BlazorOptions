@@ -181,12 +181,14 @@ public sealed class TradingHistoryStore
         }
     }
 
-    public async Task<TradingHistoryResult> LoadEntriesAsync(string userId, int startIndex, int limit)
+    public async Task<TradingHistoryResult> LoadEntriesAsync(string userId, string? baseAsset, int startIndex, int limit)
     {
         if (startIndex < 0 || limit <= 0)
         {
             return new TradingHistoryResult();
         }
+
+        var prefix = string.IsNullOrWhiteSpace(baseAsset) ? null : baseAsset.Trim() + "%";
 
         await AcquireReadAsync();
         try
@@ -195,36 +197,69 @@ public sealed class TradingHistoryStore
             var meta = await LoadMetaInternalAsync(connection, null);
 
             var command = connection.CreateCommand();
-            command.CommandText = """
-                SELECT
-                    Id,
-                    Timestamp,
-                    Symbol,
-                    Category,
-                    TransactionType,
-                    Side,
-                    Size,
-                    Price,
-                    Fee,
-                    Currency,
-                    Change,
-                    CashFlow,
-                    OrderId,
-                    OrderLinkId,
-                    TradeId,
-                    RawJson,
-                    ChangedAt,
-                    CalculatedSizeAfter,
-                    CalculatedAvgPriceAfter,
-                    CalculatedRealizedPnl,
-                    CalculatedCumulativePnl
-                FROM TradingHistoryEntries
-                ORDER BY Timestamp DESC, Id DESC
-                LIMIT $limit OFFSET $offset
-                """;
+            command.CommandText = prefix is null
+                ? """
+                    SELECT
+                        Id,
+                        Timestamp,
+                        Symbol,
+                        Category,
+                        TransactionType,
+                        Side,
+                        Size,
+                        Price,
+                        Fee,
+                        Currency,
+                        Change,
+                        CashFlow,
+                        OrderId,
+                        OrderLinkId,
+                        TradeId,
+                        RawJson,
+                        ChangedAt,
+                        CalculatedSizeAfter,
+                        CalculatedAvgPriceAfter,
+                        CalculatedRealizedPnl,
+                        CalculatedCumulativePnl
+                    FROM TradingHistoryEntries
+                    ORDER BY Timestamp DESC, Id DESC
+                    LIMIT $limit OFFSET $offset
+                    """
+                : """
+                    SELECT
+                        Id,
+                        Timestamp,
+                        Symbol,
+                        Category,
+                        TransactionType,
+                        Side,
+                        Size,
+                        Price,
+                        Fee,
+                        Currency,
+                        Change,
+                        CashFlow,
+                        OrderId,
+                        OrderLinkId,
+                        TradeId,
+                        RawJson,
+                        ChangedAt,
+                        CalculatedSizeAfter,
+                        CalculatedAvgPriceAfter,
+                        CalculatedRealizedPnl,
+                        CalculatedCumulativePnl
+                    FROM TradingHistoryEntries
+                    WHERE Symbol LIKE $symbolPrefix
+                    ORDER BY Timestamp DESC, Id DESC
+                    LIMIT $limit OFFSET $offset
+                    """;
 
             command.Parameters.AddWithValue("$limit", limit);
             command.Parameters.AddWithValue("$offset", startIndex);
+            if (prefix is not null)
+            {
+                command.Parameters.AddWithValue("$symbolPrefix", prefix);
+            }
 
             var entries = new List<TradingHistoryEntry>();
             await using var reader = await command.ExecuteReaderAsync();
@@ -233,7 +268,7 @@ public sealed class TradingHistoryStore
                 entries.Add(ReadEntry(reader));
             }
 
-            var total = await CountEntriesAsync(connection, null);
+            var total = await CountEntriesAsync(connection, null, prefix);
 
             return new TradingHistoryResult
             {
@@ -1021,11 +1056,18 @@ public sealed class TradingHistoryStore
 
     private static async Task<int> CountEntriesAsync(
         SqliteConnection connection,
-        SqliteTransaction? transaction)
+        SqliteTransaction? transaction,
+        string? symbolPrefix)
     {
         var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "SELECT COUNT(*) FROM TradingHistoryEntries";
+        command.CommandText = symbolPrefix is null
+            ? "SELECT COUNT(*) FROM TradingHistoryEntries"
+            : "SELECT COUNT(*) FROM TradingHistoryEntries WHERE Symbol LIKE $symbolPrefix";
+        if (symbolPrefix is not null)
+        {
+            command.Parameters.AddWithValue("$symbolPrefix", symbolPrefix);
+        }
         var result = await command.ExecuteScalarAsync();
         return result is long count ? (int)count : 0;
     }

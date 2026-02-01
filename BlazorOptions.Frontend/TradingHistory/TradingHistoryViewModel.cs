@@ -269,11 +269,11 @@ public class TradingHistoryViewModel
         }
     }
 
-    public async Task<TradingHistoryResult> LoadEntriesAsync(int startIndex, int count)
+    public async Task<TradingHistoryResult> LoadEntriesAsync(string? baseAsset, int startIndex, int count)
     {
         try
         {
-            var result = await _tradingHistoryPort.LoadEntriesAsync(startIndex, count);
+            var result = await _tradingHistoryPort.LoadEntriesAsync(baseAsset, startIndex, count);
             _totalCount = result.TotalEntries;
             return result;
         }

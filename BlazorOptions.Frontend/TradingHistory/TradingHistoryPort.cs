@@ -37,9 +37,15 @@ public sealed class TradingHistoryPort : ITradingHistoryPort
         await SendAsync(HttpMethod.Post, "api/trading-history/trades/bulk", entries);
     }
 
-    public async Task<TradingHistoryResult> LoadEntriesAsync(int startIndex, int limit)
+    public async Task<TradingHistoryResult> LoadEntriesAsync(string? baseAsset, int startIndex, int limit)
     {
-        var response = await SendAsync(HttpMethod.Get, $"api/trading-history/entries?startIndex={startIndex}&limit={limit}");
+        var query = new List<string> { $"startIndex={startIndex}", $"limit={limit}" };
+        if (!string.IsNullOrWhiteSpace(baseAsset))
+        {
+            query.Add($"baseAsset={Uri.EscapeDataString(baseAsset)}");
+        }
+
+        var response = await SendAsync(HttpMethod.Get, $"api/trading-history/entries?{string.Join("&", query)}");
         return await response.Content.ReadFromJsonAsync<TradingHistoryResult>(JsonOptions) ?? new TradingHistoryResult();
     }
 

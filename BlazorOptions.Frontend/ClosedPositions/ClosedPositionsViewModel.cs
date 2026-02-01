@@ -14,6 +14,7 @@ public sealed class ClosedPositionsViewModel: Bindable
     private bool _isInitialized;
     private ObservableCollection<ClosedPositionViewModel> _closedPositions;
     private ClosedModel _model;
+    private string? _baseAsset;
 
     public ClosedPositionsViewModel(
         PositionBuilderViewModel positionBuilder,
@@ -35,6 +36,11 @@ public sealed class ClosedPositionsViewModel: Bindable
         set => _closedPositions = value;
     }
 
+    public string? BaseAsset
+    {
+        get => _baseAsset;
+        set => _baseAsset = value;
+    }
 
     public event Func<Task>? UpdatedCompleted;
 

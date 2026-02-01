@@ -38,6 +38,11 @@
                                OnClick="async () => await ViewModel.AddSymbolAsync()">
                         Add
                     </MudButton>
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Default"
+                               OnClick="OpenTradesDialogAsync">
+                        Select trades
+                    </MudButton>
                 </MudStack>
             </MudStack>
         </MudCardHeader>
@@ -106,6 +111,27 @@
 
         await NavigationService.NavigateToAsync<TradingSymbolDialogViewModel>(viewModel =>
             viewModel.LoadAsync(symbol, string.Empty, sinceDate));
+    }
+
+    private async Task OpenTradesDialogAsync()
+    {
+        var existingSymbols = ViewModel.ClosedPositions
+            .Select(item => item.Model.Symbol)
+            .Where(symbol => !string.IsNullOrWhiteSpace(symbol))
+            .ToList();
+
+        var baseAsset = ViewModel.BaseAsset;
+        var dialogViewModel = await NavigationService.NavigateToAsync<TradingHistorySelectionDialogViewModel>(
+            viewModel => viewModel.InitializeAsync(existingSymbols, baseAsset));
+
+        var selectedSymbols = await dialogViewModel.WaitForSelectionAsync();
+        if (selectedSymbols is null || selectedSymbols.Count == 0)
+        {
+            return;
+        }
+
+        ViewModel.SetAddSymbolInput(selectedSymbols);
+        await ViewModel.AddSymbolAsync();
     }
 }
 

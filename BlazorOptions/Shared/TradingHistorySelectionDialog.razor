@@ -1,0 +1,164 @@
+@implements IDisposable
+@using System.Globalization
+@using MudBlazor
+@using BlazorOptions.ViewModels
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudButton Variant="Variant.Text"
+                           Color="Color.Default"
+                           StartIcon="@Icons.Material.Filled.Clear"
+                           OnClick="ClearSelection">
+                    Clear
+                </MudButton>
+                <MudSpacer />
+                <MudText Typo="Typo.caption">
+                    Selected symbols: @ViewModel.SelectedSymbols.Count
+                </MudText>
+            </MudStack>
+
+            @if (!string.IsNullOrWhiteSpace(ViewModel.ErrorMessage))
+            {
+                <MudAlert Severity="Severity.Error">@ViewModel.ErrorMessage</MudAlert>
+            }
+
+            <MudDataGrid T="TradingHistoryEntry"
+                         VirtualizeServerData="ServerDataFunc"
+                         Virtualize="true"
+                         FixedHeader="true"
+                         Height="420px"
+                         ItemSize="52.68f">
+                <Columns>
+                    <TemplateColumn Title="Date">
+                        <CellTemplate>
+                            <MudStack Spacing="0">
+                                <MudText Typo="Typo.body2">@FormatTimestamp(context.Item.Timestamp)</MudText>
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.TransactionType</MudText>
+                            </MudStack>
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <TemplateColumn Title="Trade">
+                        <CellTemplate>
+                            <MudText Typo="Typo.body2">
+                                @context.Item.Side @context.Item.TransactionType @context.Item.Size @context.Item.Symbol
+                            </MudText>
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <TemplateColumn Title="">
+                        <CellTemplate>
+                            <MudIconButton Icon="@(ViewModel.IsSymbolSelected(context.Item.Symbol) ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.AddCircle)"
+                                           Color="Color.Primary"
+                                           Disabled="@string.IsNullOrWhiteSpace(context.Item.Symbol)"
+                                           OnClick="@(() => ViewModel.ToggleSymbolSelection(context.Item.Symbol))" />
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <TemplateColumn Title="Price">
+                        <CellTemplate>
+                            @context.Item.Price
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <TemplateColumn Title="Value">
+                        <CellTemplate>
+                            @($"{FormatValue(context.Item.Size, context.Item.Price)} {context.Item.Currency}")
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <TemplateColumn Title="Fee">
+                        <CellTemplate>
+                            @($"{context.Item.Fee} {context.Item.Currency}")
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <PropertyColumn Property="x => x.Calculated.SizeAfter" Title="Size after" />
+                    <PropertyColumn Property="x => x.Calculated.AvgPriceAfter" Title="Avg price after" />
+                    <PropertyColumn Property="x => x.Calculated.RealizedPnl" Format="0.00" Title="Realized PnL" />
+                </Columns>
+                <RowLoadingContent>
+                    <tr class="mud-table-row">
+                        <td class="mud-table-cell" colspan="1000">
+                            Loading...
+                        </td>
+                    </tr>
+                </RowLoadingContent>
+            </MudDataGrid>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Color="Color.Primary" OnClick="ConfirmAsync">Apply</MudButton>
+        <MudButton Color="Color.Secondary" OnClick="CancelAsync">Cancel</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance? MudDialog { get; set; }
+    [Parameter, EditorRequired] public TradingHistorySelectionDialogViewModel ViewModel { get; set; } = default!;
+
+    protected override void OnInitialized()
+    {
+        ViewModel.OnChange += HandleViewModelChanged;
+    }
+
+    public void Dispose()
+    {
+        ViewModel.OnChange -= HandleViewModelChanged;
+    }
+
+    private void HandleViewModelChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void ClearSelection()
+    {
+        ViewModel.ClearSelection();
+    }
+
+    private async Task<GridData<TradingHistoryEntry>> ServerDataFunc(
+        GridStateVirtualize<TradingHistoryEntry> state,
+        CancellationToken cancellationToken)
+    {
+        var result = await ViewModel.LoadEntriesAsync(state.StartIndex, state.Count);
+        return new GridData<TradingHistoryEntry> { 
+            Items = result.Entries, 
+            TotalItems = result.TotalEntries
+        };
+    }
+
+    private Task ConfirmAsync()
+    {
+        ViewModel.ConfirmSelection();
+        MudDialog?.Close(DialogResult.Ok(true));
+        return Task.CompletedTask;
+    }
+
+    private Task CancelAsync()
+    {
+        ViewModel.CancelSelection();
+        MudDialog?.Cancel();
+        return Task.CompletedTask;
+    }
+
+    private static string FormatTimestamp(long? timestamp)
+    {
+        if (!timestamp.HasValue || timestamp.Value <= 0)
+        {
+            return "N/A";
+        }
+
+        try
+        {
+            return DateTimeOffset.FromUnixTimeMilliseconds(timestamp.Value)
+                .ToLocalTime()
+                .ToString("g");
+        }
+        catch
+        {
+            return "N/A";
+        }
+    }
+
+    private static string FormatValue(decimal qty, decimal price)
+    {
+        return (qty * price).ToString("0.####", CultureInfo.InvariantCulture);
+    }
+}

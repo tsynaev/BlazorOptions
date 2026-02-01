@@ -8,6 +8,9 @@ Closed positions now show cached calculation results immediately when a position
 - A spinner appears next to the symbol while recalculation is running.
 - The refresh icon next to the symbol triggers a full recalculation from the `Since` date (or the default lookback window if `Since` is empty).
 
+## Selecting from trading history
+Use **Select trades** to open the trading history picker. The dialog filters out symbols already in closed positions and lets you add new symbols from the grid.
+
 ## Incremental recalculation
 Each closed position tracks:
 - `LastProcessedTimestamp`

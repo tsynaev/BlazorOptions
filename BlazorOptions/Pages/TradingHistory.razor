@@ -265,7 +265,7 @@
         int pageSize = state.Count;
         if (pageSize <= 0) pageSize = 50;
 
-        var result = await ViewModel.LoadEntriesAsync(state.StartIndex, pageSize);
+        var result = await ViewModel.LoadEntriesAsync(null, state.StartIndex, pageSize);
         return new GridData<TradingHistoryEntry> { Items = result.Entries, TotalItems = result.TotalEntries };
     }
 

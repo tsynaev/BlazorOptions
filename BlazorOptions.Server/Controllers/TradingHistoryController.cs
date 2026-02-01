@@ -33,7 +33,7 @@ public sealed class TradingHistoryController : ControllerBase, ITradingHistoryPo
     }
 
     [HttpGet("entries")]
-    public async Task<IActionResult> LoadEntriesAsync([FromQuery] int startIndex, [FromQuery] int limit)
+    public async Task<IActionResult> LoadEntriesAsync([FromQuery] string? baseAsset, [FromQuery] int startIndex, [FromQuery] int limit)
     {
         if (startIndex < 0 || limit <= 0)
         {
@@ -46,7 +46,7 @@ public sealed class TradingHistoryController : ControllerBase, ITradingHistoryPo
             return Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unauthorized");
         }
 
-        var result = await _store.LoadEntriesAsync(userId, startIndex, limit);
+        var result = await _store.LoadEntriesAsync(userId, baseAsset, startIndex, limit);
         var mapped = new TradingHistoryResult
         {
             Entries = result.Entries.Select(MapForGrid).ToList(),
@@ -200,10 +200,10 @@ public sealed class TradingHistoryController : ControllerBase, ITradingHistoryPo
         await _store.SaveTradesAsync(userId, entries);
     }
 
-    async Task<TradingHistoryResult> ITradingHistoryPort.LoadEntriesAsync(int startIndex, int limit)
+    async Task<TradingHistoryResult> ITradingHistoryPort.LoadEntriesAsync(string? baseAsset, int startIndex, int limit)
     {
         var userId = ResolveUserIdOrThrow();
-        var result = await _store.LoadEntriesAsync(userId, startIndex, limit);
+        var result = await _store.LoadEntriesAsync(userId, baseAsset, startIndex, limit);
         return new TradingHistoryResult
         {
             Entries = result.Entries.Select(MapForGrid).ToList(),
