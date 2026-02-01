@@ -1,6 +1,6 @@
 ﻿# Sync & Events (Universal)
 
-This document describes the universal sync pipeline used by all modules (Positions, Trading History, Settings, etc.).
+This document describes the legacy sync pipeline used by modules that still exchange events over SignalR.
 
 ## Goals
 - Server is the primary data source.
@@ -39,7 +39,7 @@ This document describes the universal sync pipeline used by all modules (Positio
 
 ## Conflict resolution (examples)
 - **Trades**: `trade.added` is deduplicated by `UniqueKey` (trade saved only once).
-- **Positions**: `position.snapshot` is treated as “latest?wins” using `OccurredUtc`.
+- **Positions**: moved to direct server persistence (no SignalR sync).
 
 ## Real?time updates
 - When device A sends an event, the server publishes it to device B via SignalR.
@@ -51,7 +51,6 @@ This document describes the universal sync pipeline used by all modules (Positio
 - The client can rebuild local state by requesting server summaries/pages/snapshots.
 
 ## Current event types
-- `position.snapshot`
 - `trade.added`
 
 ## Extending to new modules

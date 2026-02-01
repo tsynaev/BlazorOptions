@@ -17,7 +17,7 @@ The Positions feature lets you build, manage, and visualize option strategies an
 - Trades dialog for a symbol shows cumulative P&L starting from the chosen "since" date.
 
 ## View-model structure
-- `PositionBuilderViewModel` owns the positions list, chart config, sync, and storage.
+- `PositionBuilderViewModel` owns the positions list, chart config, and server persistence.
 - `PositionViewModel` owns per-position state: selected/live price, live status, valuation date, and manages the ticker subscription.
 - `LegsCollectionViewModel` owns a collection and creates `LegViewModel` + `QuickAddViewModel`.
 - `LegViewModel` subscribes to option tickers directly and calculates temp P&L.
@@ -30,18 +30,16 @@ The Positions feature lets you build, manage, and visualize option strategies an
 - When live is off, option ticker subscriptions are stopped and bid/ask display is hidden.
 - Option chain updates use `OptionsChainService.SubscribeAsync` (no global events); multiple handlers supported.
 
-## Persistence and sync
-- Client persists the current positions locally for offline use.
-- Active Bybit positions are cached in local storage and refreshed by a REST snapshot on initial connect and reconnect, then kept up to date by websocket updates.
-- When signed in, position changes are sent as per-position snapshot events.
-- When the Positions page opens, the client queues a local snapshot of added/updated positions and deleted position ids, then connects to sync.
-- The server stores only the latest position snapshots and broadcasts updates to other devices via SignalR (no event stream storage).
+## Persistence
+- Positions are stored on the server via the positions API (no browser/local storage).
+- Active Bybit positions are still refreshed via REST snapshot on initial connect and reconnect, then kept up to date by websocket updates.
+- Deleting a position removes it from the server store immediately.
 
 ## Typical workflow
 1) Create a position or duplicate an existing collection.
 2) Add legs using quick input or manual entry.
 3) Visualize payoff and adjust settings (visibility, included legs).
-4) Changes sync automatically when authenticated.
+4) Changes are saved to the server whenever you edit positions.
 
 ## UI updates
 - The legacy tabs were replaced with a borderless dropdown so selecting positions works on mobile and still keeps the URL in sync via `/positions/{positionId}` links.

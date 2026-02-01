@@ -7,15 +7,15 @@ namespace BlazorOptions.Services;
 public sealed class TradingHistoryPort : ITradingHistoryPort
 {
     private readonly HttpClient _httpClient;
-    private readonly AuthSessionService _sessionService;
+    private readonly Microsoft.Extensions.Options.IOptions<AuthSessionState> _sessionState;
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
 
     public TradingHistoryPort(
         HttpClient httpClient,
-        AuthSessionService sessionService)
+        Microsoft.Extensions.Options.IOptions<AuthSessionState> sessionState)
     {
         _httpClient = httpClient;
-        _sessionService = sessionService;
+        _sessionState = sessionState;
     }
 
     // Removed availability probing to avoid extra auth checks.
@@ -111,9 +111,10 @@ public sealed class TradingHistoryPort : ITradingHistoryPort
     private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string uri, object? payload = null)
     {
         var request = new HttpRequestMessage(method, uri);
-        if (!string.IsNullOrWhiteSpace(_sessionService.Token))
+        var token = _sessionState.Value.Token;
+        if (!string.IsNullOrWhiteSpace(token))
         {
-            request.Headers.Add("X-User-Token", _sessionService.Token);
+            request.Headers.Add("X-User-Token", token);
         }
 
         if (payload is not null)

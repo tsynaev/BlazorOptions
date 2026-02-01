@@ -12,18 +12,13 @@ builder.Services.AddOpenApi();
 builder.Services.Configure<DataStorageOptions>(
     builder.Configuration.GetSection(DataStorageOptions.SectionName));
 builder.Services.AddSingleton<UserRegistryService>();
-builder.Services.AddSingleton<UserDataStore>();
 builder.Services.AddSingleton<TradingHistoryStore>();
+builder.Services.AddSingleton<PositionsStore>();
 builder.Services.AddAuthentication(UserTokenAuthenticationOptions.SchemeName)
     .AddScheme<UserTokenAuthenticationOptions, UserTokenAuthenticationHandler>(
         UserTokenAuthenticationOptions.SchemeName,
         _ => { });
 builder.Services.AddAuthorization();
-builder.Services.AddSignalR()
-    .AddHubOptions<SyncHub>(options =>
-    {
-        options.MaximumReceiveMessageSize = 256 * 1024;
-    });
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
@@ -73,17 +68,6 @@ app.MapGet("/api/auth/me", async (HttpContext context, UserRegistryService regis
     return user is null ? Results.Unauthorized() : Results.Ok(new { user.UserName });
 });
 
-app.MapGet("/api/positions/snapshot", async (HttpContext context, UserRegistryService registry, UserDataStore dataStore) =>
-{
-    var user = await AuthenticateAsync(context, registry);
-    if (user is null)
-    {
-        return Results.Unauthorized();
-    }
-
-    var snapshot = await dataStore.GetPositionSnapshotAsync(user.Id);
-    return snapshot is null ? Results.NoContent() : Results.Ok(snapshot);
-});
 
 app.UseBlazorFrameworkFiles();   // serve _framework from Client build
 app.UseStaticFiles();
@@ -91,7 +75,6 @@ app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapHub<SyncHub>("/syncHub");
 app.MapControllers();
 
 app.MapFallbackToFile("index.html");

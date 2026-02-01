@@ -1,24 +1,21 @@
 using System.Collections.ObjectModel;
-using System.Text.Json;
+using BlazorOptions.API.Positions;
 using BlazorOptions.Services;
-using BlazorOptions.Sync;
 
 namespace BlazorOptions.ViewModels;
 
 public class PositionBuilderViewModel : IAsyncDisposable
 {
     private readonly OptionsService _optionsService;
-    private readonly PositionStorageService _storageService;
+    private readonly IPositionsPort _positionsPort;
     private readonly ExchangeTickerService _exchangeTickerService;
     private readonly OptionsChainService _optionsChainService;
     private readonly ActivePositionsService _activePositionsService;
-    private readonly PositionSyncService _positionSyncService;
     private readonly LegsCollectionViewModelFactory _collectionFactory;
     private readonly ClosedPositionsViewModelFactory _closedPositionsFactory;
     private readonly INotifyUserService _notifyUserService;
     private readonly ITelemetryService _telemetryService;
     private bool _isInitialized;
-    private bool _suppressSync;
     private readonly object _persistQueueLock = new();
     private CancellationTokenSource? _persistQueueCts;
     private PositionModel? _queuedPersistPosition;
@@ -50,22 +47,20 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     public PositionBuilderViewModel(
         OptionsService optionsService,
-        PositionStorageService storageService,
+        IPositionsPort positionsPort,
         ExchangeTickerService exchangeTickerService,
         OptionsChainService optionsChainService,
         ActivePositionsService activePositionsService,
-        PositionSyncService positionSyncService,
         LegsCollectionViewModelFactory collectionFactory,
         ClosedPositionsViewModelFactory closedPositionsFactory,
         INotifyUserService notifyUserService,
         ITelemetryService telemetryService)
     {
         _optionsService = optionsService;
-        _storageService = storageService;
+        _positionsPort = positionsPort;
         _exchangeTickerService = exchangeTickerService;
         _optionsChainService = optionsChainService;
         _activePositionsService = activePositionsService;
-        _positionSyncService = positionSyncService;
         _collectionFactory = collectionFactory;
         _closedPositionsFactory = closedPositionsFactory;
         _notifyUserService = notifyUserService;
@@ -88,8 +83,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         }
 
         _isInitialized = true;
-        var storedPositions = await _storageService.LoadPositionsAsync();
-        var deletedPositionIds = await _storageService.LoadDeletedPositionsAsync();
+        var storedPositions = await _positionsPort.LoadPositionsAsync();
 
         await _activePositionsService.InitializeAsync();
 
@@ -103,12 +97,11 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
             UpdateLegTickerSubscription();
             await SelectedPosition!.EnsureLiveSubscriptionAsync();
-            await _positionSyncService.QueueLocalSnapshotAsync(Positions, deletedPositionIds);
-            await _positionSyncService.InitializeAsync(ApplyServerSnapshotAsync, ApplyServerItemAsync);
+            await SelectedPosition.PersistPositionAsync();
             return;
         }
 
-        foreach (var position in storedPositions)
+        foreach (var position in storedPositions.Select(PositionDtoMapper.ToModel))
         {
             NormalizeCollections(position);
             Positions.Add(position);
@@ -128,8 +121,6 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
         UpdateLegTickerSubscription();
         await SelectedPosition!.EnsureLiveSubscriptionAsync();
-        await _positionSyncService.QueueLocalSnapshotAsync(Positions, deletedPositionIds);
-        await _positionSyncService.InitializeAsync(ApplyServerSnapshotAsync, ApplyServerItemAsync);
     }
 
 
@@ -547,7 +538,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
     {
 
         Positions.Remove(position);
-        await _storageService.MarkDeletedPositionAsync(position.Id);
+        await _positionsPort.DeletePositionAsync(position.Id);
 
         await SetSelectedPositionAsync(Positions.FirstOrDefault());
 
@@ -555,7 +546,6 @@ public class PositionBuilderViewModel : IAsyncDisposable
         UpdateChart();
 
         await SelectedPosition.PersistPositionAsync();
-        await _positionSyncService.NotifyLocalChangeAsync(position, true);
         return true;
     }
 
@@ -627,8 +617,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
         SelectedPosition = new PositionViewModel(
                 this,
-                _storageService,
-                _positionSyncService,
+                _positionsPort,
                 _collectionFactory,
                 _closedPositionsFactory,
                 _notifyUserService,
@@ -868,7 +857,6 @@ public class PositionBuilderViewModel : IAsyncDisposable
         {
             await SelectedPosition.StopTickerAsync();
         }
-        await _positionSyncService.DisposeAsync();
         lock (_persistQueueLock)
         {
             _persistQueueCts?.Cancel();
@@ -880,130 +868,6 @@ public class PositionBuilderViewModel : IAsyncDisposable
             _chartUpdateCts?.Dispose();
         }
     }
-
-    private async Task ApplyServerSnapshotAsync(PositionSnapshotPayload payload, DateTime occurredUtc)
-    {
-        _ = occurredUtc;
-        _suppressSync = true;
-        try
-        {
-            if (ArePositionsEquivalent(payload.Positions, Positions))
-            {
-                return;
-            }
-
-            Positions.Clear();
-            if (payload.Positions.Count == 0)
-            {
-                var defaultPosition = CreateDefaultPosition();
-                Positions.Add(defaultPosition);
-            }
-            else
-            {
-                foreach (var position in payload.Positions)
-                {
-                    NormalizeCollections(position);
-                    Positions.Add(position);
-                }
-            }
-
-            await SetSelectedPositionAsync(Positions.FirstOrDefault());
-
-            UpdateChart();
-            await SelectedPosition.PersistPositionAsync();
-            UpdateLegTickerSubscription();
-            OnChange?.Invoke();
-            await PruneDeletedPositionsAsync();
-
-        }
-        finally
-        {
-            _suppressSync = false;
-        }
-    }
-
-    private async Task ApplyServerItemAsync(PositionItemSnapshotPayload payload, DateTime occurredUtc)
-    {
-        _ = occurredUtc;
-        _suppressSync = true;
-        try
-        {
-            var existingIndex = Positions.ToList().FindIndex(position => position.Id == payload.PositionId);
-            var wasSelected = SelectedPosition?.Position?.Id == payload.PositionId;
-
-            if (payload.IsDeleted)
-            {
-                if (existingIndex >= 0)
-                {
-                    Positions.RemoveAt(existingIndex);
-                }
-                await _storageService.RemoveDeletedPositionsAsync(new[] { payload.PositionId });
-            }
-            else if (payload.Position is not null)
-            {
-                NormalizeCollections(payload.Position);
-                if (existingIndex >= 0)
-                {
-                    Positions.RemoveAt(existingIndex);
-                    Positions.Insert(existingIndex, payload.Position);
-                }
-                else
-                {
-                    Positions.Add(payload.Position);
-                }
-            }
-
-            if (Positions.Count == 0)
-            {
-                await SetSelectedPositionAsync(null);
-            }
-            else if (wasSelected || SelectedPosition?.Position is null)
-            {
-                await SetSelectedPositionAsync(Positions.FirstOrDefault(position => position.Id == payload.PositionId) ??
-                                   Positions.FirstOrDefault());
-            }
-
-            UpdateChart();
-            OnChange?.Invoke();
-            try
-            {
-                await SelectedPosition.PersistPositionAsync();
-            }
-            catch
-            {
-            }
-
-            UpdateLegTickerSubscription();
-        }
-        finally
-        {
-            _suppressSync = false;
-        }
-    }
-
-    private async Task PruneDeletedPositionsAsync()
-    {
-        var deletedIds = await _storageService.LoadDeletedPositionsAsync();
-        if (deletedIds.Count == 0)
-        {
-            return;
-        }
-
-        var activeIds = Positions.Select(position => position.Id).ToHashSet();
-        var resolved = deletedIds.Where(id => !activeIds.Contains(id)).ToList();
-        if (resolved.Count > 0)
-        {
-            await _storageService.RemoveDeletedPositionsAsync(resolved);
-        }
-    }
-
-    private static bool ArePositionsEquivalent(IReadOnlyList<PositionModel> incoming, IEnumerable<PositionModel> current)
-    {
-        var incomingJson = JsonSerializer.Serialize(incoming, SyncJson.SerializerOptions);
-        var currentJson = JsonSerializer.Serialize(current, SyncJson.SerializerOptions);
-        return string.Equals(incomingJson, currentJson, StringComparison.Ordinal);
-    }
-
 }
 
 

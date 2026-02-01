@@ -4,3 +4,4 @@ obj
 .idea
 *.feature.cs
 *.db
+BlazorOptions.Server/Data

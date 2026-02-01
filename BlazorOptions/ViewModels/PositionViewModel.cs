@@ -1,3 +1,4 @@
+using BlazorOptions.API.Positions;
 using BlazorOptions.Pages;
 using BlazorOptions.Services;
 using System;
@@ -24,8 +25,7 @@ public sealed class PositionViewModel : IDisposable
     };
 
     private readonly PositionBuilderViewModel _positionBuilder;
-    private readonly PositionStorageService _storageService;
-    private readonly PositionSyncService _positionSyncService;
+    private readonly IPositionsPort _positionsPort;
     private readonly LegsCollectionViewModelFactory _collectionFactory;
     private readonly ClosedPositionsViewModelFactory _closedPositionsFactory;
     private readonly INotifyUserService _notifyUserService;
@@ -40,13 +40,11 @@ public sealed class PositionViewModel : IDisposable
     private string? _currentSymbol;
     private PositionModel _position;
     private readonly ITelemetryService _telemetryService;
-    private bool _suppressSync;
     private bool _suppressNotesPersist;
 
     public PositionViewModel(
         PositionBuilderViewModel positionBuilder,
-        PositionStorageService storageService,
-        PositionSyncService positionSyncService,
+        IPositionsPort positionsPort,
         LegsCollectionViewModelFactory collectionFactory,
         ClosedPositionsViewModelFactory closedPositionsFactory,
         INotifyUserService notifyUserService,
@@ -55,8 +53,7 @@ public sealed class PositionViewModel : IDisposable
         ActivePositionsService activePositionsService)
     {
         _positionBuilder = positionBuilder;
-        _storageService = storageService;
-        _positionSyncService = positionSyncService;
+        _positionsPort = positionsPort;
         _collectionFactory = collectionFactory;
         _closedPositionsFactory = closedPositionsFactory;
         _notifyUserService = notifyUserService;
@@ -275,17 +272,8 @@ public sealed class PositionViewModel : IDisposable
         using var activity =
             _telemetryService.StartActivity($"{nameof(PositionViewModel)}.{nameof(PersistPositionAsync)}");
 
-        await _storageService.SavePositionAsync(Position);
-        if (!_suppressSync)
-        {
-            var positionToSync = Position;
-            if (positionToSync is null)
-            {
-                return;
-            }
-
-            await _positionSyncService.NotifyLocalChangeAsync(positionToSync);
-        }
+        var dto = PositionDtoMapper.ToDto(Position);
+        await _positionsPort.SavePositionAsync(dto);
     }
 
     private void HandlePositionPropertyChanged(object? sender, PropertyChangedEventArgs e)

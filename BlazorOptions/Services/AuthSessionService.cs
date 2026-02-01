@@ -2,14 +2,19 @@ namespace BlazorOptions.Services;
 
 public class AuthSessionService
 {
-    private const string TokenKey = "blazor-options-auth-token";
-    private const string UserKey = "blazor-options-auth-user";
     private readonly LocalStorageService _localStorageService;
+    private readonly AuthSessionOptions _options;
+    private readonly Microsoft.Extensions.Options.IOptions<AuthSessionState> _stateOptions;
     private bool _initialized;
 
-    public AuthSessionService(LocalStorageService localStorageService)
+    public AuthSessionService(
+        LocalStorageService localStorageService,
+        Microsoft.Extensions.Options.IOptions<AuthSessionOptions> options,
+        Microsoft.Extensions.Options.IOptions<AuthSessionState> stateOptions)
     {
         _localStorageService = localStorageService;
+        _options = options.Value;
+        _stateOptions = stateOptions;
     }
 
     public string? Token { get; private set; }
@@ -27,8 +32,9 @@ public class AuthSessionService
             return;
         }
 
-        Token = await _localStorageService.GetItemAsync(TokenKey);
-        UserName = await _localStorageService.GetItemAsync(UserKey);
+        var state = _stateOptions.Value;
+        Token = state.Token;
+        UserName = state.UserName;
         _initialized = true;
         OnChange?.Invoke();
     }
@@ -37,8 +43,8 @@ public class AuthSessionService
     {
         Token = token;
         UserName = userName;
-        await _localStorageService.SetItemAsync(TokenKey, token);
-        await _localStorageService.SetItemAsync(UserKey, userName);
+        await _localStorageService.SetItemAsync(_options.TokenKey, token);
+        await _localStorageService.SetItemAsync(_options.UserKey, userName);
         OnChange?.Invoke();
     }
 
@@ -46,8 +52,8 @@ public class AuthSessionService
     {
         Token = null;
         UserName = null;
-        await _localStorageService.SetItemAsync(TokenKey, string.Empty);
-        await _localStorageService.SetItemAsync(UserKey, string.Empty);
+        await _localStorageService.SetItemAsync(_options.TokenKey, string.Empty);
+        await _localStorageService.SetItemAsync(_options.UserKey, string.Empty);
         OnChange?.Invoke();
     }
 }
