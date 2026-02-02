@@ -102,6 +102,17 @@ else
                                                      AdornmentText="USDT"
                                                      Class="temp-price-field" />
                                 </MudStack>
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="position-summary-row">
+                                    <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small" Color="Color.Default">
+                                        Base: @ResolveAssetLabel(ViewModel.SelectedPosition?.Position?.BaseAsset)
+                                    </MudChip>
+                                    <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small" Color="Color.Default">
+                                        Settle: @ResolveAssetLabel(ViewModel.SelectedPosition?.Position?.QuoteAsset)
+                                    </MudChip>
+                                    <MudChip T="string" Variant="Variant.Filled" Size="Size.Small" Color="@ResolvePnlColor(ResolveTotalCombinedPnl())">
+                                        Total P/L: @FormatPrice(ResolveTotalCombinedPnl())
+                                    </MudChip>
+                                </MudStack>
                                 <MudSlider T="int"
                                            Min="0"
                                            Max="@ViewModel.MaxExpiryDays"
@@ -223,6 +234,10 @@ else
     }
     .notes-panel .mud-input-root {
         flex: 1;
+    }
+    .position-summary-row {
+        flex-wrap: wrap;
+        gap: 6px;
     }
 </style>
 
@@ -568,6 +583,80 @@ else
         }
 
         UpdateUrl(ViewModel.Positions[0].Id);
+    }
+
+    private static string ResolveAssetLabel(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? "N/A" : value.Trim().ToUpperInvariant();
+    }
+
+    private decimal? ResolveTotalTempPnl()
+    {
+        var selected = ViewModel.SelectedPosition;
+        if (selected is null)
+        {
+            return null;
+        }
+
+        decimal total = 0;
+        var hasValue = false;
+        foreach (var collection in selected.Collections)
+        {
+            if (!collection.Collection.IsVisible)
+            {
+                continue;
+            }
+
+            var value = collection.TotalTempPnl;
+            if (!value.HasValue)
+            {
+                continue;
+            }
+
+            total += value.Value;
+            hasValue = true;
+        }
+
+        return hasValue ? total : null;
+    }
+
+    private static string FormatPrice(decimal? price)
+    {
+        return price.HasValue ? price.Value.ToString("0.00") : "-";
+    }
+
+    private static Color ResolvePnlColor(decimal? value)
+    {
+        if (!value.HasValue)
+        {
+            return Color.Default;
+        }
+
+        return value.Value >= 0 ? Color.Success : Color.Error;
+    }
+
+    private decimal? ResolveClosedNetPnl()
+    {
+        var closed = ViewModel.SelectedPosition?.Position?.Closed;
+        if (closed is null)
+        {
+            return null;
+        }
+
+        return closed.TotalNet;
+    }
+
+    private decimal? ResolveTotalCombinedPnl()
+    {
+        var temp = ResolveTotalTempPnl();
+        var closed = ResolveClosedNetPnl();
+
+        if (!temp.HasValue && !closed.HasValue)
+        {
+            return null;
+        }
+
+        return (temp ?? 0m) + (closed ?? 0m);
     }
 
 }

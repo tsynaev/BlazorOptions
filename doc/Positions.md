@@ -47,3 +47,4 @@ The Positions feature lets you build, manage, and visualize option strategies an
 - Switching positions now updates the route, preserves the previously opened chart after a refresh, and shows an error alert with recovery actions when someone navigates to a nonexistent position ID.
 - Chart recalculation now runs only when a leg field used in charting changes (include/type/strike/expiry/size/price/IV); other leg edits persist without forcing a chart refresh.
 - Notes persist when the text field loses focus, instead of on every keystroke.
+- The positions header now shows base/settle assets and combined total P&L (temp + closed).

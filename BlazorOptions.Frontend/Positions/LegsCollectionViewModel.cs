@@ -133,6 +133,8 @@ public sealed class LegsCollectionViewModel : IDisposable
 
     public decimal TotalTheta => SumGreek(static leg => leg.Theta);
 
+    public decimal? TotalTempPnl => SumTempPnl();
+
     public event Func<LegModel, Task>? LegAdded;
     public event Func<LegModel, Task>? LegRemoved;
     public event Func<LegsCollectionUpdateKind, Task>? Updated;
@@ -649,5 +651,29 @@ public sealed class LegsCollectionViewModel : IDisposable
         }
 
         return total;
+    }
+
+    private decimal? SumTempPnl()
+    {
+        decimal total = 0;
+        var hasValue = false;
+        foreach (var leg in _legs)
+        {
+            if (!leg.Leg.IsIncluded)
+            {
+                continue;
+            }
+
+            var value = leg.TempPnl;
+            if (!value.HasValue)
+            {
+                continue;
+            }
+
+            total += value.Value;
+            hasValue = true;
+        }
+
+        return hasValue ? total : null;
     }
 }
