@@ -3,6 +3,7 @@
 @implements IAsyncDisposable
 @inject PositionBuilderViewModel ViewModel
 @inject IDialogService DialogService
+@inject INavigationService NavigationService
 @inject NavigationManager NavigationManager
 @using System.Linq
 @using Microsoft.AspNetCore.Components.Web
@@ -387,30 +388,21 @@ else
 
     private async Task CreatePosition()
     {
-        var parameters = new DialogParameters
-        {
-            [nameof(PositionCreateDialog.InitialName)] = $"Position {ViewModel.Positions.Count + 1}",
-            [nameof(PositionCreateDialog.InitialBaseAsset)] = ViewModel.SelectedPosition?.Position?.BaseAsset ?? "ETH",
-            [nameof(PositionCreateDialog.InitialQuoteAsset)] = ViewModel.SelectedPosition?.Position?.QuoteAsset ?? "USDT"
-        };
+        var initialName = $"Position {ViewModel.Positions.Count + 1}";
+        var initialBaseAsset = ViewModel.SelectedPosition?.Position?.BaseAsset ?? "ETH";
+        var initialQuoteAsset = ViewModel.SelectedPosition?.Position?.QuoteAsset ?? "USDT";
 
-        var options = new DialogOptions
-        {
-            CloseOnEscapeKey = true,
-            MaxWidth = MaxWidth.Small,
-            FullWidth = true
-        };
+        var dialogViewModel = await NavigationService.NavigateToAsync<PositionCreateDialogViewModel>(viewModel =>
+            viewModel.InitializeAsync(initialName, initialBaseAsset, initialQuoteAsset));
 
-        var dialog = await DialogService.ShowAsync<PositionCreateDialog>("Create position", parameters, options);
-        var result = await dialog.Result;
-
-        if (result is null || result.Canceled || result.Data is not PositionCreateRequest request)
+        var request = await dialogViewModel.WaitForResultAsync();
+        if (request is null)
         {
             return;
         }
 
-        var includeSampleLegs = request.SelectedBybitPositions.Count == 0;
-        await ViewModel.AddPositionAsync(request.Name, request.BaseAsset, request.QuoteAsset, includeSampleLegs);
+        var includeSampleLegs = request.SelectedBybitPositions.Count == 0 && request.InitialLegs.Count == 0;
+        await ViewModel.AddPositionAsync(request.Name, request.BaseAsset, request.QuoteAsset, includeSampleLegs, request.InitialLegs);
         if (request.SelectedBybitPositions.Count > 0 && ViewModel.SelectedPosition is not null)
         {
             var collection = ViewModel.SelectedPosition.Collections.FirstOrDefault();

@@ -8,7 +8,6 @@ namespace BlazorOptions.ViewModels;
 public sealed class LegsCollectionViewModel : IDisposable
 {
     private readonly ILegsCollectionDialogService _dialogService;
-    private readonly OptionsChainService _optionsChainService;
     private readonly LegViewModelFactory _legViewModelFactory;
     private readonly INotifyUserService _notifyUserService;
     private readonly ITelemetryService _telemetryService;
@@ -26,19 +25,19 @@ public sealed class LegsCollectionViewModel : IDisposable
 
     public LegsCollectionViewModel(
         ILegsCollectionDialogService dialogService,
-        OptionsChainService optionsChainService,
         LegViewModelFactory legViewModelFactory,
         INotifyUserService notifyUserService,
-        ITelemetryService telemetryService, IExchangeService exchangeService)
+        ITelemetryService telemetryService,
+        IExchangeService exchangeService,
+        ILegsParserService legsParserService)
     {
         _dialogService = dialogService;
-        _optionsChainService = optionsChainService;
         _legViewModelFactory = legViewModelFactory;
         _notifyUserService = notifyUserService;
         _telemetryService = telemetryService;
         _exchangeService = exchangeService;
 
-        QuickAdd = new QuickAddViewModel(_notifyUserService, optionsChainService, telemetryService, exchangeService);
+        QuickAdd = new QuickAddViewModel(_notifyUserService, telemetryService, legsParserService);
         QuickAdd.LegCreated += HandleQuickAddLegCreated;
 
     }

@@ -125,9 +125,9 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
 
 
-    public async Task AddPositionAsync(string? name = null, string? baseAsset = null, string? quoteAsset = null, bool includeSampleLegs = true)
+    public async Task AddPositionAsync(string? name = null, string? baseAsset = null, string? quoteAsset = null, bool includeSampleLegs = true, IReadOnlyList<LegModel>? initialLegs = null)
     {
-        PositionModel position = CreateDefaultPosition(name ?? $"Position {Positions.Count + 1}", baseAsset, quoteAsset, includeSampleLegs);
+        PositionModel position = CreateDefaultPosition(name ?? $"Position {Positions.Count + 1}", baseAsset, quoteAsset, includeSampleLegs, initialLegs);
         Positions.Add(position);
         await SetSelectedPositionAsync(position);
 
@@ -567,7 +567,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         return _positionsPort.SavePositionAsync(dto);
     }
 
-    private PositionModel CreateDefaultPosition(string? name = null, string? baseAsset = null, string? quoteAsset = null, bool includeSampleLegs = true)
+    private PositionModel CreateDefaultPosition(string? name = null, string? baseAsset = null, string? quoteAsset = null, bool includeSampleLegs = true, IReadOnlyList<LegModel>? initialLegs = null)
     {
         var position = new PositionModel
         {
@@ -577,7 +577,14 @@ public class PositionBuilderViewModel : IAsyncDisposable
         };
 
         var collection = PositionViewModel.CreateCollection(position, PositionViewModel.GetNextCollectionName(position));
-        if (includeSampleLegs)
+        if (initialLegs is not null && initialLegs.Count > 0)
+        {
+            foreach (var leg in initialLegs)
+            {
+                collection.Legs.Add(leg.Clone());
+            }
+        }
+        else if (includeSampleLegs)
         {
             collection.Legs.Add(new LegModel
             {

@@ -34,3 +34,11 @@
 
 - use windows line ending (CR LF) in cs files
 - avoid mixed line endings: after edits, ensure the entire `.cs` file is normalized to CRLF
+
+
+## Documentation Updates
+
+- When important decisions, constraints, conventions, or architectural points are discussed in issues, chats, or PRs, **AGENTS.md must be updated**.
+- AGENTS.md is the **source of truth** for agent behavior, assumptions, and project-wide rules.
+- If a discussion changes or invalidates an existing rule, the outdated entry must be **updated or removed**, not duplicated.
+

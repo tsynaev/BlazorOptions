@@ -5,7 +5,8 @@ The Positions feature lets you build, manage, and visualize option strategies an
 ## Core capabilities
 - Create and manage multiple positions (portfolios) with custom names and colors.
 - Add, remove, and reorder collections of legs within a position.
-- Add legs manually or by parsing quick input (e.g., size/type/strike/expiry).
+- Add legs manually or by parsing quick input (e.g., size/type/strike/expiry, defaulting to the next expiry at least 7 days out).
+- Create a new position with a quick leg list (JSON array or comma/semicolon/newline separated entries) and per-asset defaults for size/expiration stored in local storage.
 - Duplicate collections to iterate on variants.
 - Load live positions from Bybit (options/linear/inverse) into a collection.
 - Create positions from an Active Positions panel that mirrors your Bybit account holdings.
@@ -41,6 +42,9 @@ The Positions feature lets you build, manage, and visualize option strategies an
 2) Add legs using quick input or manual entry.
 3) Visualize payoff and adjust settings (visibility, included legs).
 4) Changes are saved to the server whenever you edit positions.
+
+## Legs parsing
+See `doc/LegParsing.md` for the full parsing rules, defaults, and UI preview behavior.
 
 ## UI updates
 - The legacy tabs were replaced with a borderless dropdown so selecting positions works on mobile and still keeps the URL in sync via `/positions/{positionId}` links.

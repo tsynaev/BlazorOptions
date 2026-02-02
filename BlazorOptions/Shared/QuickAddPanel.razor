@@ -18,11 +18,18 @@
         </MudButton>
  
 </MudStack>
-@if (!string.IsNullOrWhiteSpace(ViewModel.AddActionDescription))
+@if (ViewModel.PreviewItems.Count > 0)
 {
-    <MudText Typo="Typo.caption" Class="quick-add-preview">
-        @ViewModel.AddActionDescription
-    </MudText>
+    <MudChipSet T="string" Class="quick-add-preview">
+        @foreach (var preview in ViewModel.PreviewItems)
+        {
+            <MudChip T="string"
+                     Color="@(preview.IsBuy ? Color.Success : Color.Error)"
+                     Variant="Variant.Filled">
+                @preview.Description
+            </MudChip>
+        }
+    </MudChipSet>
 }
 
 @code {
@@ -37,6 +44,7 @@
 <style>
     .quick-add-panel {
         flex-wrap: nowrap;
+        min-height: 60px;
     }
 
     .quick-add-panel .quick-leg-input {
@@ -46,6 +54,6 @@
 
     .quick-add-preview {
         margin-left: 4px;
-        opacity: 0.85;
+        margin-top: 6px;
     }
 </style>

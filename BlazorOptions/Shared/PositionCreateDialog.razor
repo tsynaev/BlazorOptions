@@ -2,6 +2,7 @@
 @using Microsoft.AspNetCore.Components
 @using Microsoft.AspNetCore.Components.Web
 @using System.Linq
+@using System.ComponentModel
 @using BlazorOptions.ViewModels
 @inject ActivePositionsPanelViewModel PositionsViewModel
 @implements IDisposable
@@ -16,24 +17,65 @@
                       Variant="Variant.Outlined"
                       FullWidth="true"
                       OnKeyDown="HandleKeyDown" />
+        <MudTextField @bind-Value="ViewModel.LegInput"
+                      Label="Legs quick input"
+                      Placeholder="buy ETH-27MAR26-2200-P; -2 P 3000; Accepts JSON array or entries separated by commas, semicolons, or new lines."
+                      Lines="4"
+                      Margin="Margin.Dense"
+                      Variant="Variant.Outlined"
+                      FullWidth="true"
+                      Error="@(!string.IsNullOrWhiteSpace(ViewModel.LegInputError))"
+                      ErrorText="@ViewModel.LegInputError" />
+        @if (ViewModel.LegPreviewItems.Count > 0)
+        {
+            <MudChipSet T="string" Class="leg-preview-chipset">
+                @foreach (var preview in ViewModel.LegPreviewItems)
+                {
+                    <MudChip T="string"
+                             Color="@(preview.IsBuy ? Color.Success : Color.Error)"
+                             Variant="Variant.Filled">
+                        @preview.Description
+                    </MudChip>
+                }
+            </MudChipSet>
+        }
+
+        <MudText Typo="Typo.subtitle2">Defaults for quick input</MudText>
+        <MudStack Row="true" Spacing="2">
+            <MudNumericField T="decimal"
+                             Value="@ViewModel.DefaultSize"
+                             ValueChanged="OnDefaultSizeChanged"
+                             Label="Default size"
+                             Margin="Margin.Dense"
+                             Variant="Variant.Outlined"
+                             Min="0.0001m"
+                             FullWidth="true" />
+            <MudDatePicker Date="@ViewModel.DefaultExpirationDate"
+                           DateChanged="OnDefaultExpirationChanged"
+                           DateFormat="yyyy-MM-dd"
+                           MinDate="@DateTime.UtcNow.Date"
+                           Label="Default expiration"
+                           Margin="Margin.Dense"
+                           Variant="Variant.Outlined"
+                           Clearable="false" />
+        </MudStack>
+        <MudDivider Class="my-4" />
         <ActivePositionsPanel ViewModel="PositionsViewModel" />
+     
+
     </DialogContent>
     <DialogActions>
         <MudButton Color="Color.Default" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="!CanSave" OnClick="Save">Create</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="!CanSave" OnClick="SaveAsync">Create</MudButton>
     </DialogActions>
 </MudDialog>
 
 @code {
     [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
-
-    [Parameter] public string? InitialName { get; set; }
-
-    [Parameter] public string? InitialBaseAsset { get; set; }
-
-    [Parameter] public string? InitialQuoteAsset { get; set; }
+    [Parameter, EditorRequired] public PositionCreateDialogViewModel ViewModel { get; set; } = default!;
 
     private string _name = string.Empty;
+    private string _lastBaseAsset = string.Empty;
 
     private bool CanSave => !string.IsNullOrWhiteSpace(_name)
                             && !string.IsNullOrWhiteSpace(PositionsViewModel.BaseAsset)
@@ -41,34 +83,58 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _name = string.IsNullOrWhiteSpace(InitialName) ? "Position" : InitialName;
-        await PositionsViewModel.InitializeAsync(InitialBaseAsset, InitialQuoteAsset, null);
+        _name = string.IsNullOrWhiteSpace(ViewModel.InitialName) ? "Position" : ViewModel.InitialName;
+        await PositionsViewModel.InitializeAsync(ViewModel.InitialBaseAsset, ViewModel.InitialQuoteAsset, null);
+        _lastBaseAsset = PositionsViewModel.BaseAsset;
     }
 
     protected override void OnInitialized()
     {
         PositionsViewModel.OnChange += HandleStateChanged;
+        ViewModel.PropertyChanged += HandleViewModelChanged;
     }
 
     private void HandleStateChanged()
     {
+        if (!string.Equals(_lastBaseAsset, PositionsViewModel.BaseAsset, StringComparison.OrdinalIgnoreCase))
+        {
+            _lastBaseAsset = PositionsViewModel.BaseAsset;
+            _ = ViewModel.UpdateBaseAssetAsync(_lastBaseAsset);
+        }
+
         _ = InvokeAsync(StateHasChanged);
     }
 
-    private void Save()
+    private void HandleViewModelChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        HandleStateChanged();
+    }
+
+    private async Task SaveAsync()
     {
         var name = _name.Trim();
         var baseAsset = PositionsViewModel.BaseAsset.Trim().ToUpperInvariant();
         var quoteAsset = PositionsViewModel.QuoteAsset.Trim().ToUpperInvariant();
-        Dialog.Close(DialogResult.Ok(new PositionCreateRequest(
+        var initialLegs = await ViewModel.TryBuildLegsAsync(baseAsset);
+        if (initialLegs is null)
+        {
+            return;
+        }
+
+        var request = new PositionCreateRequest(
             name,
             baseAsset,
             quoteAsset,
-            PositionsViewModel.SelectedPositions.ToList())));
+            PositionsViewModel.SelectedPositions.ToList(),
+            initialLegs);
+
+        ViewModel.Confirm(request);
+        Dialog.Close(DialogResult.Ok(true));
     }
 
     private void Cancel()
     {
+        ViewModel.Cancel();
         Dialog.Cancel();
     }
 
@@ -76,7 +142,7 @@
     {
         if (args.Key == "Enter" && CanSave)
         {
-            Save();
+            _ = SaveAsync();
         }
         else if (args.Key == "Escape")
         {
@@ -84,9 +150,20 @@
         }
     }
 
+    private Task OnDefaultSizeChanged(decimal value)
+    {
+        return ViewModel.SetDefaultSizeAsync(value);
+    }
+
+    private Task OnDefaultExpirationChanged(DateTime? value)
+    {
+        return ViewModel.SetDefaultExpirationAsync(value);
+    }
+
     public void Dispose()
     {
         PositionsViewModel.OnChange -= HandleStateChanged;
+        ViewModel.PropertyChanged -= HandleViewModelChanged;
         PositionsViewModel.Dispose();
     }
 }
