@@ -28,6 +28,7 @@ The Positions feature lets you build, manage, and visualize option strategies an
 - `ExchangeTickerService` handles Bybit-only subscription, throttles updates internally, and resolves settings from local storage via options.
 - Turning live off disposes the exchange ticker subscription; turning live on re-subscribes.
 - When live is off, option ticker subscriptions are stopped and bid/ask display is hidden.
+- When live is off, mark price is calculated using Black-Scholes with option-chain IV and the latest underlying price.
 - Option chain updates use `OptionsChainService.SubscribeAsync` (no global events); multiple handlers supported.
 
 ## Persistence

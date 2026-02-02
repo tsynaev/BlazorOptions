@@ -25,12 +25,7 @@
             <MudText Typo="Typo.caption">
                 Value: @FormatPrice(CalculateValue(GetDisplayPrice(), ViewModel.Leg.Size))
             </MudText>
-            @if (ViewModel.Leg.Type != LegType.Future)
-            {
-                <MudText Typo="Typo.caption">
-                    IV: @FormatIv(ViewModel.Leg.ImpliedVolatility ?? ViewModel.ChainIv)
-                </MudText>
-            }
+          
         </MudStack>
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
             <MudText Typo="Typo.caption" Color="@(ViewModel.TempPnl >= 0 ? Color.Success : Color.Error)">
@@ -40,6 +35,16 @@
             {
                 <MudText Typo="Typo.caption">
                     (@($"{ViewModel.TempPnlPercent.Value:0.00}%"))
+                </MudText>
+            }
+            @if (!ViewModel.IsLive && ViewModel.MarkPrice.HasValue)
+            {
+                <MudText Typo="Typo.caption">
+                    Mark: @FormatPrice(ViewModel.MarkPrice) 
+                    @if (ViewModel.Leg.Type != LegType.Future)
+                    {                       
+                        <span class="ml-2">(IV: @FormatIv(ViewModel.Leg.ImpliedVolatility ?? ViewModel.ChainIv))</span>
+                    }
                 </MudText>
             }
             @if (ViewModel.IsLive && (ViewModel.Bid.HasValue || ViewModel.Ask.HasValue))

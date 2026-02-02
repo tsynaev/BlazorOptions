@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using BlazorOptions;
 using BlazorOptions.Services;
 
 namespace BlazorOptions.ViewModels;
@@ -16,6 +17,7 @@ public sealed class LegViewModel : IDisposable
     private readonly ExchangeTickerService _exchangeTicker;
     private readonly IExchangeService _exchangeService;
     private readonly ITelemetryService _telemetryService;
+    private readonly BlackScholes _blackScholes;
     private readonly SemaphoreSlim _subscriptionLock = new(1, 1);
     private IDisposable? _subscriptionRegistration;
     private decimal? _currentPrice;
@@ -49,7 +51,8 @@ public sealed class LegViewModel : IDisposable
         OptionsChainService optionsChainService,
         ExchangeTickerService exchangeTicker,
         IExchangeService exchangeService,
-        ITelemetryService telemetryService)
+        ITelemetryService telemetryService,
+        BlackScholes blackScholes)
     {
         _collectionViewModel = collectionViewModel;
         _optionsService = optionsService;
@@ -57,6 +60,7 @@ public sealed class LegViewModel : IDisposable
         _exchangeTicker = exchangeTicker;
         _exchangeService = exchangeService;
         _telemetryService = telemetryService;
+        _blackScholes = blackScholes;
     }
 
     public LegModel Leg
@@ -142,6 +146,7 @@ public sealed class LegViewModel : IDisposable
             {
                 _subscriptionRegistration?.Dispose();
                 _subscriptionRegistration = null;
+                RefreshNonLiveMarketSnapshot();
             }
             else
             {
@@ -588,6 +593,8 @@ public sealed class LegViewModel : IDisposable
     {
         if (IsLive) return;
 
+        RefreshNonLiveMarketSnapshot();
+
         if (_currentPrice == null)
         {
             TempPnl = null;
@@ -601,6 +608,63 @@ public sealed class LegViewModel : IDisposable
         else
         {
             TempPnl = _optionsService.CalculateLegTheoreticalProfit(Leg, _currentPrice.Value, ValuationDate);
+        }
+    }
+
+    private void RefreshNonLiveMarketSnapshot()
+    {
+        if (IsLive)
+        {
+            return;
+        }
+
+        if (Leg.Type == LegType.Future)
+        {
+            MarkPrice = _currentPrice;
+            Bid = null;
+            Ask = null;
+            ChainIv = null;
+            return;
+        }
+
+        var baseAsset = _collectionViewModel.Position?.Position.BaseAsset;
+        var ticker = _optionsChainService.FindTickerForLeg(Leg, baseAsset);
+        if (ticker is null)
+        {
+            MarkPrice = null;
+            Bid = null;
+            Ask = null;
+            ChainIv = null;
+            return;
+        }
+
+        Bid = ticker.BidPrice > 0 ? ticker.BidPrice : null;
+        Ask = ticker.AskPrice > 0 ? ticker.AskPrice : null;
+        var ivPercent = NormalizeIv(ticker.MarkIv)
+            ?? NormalizeIv(ticker.BidIv)
+            ?? NormalizeIv(ticker.AskIv);
+
+        ChainIv = ivPercent;
+
+        var underlying = _currentPrice ?? ticker.UnderlyingPrice;
+        if (underlying.HasValue
+            && underlying.Value > 0
+            && Leg.Strike.HasValue
+            && Leg.ExpirationDate.HasValue
+            && ivPercent.HasValue
+            && ivPercent.Value > 0)
+        {
+            MarkPrice = _blackScholes.CalculatePriceDecimal(
+                underlying.Value,
+                Leg.Strike.Value,
+                ivPercent.Value,
+                Leg.ExpirationDate.Value,
+                Leg.Type == LegType.Call,
+                ValuationDate);
+        }
+        else
+        {
+            MarkPrice = ticker.MarkPrice > 0 ? ticker.MarkPrice : null;
         }
     }
 

@@ -185,6 +185,12 @@
                         (@($"{ViewModel.TempPnlPercent.Value:0.00}%"))
                     </MudText>
                 }
+                @if (!ViewModel.IsLive && ViewModel.MarkPrice.HasValue)
+                {
+                    <MudText Typo="Typo.caption">
+                        Mark: @FormatPrice(ViewModel.MarkPrice)
+                    </MudText>
+                }
                 @if (ViewModel.IsLive && (ViewModel.Bid.HasValue || ViewModel.Ask.HasValue))
                 {
                     <MudText Typo="Typo.caption">
