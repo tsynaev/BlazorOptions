@@ -35,20 +35,6 @@
     color: white;
 }
 
-.chart-container {
-    height: 520px;
-    position: relative;
-    overflow: hidden;
-    width: 100%;
-}
-
-.chart-surface {
-    height: 100%;
-    position: relative;
-    overflow: hidden;
-    width: 100%;
-}
-
 .chart-host {
     height: 100%;
     width: 100%;
@@ -165,9 +151,4 @@ code {
         padding: 8px 6px;
     }
 
-    .chart-container,
-    .chart-container .mud-card-content,
-    .chart-container .mud-paper {
-        padding: 0 !important;
-    }
 }

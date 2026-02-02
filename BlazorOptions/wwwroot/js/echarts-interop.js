@@ -1,4 +1,38 @@
 window.payoffChart = {
+    _instances: new Set(),
+    _resizeTimer: null,
+    _resizeScheduled: false,
+    _ensureResizeListener: function () {
+        if (window.payoffChart._resizeScheduled) {
+            return;
+        }
+        window.payoffChart._resizeScheduled = true;
+        const schedule = () => {
+            if (window.payoffChart._resizeTimer) {
+                clearTimeout(window.payoffChart._resizeTimer);
+            }
+            window.payoffChart._resizeTimer = setTimeout(() => {
+                window.payoffChart._resizeTimer = null;
+                window.payoffChart._instances.forEach((element) => {
+                    const instance = element && element.__payoffInstance;
+                    if (element && element.isConnected && instance && !instance.isDisposed?.()) {
+                        instance.resize();
+                    }
+                });
+            }, 80);
+        };
+        window.addEventListener('resize', schedule);
+        window.addEventListener('orientationchange', schedule);
+        if (window.matchMedia) {
+            const media = window.matchMedia('(max-width: 600px)');
+            const handler = () => schedule();
+            if (media.addEventListener) {
+                media.addEventListener('change', handler);
+            } else if (media.addListener) {
+                media.addListener(handler);
+            }
+        }
+    },
     render: function (element, options, dotNetHelper) {
         if (!element || !options) return;
 
@@ -7,6 +41,15 @@ window.payoffChart = {
                 element.__payoffInstance.dispose();
             }
             element.__payoffInstance = null;
+            window.payoffChart._instances.delete(element);
+            if (element.__payoffResizeObserver) {
+                element.__payoffResizeObserver.disconnect();
+                element.__payoffResizeObserver = null;
+            }
+            if (element.__payoffResizeRaf) {
+                cancelAnimationFrame(element.__payoffResizeRaf);
+                element.__payoffResizeRaf = null;
+            }
             return;
         }
 
@@ -40,6 +83,33 @@ window.payoffChart = {
 
         const chart = element.__payoffInstance || echarts.init(element);
         element.__payoffInstance = chart;
+        window.payoffChart._instances.add(element);
+        window.payoffChart._ensureResizeListener();
+        const ensureResizeObserver = () => {
+            if (element.__payoffResizeObserver || typeof ResizeObserver !== 'function') {
+                return;
+            }
+            const observer = new ResizeObserver(() => {
+                if (!element.isConnected) {
+                    observer.disconnect();
+                    element.__payoffResizeObserver = null;
+                    return;
+                }
+                if (element.__payoffResizeRaf) {
+                    return;
+                }
+                element.__payoffResizeRaf = requestAnimationFrame(() => {
+                    element.__payoffResizeRaf = null;
+                    const instance = element.__payoffInstance;
+                    if (instance && !instance.isDisposed?.()) {
+                        instance.resize();
+                    }
+                });
+            });
+            element.__payoffResizeObserver = observer;
+            observer.observe(element);
+        };
+        ensureResizeObserver();
 
         const labels = options.labels || [];
         const collections = options.collections || [];
@@ -1021,6 +1091,40 @@ window.payoffChart.updateTempPrice = function (element, tempPrice) {
 };
 
 window.dailyPnlChart = {
+    _instances: new Set(),
+    _resizeTimer: null,
+    _resizeScheduled: false,
+    _ensureResizeListener: function () {
+        if (window.dailyPnlChart._resizeScheduled) {
+            return;
+        }
+        window.dailyPnlChart._resizeScheduled = true;
+        const schedule = () => {
+            if (window.dailyPnlChart._resizeTimer) {
+                clearTimeout(window.dailyPnlChart._resizeTimer);
+            }
+            window.dailyPnlChart._resizeTimer = setTimeout(() => {
+                window.dailyPnlChart._resizeTimer = null;
+                window.dailyPnlChart._instances.forEach((element) => {
+                    const instance = element && element.__dailyPnlInstance;
+                    if (element && element.isConnected && instance && !instance.isDisposed?.()) {
+                        instance.resize();
+                    }
+                });
+            }, 80);
+        };
+        window.addEventListener('resize', schedule);
+        window.addEventListener('orientationchange', schedule);
+        if (window.matchMedia) {
+            const media = window.matchMedia('(max-width: 600px)');
+            const handler = () => schedule();
+            if (media.addEventListener) {
+                media.addEventListener('change', handler);
+            } else if (media.addListener) {
+                media.addListener(handler);
+            }
+        }
+    },
     render: function (element, options) {
         if (!element || !options) return;
 
@@ -1029,6 +1133,15 @@ window.dailyPnlChart = {
                 element.__dailyPnlInstance.dispose();
             }
             element.__dailyPnlInstance = null;
+            window.dailyPnlChart._instances.delete(element);
+            if (element.__dailyPnlResizeObserver) {
+                element.__dailyPnlResizeObserver.disconnect();
+                element.__dailyPnlResizeObserver = null;
+            }
+            if (element.__dailyPnlResizeRaf) {
+                cancelAnimationFrame(element.__dailyPnlResizeRaf);
+                element.__dailyPnlResizeRaf = null;
+            }
             return;
         }
 
@@ -1056,6 +1169,33 @@ window.dailyPnlChart = {
 
         const chart = element.__dailyPnlInstance || echarts.init(element);
         element.__dailyPnlInstance = chart;
+        window.dailyPnlChart._instances.add(element);
+        window.dailyPnlChart._ensureResizeListener();
+        const ensureResizeObserver = () => {
+            if (element.__dailyPnlResizeObserver || typeof ResizeObserver !== 'function') {
+                return;
+            }
+            const observer = new ResizeObserver(() => {
+                if (!element.isConnected) {
+                    observer.disconnect();
+                    element.__dailyPnlResizeObserver = null;
+                    return;
+                }
+                if (element.__dailyPnlResizeRaf) {
+                    return;
+                }
+                element.__dailyPnlResizeRaf = requestAnimationFrame(() => {
+                    element.__dailyPnlResizeRaf = null;
+                    const instance = element.__dailyPnlInstance;
+                    if (instance && !instance.isDisposed?.()) {
+                        instance.resize();
+                    }
+                });
+            });
+            element.__dailyPnlResizeObserver = observer;
+            observer.observe(element);
+        };
+        ensureResizeObserver();
 
         const labels = options.days || [];
         const collections = options.series || [];
