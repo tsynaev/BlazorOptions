@@ -8,6 +8,7 @@ COPY BlazorOptions.Server/BlazorOptions.Server.csproj BlazorOptions.Server/
 COPY BlazorOptions/BlazorOptions.csproj BlazorOptions/
 COPY BlazorOptions.API/BlazorOptions.API.csproj BlazorOptions.API/
 COPY BlazorOptions.Frontend/BlazorOptions.Frontend.csproj BlazorOptions.Frontend/
+COPY BlazorOptions.Tests/BlazorOptions.Tests.csproj BlazorOptions.Tests/
 RUN dotnet restore
 
 COPY . .
