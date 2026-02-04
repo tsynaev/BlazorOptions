@@ -29,7 +29,7 @@ public sealed class PositionViewModel : IDisposable
     private readonly ClosedPositionsViewModelFactory _closedPositionsFactory;
     private readonly INotifyUserService _notifyUserService;
     private readonly ExchangeTickerService _exchangeTickerService;
-    private readonly ActivePositionsService _activePositionsService;
+    private readonly IActivePositionsService _activePositionsService;
     private decimal? _currentPrice;
     private DateTime _valuationDate = DateTime.UtcNow;
     private decimal? _selectedPrice;
@@ -49,7 +49,7 @@ public sealed class PositionViewModel : IDisposable
         INotifyUserService notifyUserService,
         ITelemetryService telemetryService,
         ExchangeTickerService exchangeTickerService,
-        ActivePositionsService activePositionsService)
+        IActivePositionsService activePositionsService)
     {
         _positionBuilder = positionBuilder;
         _positionsPort = positionsPort;
@@ -138,6 +138,7 @@ public sealed class PositionViewModel : IDisposable
         _activePositionsService.PositionsUpdated += HandleActivePositionsSnapshot;
 
         await ClosedPositions.InitializeAsync();
+        await RefreshExchangeMissingFlagsAsync();
 
     }
 
@@ -323,14 +324,14 @@ public sealed class PositionViewModel : IDisposable
         }
     }
 
-    private Task HandleActivePositionsSnapshot(IReadOnlyList<BybitPosition> positions)
+    private async Task HandleActivePositionsSnapshot(IReadOnlyList<BybitPosition> positions)
     {
         foreach (var position in positions)
         {
             ApplyActivePositionUpdate(position);
         }
 
-        return Task.CompletedTask;
+        await UpdateExchangeMissingFlagsAsync(positions);
     }
 
     private void HandleActivePositionUpdated(BybitPosition position)
@@ -358,6 +359,23 @@ public sealed class PositionViewModel : IDisposable
                 legViewModel.Update(position);
             }
         }
+    }
+
+    private async Task RefreshExchangeMissingFlagsAsync()
+    {
+        var positions = (await _activePositionsService.GetPositionsAsync()).ToList();
+        await UpdateExchangeMissingFlagsAsync(positions);
+    }
+
+    private async Task UpdateExchangeMissingFlagsAsync(IReadOnlyList<BybitPosition> positions)
+    {
+        if (Collections.Count == 0)
+        {
+            return;
+        }
+
+        var tasks = Collections.Select(collection => collection.UpdateExchangeMissingFlagsAsync(positions));
+        await Task.WhenAll(tasks);
     }
 
 

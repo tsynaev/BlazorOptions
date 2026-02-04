@@ -22,6 +22,7 @@ public sealed class LegViewModel : IDisposable
     private IDisposable? _subscriptionRegistration;
     private decimal? _currentPrice;
     private bool _isLive;
+    private string? _statusMessage;
  
     private LegModel? _leg;
     private List<DateTime?> _cachedExpirations = new List<DateTime?>();
@@ -105,7 +106,7 @@ public sealed class LegViewModel : IDisposable
 
     public decimal? Theta { get; private set; }
 
- 
+    public string StatusMessage => _statusMessage ?? string.Empty;
 
     public decimal? TempPnlPercent => ResolveTempPnlPercent();
 
@@ -296,6 +297,21 @@ public sealed class LegViewModel : IDisposable
         ResetGreeks();
 
         _ = RefreshSubscriptionAsync();
+    }
+
+    public bool SetLegStatus(LegStatus status, string? message)
+    {
+        var normalizedMessage = status == LegStatus.Missing
+            ? (string.IsNullOrWhiteSpace(message) ? "Exchange position not found." : message)
+            : string.Empty;
+        if (Leg.Status == status && string.Equals(_statusMessage, normalizedMessage, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        Leg.Status = status;
+        _statusMessage = normalizedMessage;
+        return true;
     }
 
     public bool Update(BybitPosition position)

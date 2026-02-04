@@ -10,7 +10,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
     private readonly IPositionsPort _positionsPort;
     private readonly ExchangeTickerService _exchangeTickerService;
     private readonly OptionsChainService _optionsChainService;
-    private readonly ActivePositionsService _activePositionsService;
+    private readonly IActivePositionsService _activePositionsService;
     private readonly LegsCollectionViewModelFactory _collectionFactory;
     private readonly ClosedPositionsViewModelFactory _closedPositionsFactory;
     private readonly INotifyUserService _notifyUserService;
@@ -50,7 +50,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         IPositionsPort positionsPort,
         ExchangeTickerService exchangeTickerService,
         OptionsChainService optionsChainService,
-        ActivePositionsService activePositionsService,
+        IActivePositionsService activePositionsService,
         LegsCollectionViewModelFactory collectionFactory,
         ClosedPositionsViewModelFactory closedPositionsFactory,
         INotifyUserService notifyUserService,

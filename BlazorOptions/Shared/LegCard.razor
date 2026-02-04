@@ -3,11 +3,29 @@
 @using MudBlazor
 @inject IDialogService DialogService
 
-<MudPaper Elevation="1" Class="leg-card">
+<MudPaper Elevation="1" Class="@GetCardClass()">
     <MudStack Spacing="1">
         <MudStack Row="true" AlignItems="AlignItems.Start" Spacing="1">
             <MudStack Spacing="0">
-                <MudText Typo="Typo.caption" Class="leg-card-symbol">@GetSymbolLabel()</MudText>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                    <MudText Typo="Typo.caption" Class="leg-card-symbol">@GetSymbolLabel()</MudText>
+                    <MudChip T="string"
+                             Variant="Variant.Outlined"
+                             Size="Size.Small"
+                             Color="@ResolveStatusColor(ViewModel.Leg.Status)"
+                             Class="leg-status-chip">
+                        @ResolveStatusLabel(ViewModel.Leg.Status)
+                    </MudChip>
+                    @if (ViewModel.Leg.Status == LegStatus.Missing)
+                    {
+                        <MudTooltip Text="@ViewModel.StatusMessage">
+                            <MudIcon Icon="@Icons.Material.Filled.ReportProblem"
+                                     Color="Color.Warning"
+                                     Size="Size.Small"
+                                     Class="leg-card-warning" />
+                        </MudTooltip>
+                    }
+                </MudStack>
                 <MudText Typo="Typo.subtitle2">@BuildLegSummary()</MudText>
                 <MudText Typo="Typo.overline" Class="leg-card-subtitle">@BuildLegSubtitle()</MudText>
             </MudStack>
@@ -157,6 +175,37 @@
     {
         return value.HasValue ? value.Value.ToString("0.###", CultureInfo.InvariantCulture) : "-";
     }
+
+    private string GetCardClass()
+    {
+        return ViewModel.Leg.Status switch
+        {
+            LegStatus.Active => "leg-card leg-card-active",
+            LegStatus.Missing => "leg-card leg-card-missing",
+            _ => "leg-card leg-card-new"
+        };
+    }
+
+    private static string ResolveStatusLabel(LegStatus status)
+    {
+        return status switch
+        {
+            LegStatus.New => "New",
+            LegStatus.Active => "Active",
+            LegStatus.Missing => "Missing",
+            _ => "New"
+        };
+    }
+
+    private static Color ResolveStatusColor(LegStatus status)
+    {
+        return status switch
+        {
+            LegStatus.Active => Color.Success,
+            LegStatus.Missing => Color.Error,
+            _ => Color.Default
+        };
+    }
 }
 
 <style>
@@ -167,6 +216,20 @@
         width: 100%;
         min-height: 150px;
         border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .leg-card-new {
+        background-color: rgba(255, 255, 255, 0.02);
+    }
+
+    .leg-card-active {
+        background-color: rgba(32, 130, 64, 0.18);
+        border-color: rgba(46, 204, 113, 0.35);
+    }
+
+    .leg-card-missing {
+        background-color: rgba(150, 30, 30, 0.2);
+        border-color: rgba(231, 76, 60, 0.4);
     }
 
     .leg-card-include {
@@ -185,6 +248,15 @@
 
     .leg-card-icon .mud-icon-button {
         padding: 4px;
+    }
+
+    .leg-card-warning {
+        margin-top: 1px;
+    }
+
+    .leg-status-chip {
+        height: 20px;
+        padding: 0 6px;
     }
 
     .leg-card-actions {

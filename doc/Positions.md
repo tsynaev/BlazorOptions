@@ -10,6 +10,8 @@ The Positions feature lets you build, manage, and visualize option strategies an
 - Duplicate collections to iterate on variants.
 - Load live positions from Bybit (options/linear/inverse) into a collection.
 - Create positions from an Active Positions panel that mirrors your Bybit account holdings.
+- Read-only legs without a matching Bybit position are flagged with a warning icon and tooltip.
+- Leg status: New (editable), Active (matched to exchange), Missing (no exchange match).
 - Toggle leg inclusion and collection visibility to control what is shown in charts.
 - Live price tracking and automatic leg price refresh from option chain data.
 - Payoff chart updates for visible collections and selected valuation date.

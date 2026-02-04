@@ -10,6 +10,7 @@ public sealed class LegsCollectionViewModelFactory
     private readonly ITelemetryService _telemetryService;
     private readonly IExchangeService _exchangeService;
     private readonly ILegsParserService _legsParserService;
+    private readonly IActivePositionsService _activePositionsService;
 
 
     public LegsCollectionViewModelFactory(
@@ -17,6 +18,7 @@ public sealed class LegsCollectionViewModelFactory
         LegViewModelFactory legViewModelFactory,
         INotifyUserService notifyUserService,
         ITelemetryService telemetryService,
+        IActivePositionsService activePositionsService,
         IExchangeService exchangeService,
         ILegsParserService legsParserService)
     {
@@ -24,6 +26,7 @@ public sealed class LegsCollectionViewModelFactory
         _legViewModelFactory = legViewModelFactory;
         _notifyUserService = notifyUserService;
         _telemetryService = telemetryService;
+        _activePositionsService = activePositionsService;
         _exchangeService = exchangeService;
         _legsParserService = legsParserService;
     }
@@ -35,6 +38,7 @@ public sealed class LegsCollectionViewModelFactory
             _legViewModelFactory,
             _notifyUserService,
             _telemetryService,
+            _activePositionsService,
             _exchangeService,
             _legsParserService)
         {

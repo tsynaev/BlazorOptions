@@ -8,7 +8,7 @@ namespace BlazorOptions.ViewModels;
 public sealed class ActivePositionsPanelViewModel : IDisposable
 {
     private static readonly string[] _positionExpirationFormats = { "ddMMMyy", "ddMMMyyyy" };
-    private readonly ActivePositionsService _activePositionsService;
+    private readonly IActivePositionsService _activePositionsService;
     private readonly IExchangeService _exchangeService;
     private readonly HashSet<BybitPosition> _selectedPositions;
     private readonly BybitPositionComparer _comparer = new();
@@ -17,7 +17,7 @@ public sealed class ActivePositionsPanelViewModel : IDisposable
     private bool _isInitialized;
     private bool _isSubscribed;
 
-    public ActivePositionsPanelViewModel(ActivePositionsService activePositionsService, IExchangeService exchangeService)
+    public ActivePositionsPanelViewModel(IActivePositionsService activePositionsService, IExchangeService exchangeService)
     {
         _activePositionsService = activePositionsService;
         _exchangeService = exchangeService;

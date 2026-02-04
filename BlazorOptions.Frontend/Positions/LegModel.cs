@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 namespace BlazorOptions.ViewModels;
 
 public enum LegType
@@ -8,12 +8,20 @@ public enum LegType
     Future
 }
 
+public enum LegStatus
+{
+    New,
+    Active,
+    Missing
+}
+
 public class LegModel : Bindable
 {
     private string _id = Guid.NewGuid().ToString();
     private bool _isIncluded = true;
     private bool _isReadOnly;
     private LegType _type = LegType.Call;
+    private LegStatus _status = LegStatus.New;
     private decimal? _strike;
     private DateTime? _expirationDate;
     private decimal _size = 1;
@@ -43,6 +51,12 @@ public class LegModel : Bindable
     {
         get => _type;
         set => SetField(ref _type, value);
+    }
+
+    public LegStatus Status
+    {
+        get => _status;
+        set => SetField(ref _status, value);
     }
 
     public decimal? Strike
@@ -89,6 +103,7 @@ public class LegModel : Bindable
             IsIncluded = IsIncluded,
             IsReadOnly = IsReadOnly,
             Type = Type,
+            Status = Status,
             Strike = Strike,
             ExpirationDate = ExpirationDate,
             Size = Size,

@@ -8,7 +8,7 @@ using Microsoft.Extensions.Options;
 
 namespace BlazorOptions.Services;
 
-public sealed class ActivePositionsService : IAsyncDisposable
+public sealed class ActivePositionsService : IActivePositionsService
 {
     private const string StorageKey = "blazor-options-bybit-active-positions";
     private static readonly Uri BybitPrivateWebSocketUrl = new("wss://stream.bybit.com/v5/private");

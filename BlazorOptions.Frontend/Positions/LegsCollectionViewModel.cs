@@ -11,6 +11,7 @@ public sealed class LegsCollectionViewModel : IDisposable
     private readonly LegViewModelFactory _legViewModelFactory;
     private readonly INotifyUserService _notifyUserService;
     private readonly ITelemetryService _telemetryService;
+    private readonly IActivePositionsService _activePositionsService;
     private string _baseAsset = string.Empty;
     private decimal? _currentPrice;
     private bool _isLive;
@@ -28,6 +29,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         LegViewModelFactory legViewModelFactory,
         INotifyUserService notifyUserService,
         ITelemetryService telemetryService,
+        IActivePositionsService activePositionsService,
         IExchangeService exchangeService,
         ILegsParserService legsParserService)
     {
@@ -35,6 +37,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         _legViewModelFactory = legViewModelFactory;
         _notifyUserService = notifyUserService;
         _telemetryService = telemetryService;
+        _activePositionsService = activePositionsService;
         _exchangeService = exchangeService;
 
         QuickAdd = new QuickAddViewModel(_notifyUserService, telemetryService, legsParserService);
@@ -239,6 +242,8 @@ public sealed class LegsCollectionViewModel : IDisposable
             return;
         }
 
+        await RefreshExchangeMissingFlagsAsync();
+
         var positions = await _dialogService.ShowBybitPositionsDialogAsync(
             Position.Position.BaseAsset,
             Position.Position.QuoteAsset,
@@ -301,6 +306,7 @@ public sealed class LegsCollectionViewModel : IDisposable
 
         SyncLegViewModels();
         await RaiseUpdatedAsync(LegsCollectionUpdateKind.CollectionChanged);
+        await UpdateExchangeMissingFlagsAsync(positions);
     }
 
     internal LegModel? CreateLegFromBybitPosition(BybitPosition position, string baseAsset, string category)
@@ -604,6 +610,66 @@ public sealed class LegsCollectionViewModel : IDisposable
 
         leg.Symbol = _exchangeService.FormatSymbol(leg, Position?.Position.BaseAsset, Position?.Position.QuoteAsset);
 
+    }
+
+    public async Task RefreshExchangeMissingFlagsAsync()
+    {
+        var positions = (await _activePositionsService.GetPositionsAsync()).ToList();
+        await UpdateExchangeMissingFlagsAsync(positions);
+    }
+
+    public async Task UpdateExchangeMissingFlagsAsync(IReadOnlyList<BybitPosition> positions)
+    {
+        var hasChanges = false;
+        var lookup = positions
+            .Where(position => !string.IsNullOrWhiteSpace(position.Symbol))
+            .GroupBy(position => position.Symbol.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var legViewModel in _legs)
+        {
+            var leg = legViewModel.Leg;
+            if (!leg.IsReadOnly)
+            {
+                if (leg.Status != LegStatus.New)
+                {
+                    leg.Status = LegStatus.New;
+                }
+                hasChanges |= legViewModel.SetLegStatus(LegStatus.New, null);
+                continue;
+            }
+
+            var symbol = leg.Symbol?.Trim();
+            if (string.IsNullOrWhiteSpace(symbol))
+            {
+                hasChanges |= legViewModel.SetLegStatus(LegStatus.Missing, "Read-only leg has no exchange symbol.");
+                continue;
+            }
+
+            if (!lookup.TryGetValue(symbol, out var matches) || matches.Count == 0)
+            {
+                hasChanges |= legViewModel.SetLegStatus(LegStatus.Missing, "Exchange position not found for this leg.");
+                continue;
+            }
+
+            var legSign = Math.Sign(leg.Size);
+            var hasSideMatch = legSign == 0
+                ? matches.Any()
+                : matches.Any(position => Math.Sign(DetermineSignedSize(position)) == legSign);
+
+            if (!hasSideMatch)
+            {
+                hasChanges |= legViewModel.SetLegStatus(LegStatus.Missing, "Exchange position found with different side.");
+                continue;
+            }
+
+            hasChanges |= legViewModel.SetLegStatus(LegStatus.Active, null);
+        }
+
+        if (hasChanges)
+        {
+            await RaiseUpdatedAsync(LegsCollectionUpdateKind.ViewModelDataUpdated);
+        }
     }
 
     private decimal SumDelta()
