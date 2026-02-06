@@ -1,3 +1,4 @@
+using BlazorOptions.Diagnostics;
 using BlazorOptions.Services;
 
 namespace BlazorOptions.ViewModels;
@@ -5,7 +6,6 @@ namespace BlazorOptions.ViewModels;
 public sealed class QuickAddViewModel
 {
     private readonly INotifyUserService _context;
-    private readonly ITelemetryService _telemetryService;
     private readonly ILegsParserService _legsParserService;
 
     public string QuickLegInput { get; set; } = string.Empty;
@@ -24,11 +24,9 @@ public sealed class QuickAddViewModel
 
     public QuickAddViewModel(
         INotifyUserService context,
-        ITelemetryService telemetryService,
         ILegsParserService legsParserService)
     {
         _context = context;
-        _telemetryService = telemetryService;
         _legsParserService = legsParserService;
     }
 
@@ -46,7 +44,7 @@ public sealed class QuickAddViewModel
 
     public async Task AddQuickLegAsync()
     {
-        using var activity = _telemetryService.StartActivity("QuickAdd.AddQuickLeg");
+        using var activity = ActivitySources.Telemetry.StartActivity("QuickAdd.AddQuickLeg");
         var leg = await AddLegFromTextWithResultAsync(QuickLegInput);
         if (leg is not null)
         {
@@ -57,7 +55,7 @@ public sealed class QuickAddViewModel
 
     public async Task<LegModel?> AddLegFromTextWithResultAsync(string? input)
     {
-        using var activity = _telemetryService.StartActivity("QuickAdd.ParseLeg");
+        using var activity = ActivitySources.Telemetry.StartActivity("QuickAdd.ParseLeg");
         var collection = Collection;
         if (collection is null)
         {

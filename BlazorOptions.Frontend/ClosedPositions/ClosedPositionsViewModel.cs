@@ -9,7 +9,6 @@ public sealed class ClosedPositionsViewModel: Bindable
 
     private readonly PositionBuilderViewModel _positionBuilder;
     private readonly ITradingHistoryPort _tradingHistoryPort;
-    private readonly ITelemetryService _telemetryService;
     private readonly IExchangeService _exchangeService;
     private bool _isInitialized;
     private ObservableCollection<ClosedPositionViewModel> _closedPositions;
@@ -19,12 +18,10 @@ public sealed class ClosedPositionsViewModel: Bindable
     public ClosedPositionsViewModel(
         PositionBuilderViewModel positionBuilder,
         ITradingHistoryPort tradingHistoryPort,
-        ITelemetryService telemetryService,
         IExchangeService exchangeService)
     {
         _positionBuilder = positionBuilder;
         _tradingHistoryPort = tradingHistoryPort;
-        _telemetryService = telemetryService;
         _exchangeService = exchangeService;
         _closedPositions = new ObservableCollection<ClosedPositionViewModel>();
         _model = new ClosedModel();
@@ -185,7 +182,7 @@ public sealed class ClosedPositionsViewModel: Bindable
     internal ClosedPositionViewModel CreatePositionViewModel(ClosedPositionModel model)
     {
         var closedPosition =
-            new ClosedPositionViewModel(_tradingHistoryPort, _telemetryService, _exchangeService)
+            new ClosedPositionViewModel(_tradingHistoryPort, _exchangeService)
             {
                 Model = model
             };

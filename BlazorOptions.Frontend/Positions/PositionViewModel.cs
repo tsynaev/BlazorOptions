@@ -1,4 +1,5 @@
 using BlazorOptions.API.Positions;
+using BlazorOptions.Diagnostics;
 using BlazorOptions.Services;
 using System;
 using System.Collections.ObjectModel;
@@ -38,7 +39,6 @@ public sealed class PositionViewModel : IDisposable
     private IDisposable? _tickerSubscription;
     private string? _currentSymbol;
     private PositionModel _position = null!;
-    private readonly ITelemetryService _telemetryService;
     private bool _suppressNotesPersist;
 
     public PositionViewModel(
@@ -47,7 +47,6 @@ public sealed class PositionViewModel : IDisposable
         LegsCollectionViewModelFactory collectionFactory,
         ClosedPositionsViewModelFactory closedPositionsFactory,
         INotifyUserService notifyUserService,
-        ITelemetryService telemetryService,
         ExchangeTickerService exchangeTickerService,
         IActivePositionsService activePositionsService)
     {
@@ -56,7 +55,6 @@ public sealed class PositionViewModel : IDisposable
         _collectionFactory = collectionFactory;
         _closedPositionsFactory = closedPositionsFactory;
         _notifyUserService = notifyUserService;
-        _telemetryService = telemetryService;
         _exchangeTickerService = exchangeTickerService;
         _activePositionsService = activePositionsService;
        
@@ -89,7 +87,7 @@ public sealed class PositionViewModel : IDisposable
                 Collections.Add(CreateCollectionViewModel(collection));
             }
 
-            ClosedPositions = _closedPositionsFactory.Create(_positionBuilder, _telemetryService, _position);
+            ClosedPositions = _closedPositionsFactory.Create(_positionBuilder, _position);
 
             ClosedPositions.Model.PropertyChanged += OnClosedPositionsChanged;
             ClosedPositions.UpdatedCompleted += OnClosedPositionsUpdated;
@@ -270,7 +268,7 @@ public sealed class PositionViewModel : IDisposable
     public async Task PersistPositionAsync()
     {
         using var activity =
-            _telemetryService.StartActivity($"{nameof(PositionViewModel)}.{nameof(PersistPositionAsync)}");
+            ActivitySources.Telemetry.StartActivity($"{nameof(PositionViewModel)}.{nameof(PersistPositionAsync)}");
 
         var dto = PositionDtoMapper.ToDto(Position);
         await _positionsPort.SavePositionAsync(dto);

@@ -16,14 +16,13 @@ public sealed class ClosedPositionsViewModelFactory
         _exchangeService = exchangeService;
     }
 
-    public ClosedPositionsViewModel Create(PositionBuilderViewModel positionBuilder,  ITelemetryService telemetryService, PositionModel position)
+    public ClosedPositionsViewModel Create(PositionBuilderViewModel positionBuilder, PositionModel position)
     {
 
         var viewModel =
             new ClosedPositionsViewModel(
                 positionBuilder,
                 _tradingHistoryPort,
-                telemetryService,
                 _exchangeService);
 
         viewModel.Model = position.Closed;

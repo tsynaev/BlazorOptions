@@ -8,7 +8,6 @@ namespace BlazorOptions.ViewModels;
 public sealed class ClosedPositionViewModel : Bindable
 {
     private readonly ITradingHistoryPort _tradingHistoryPort;
-    private readonly ITelemetryService _telemetryService;
     private readonly IExchangeService _exchangeService;
     private readonly int _defaultLookbackDays = 180;
     private bool _isCalculating;
@@ -20,12 +19,10 @@ public sealed class ClosedPositionViewModel : Bindable
 
     public ClosedPositionViewModel(
         ITradingHistoryPort tradingHistoryPort,
-        ITelemetryService telemetryService,
         IExchangeService exchangeService
        )
     {
         _tradingHistoryPort = tradingHistoryPort;
-        _telemetryService = telemetryService;
         _exchangeService = exchangeService;
         _model = new ClosedPositionModel();
        

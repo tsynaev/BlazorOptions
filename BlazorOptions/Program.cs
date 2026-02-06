@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 using MudBlazor.Services;
 using BlazorOptions.ViewModels;
 using BlazorOptions.Services;
+using BlazorOptions.Diagnostics;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");
@@ -24,7 +25,7 @@ builder.Services.AddScoped(sp => sp.GetRequiredService<IHttpClientFactory>().Cre
 
 // register the options helper/service used by the chart page
 builder.Services.AddSingleton<BlackScholes>();
-builder.Services.AddSingleton<ITelemetryService, TelemetryService>();
+builder.Services.AddSingleton<TelemetryService>();
 builder.Services.AddSingleton<OptionsService>();
 builder.Services.AddScoped<ILocalStorageService, LocalStorageService>();
 builder.Services.AddScoped<DeviceIdentityService>();
@@ -67,4 +68,12 @@ builder.Services.AddDialog<TradingSymbolDialog, TradingSymbolDialogViewModel>();
 builder.Services.AddDialog<TradingHistorySelectionDialog, TradingHistorySelectionDialogViewModel>();
 builder.Services.AddMudServices();
 
-await builder.Build().RunAsync();
+var host = builder.Build();
+var storedTelemetry = await host.Services.GetRequiredService<ILocalStorageService>()
+    .GetItemAsync(TelemetryOptions.StorageKey);
+if (TelemetryOptions.IsEnabled(storedTelemetry))
+{
+    host.Services.GetRequiredService<TelemetryService>();
+}
+
+await host.RunAsync();

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BlazorOptions;
+using BlazorOptions.Diagnostics;
 using BlazorOptions.Services;
 
 namespace BlazorOptions.ViewModels;
@@ -16,7 +17,6 @@ public sealed class LegViewModel : IDisposable
     private readonly OptionsChainService _optionsChainService;
     private readonly ExchangeTickerService _exchangeTicker;
     private readonly IExchangeService _exchangeService;
-    private readonly ITelemetryService _telemetryService;
     private readonly BlackScholes _blackScholes;
     private readonly SemaphoreSlim _subscriptionLock = new(1, 1);
     private IDisposable? _subscriptionRegistration;
@@ -52,7 +52,6 @@ public sealed class LegViewModel : IDisposable
         OptionsChainService optionsChainService,
         ExchangeTickerService exchangeTicker,
         IExchangeService exchangeService,
-        ITelemetryService telemetryService,
         BlackScholes blackScholes)
     {
         _collectionViewModel = collectionViewModel;
@@ -60,7 +59,6 @@ public sealed class LegViewModel : IDisposable
         _optionsChainService = optionsChainService;
         _exchangeTicker = exchangeTicker;
         _exchangeService = exchangeService;
-        _telemetryService = telemetryService;
         _blackScholes = blackScholes;
     }
 
@@ -177,7 +175,7 @@ public sealed class LegViewModel : IDisposable
 
     public void UpdateLegIvAsync(decimal? iv)
     {
-        using var activity = _telemetryService.StartActivity("LegViewModel.UpdateLegIv");
+        using var activity = ActivitySources.Telemetry.StartActivity("LegViewModel.UpdateLegIv");
         if (Leg.IsReadOnly)
         {
             return;
@@ -189,13 +187,13 @@ public sealed class LegViewModel : IDisposable
 
     public void UpdateLegIncludedAsync(bool include)
     {
-        using var activity = _telemetryService.StartActivity("LegViewModel.UpdateIncluded");
+        using var activity = ActivitySources.Telemetry.StartActivity("LegViewModel.UpdateIncluded");
         RunLegUpdate(() => Leg.IsIncluded = include);
     }
 
     public void UpdateLegTypeAsync(LegType type)
     {
-        using var activity = _telemetryService.StartActivity("LegViewModel.UpdateType");
+        using var activity = ActivitySources.Telemetry.StartActivity("LegViewModel.UpdateType");
         if (Leg.IsReadOnly)
         {
             return;
@@ -212,7 +210,7 @@ public sealed class LegViewModel : IDisposable
 
     public void UpdateLegStrikeAsync(decimal? strike)
     {
-        using var activity = _telemetryService.StartActivity("LegViewModel.UpdateStrike");
+        using var activity = ActivitySources.Telemetry.StartActivity("LegViewModel.UpdateStrike");
         if (Leg.IsReadOnly)
         {
             return;
@@ -228,7 +226,7 @@ public sealed class LegViewModel : IDisposable
 
     public void UpdateLegSizeAsync(decimal size)
     {
-        using var activity = _telemetryService.StartActivity("LegViewModel.UpdateSize");
+        using var activity = ActivitySources.Telemetry.StartActivity("LegViewModel.UpdateSize");
         if (Leg.IsReadOnly)
         {
             return;
@@ -239,7 +237,7 @@ public sealed class LegViewModel : IDisposable
 
     public void UpdateLegExpirationAsync(DateTime? date)
     {
-        using var activity = _telemetryService.StartActivity("LegViewModel.UpdateExpiration");
+        using var activity = ActivitySources.Telemetry.StartActivity("LegViewModel.UpdateExpiration");
 
         if (Leg.IsReadOnly)
         {
@@ -261,7 +259,7 @@ public sealed class LegViewModel : IDisposable
 
     public async Task UpdateLegPriceAsync(decimal? price)
     {
-        using var activity = _telemetryService.StartActivity("LegViewModel.UpdatePrice");
+        using var activity = ActivitySources.Telemetry.StartActivity("LegViewModel.UpdatePrice");
         if (Leg.IsReadOnly)
         {
             return;
@@ -272,7 +270,7 @@ public sealed class LegViewModel : IDisposable
 
     public async Task RemoveLegAsync()
     {
-        using var activity = _telemetryService.StartActivity("LegViewModel.RemoveLeg");
+        using var activity = ActivitySources.Telemetry.StartActivity("LegViewModel.RemoveLeg");
         await _collectionViewModel.RemoveLegAsync(Leg);
         if (Removed is not null)
         {
@@ -462,7 +460,7 @@ public sealed class LegViewModel : IDisposable
 
     private async Task RefreshSubscriptionAsync()
     {
-        using var activity = _telemetryService.StartActivity("LegViewModel.RefreshSubscription");
+        using var activity = ActivitySources.Telemetry.StartActivity("LegViewModel.RefreshSubscription");
         if (_leg is null)
         {
             return;
@@ -553,7 +551,7 @@ public sealed class LegViewModel : IDisposable
 
     private void RefreshExpDatesAndStrikes()
     {
-        using var activity = _telemetryService.StartActivity("LegViewModel.RefreshExpDatesAndStrikes");
+        using var activity = ActivitySources.Telemetry.StartActivity("LegViewModel.RefreshExpDatesAndStrikes");
 
         var tickers = _optionsChainService.GetTickersByBaseAsset(_collectionViewModel.BaseAsset, Leg.Type);
 

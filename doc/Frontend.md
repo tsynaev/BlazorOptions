@@ -10,3 +10,4 @@ Frontend code is organized by feature instead of layer. Feature folders (Account
 - Keep Blazor pages and components in `BlazorOptions`.
 - Keep `BlazorOptions.Frontend` free of MudBlazor, ASP.NET Core, and JS interop dependencies.
 - Prefer interfaces for services that access HTTP or browser storage when a seam is needed for testing or alternate implementations.
+- Telemetry activities use `ActivitySources.Telemetry` and are enabled only when local storage contains the `telemetry` key with a value other than `false`.

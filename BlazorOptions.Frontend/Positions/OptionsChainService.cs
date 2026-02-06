@@ -1,3 +1,4 @@
+using BlazorOptions.Diagnostics;
 using BlazorOptions.ViewModels;
 using System.Buffers;
 using System.Globalization;
@@ -34,13 +35,11 @@ public class OptionsChainService
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(20);
   
     private readonly IExchangeService _exchangeService;
-    private ITelemetryService _telemetryService;
 
-    public OptionsChainService(HttpClient httpClient, IExchangeService exchangeService, ITelemetryService telemetryService)
+    public OptionsChainService(HttpClient httpClient, IExchangeService exchangeService)
     {
         _httpClient = httpClient;
         _exchangeService = exchangeService;
-        _telemetryService = telemetryService;
     }
 
     public DateTime? LastUpdatedUtc { get; private set; }
@@ -53,7 +52,7 @@ public class OptionsChainService
 
     public List<OptionChainTicker> GetTickersByBaseAsset(string baseAsset, LegType? legType = null)
     {
-        using var activity = _telemetryService.StartActivity("OptionsChainService.GetTickersByBaseAsset");
+        using var activity = ActivitySources.Telemetry.StartActivity("OptionsChainService.GetTickersByBaseAsset");
 
         if (string.IsNullOrWhiteSpace(baseAsset))
         {
@@ -104,7 +103,7 @@ public class OptionsChainService
             return;
         }
 
-        using var activity = _telemetryService.StartActivity("OptionsChainService.RefreshAsync");
+        using var activity = ActivitySources.Telemetry.StartActivity("OptionsChainService.RefreshAsync");
 
         try
         {

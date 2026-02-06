@@ -4,12 +4,7 @@ using System.Globalization;
 
 namespace BlazorOptions.Services;
 
-public interface ITelemetryService
-{
-    Activity? StartActivity(string name, ActivityKind kind = ActivityKind.Internal);
-}
-
-public sealed class TelemetryService : ITelemetryService
+public sealed class TelemetryService
 {
     private readonly ActivityListener _listener;
 
@@ -23,11 +18,6 @@ public sealed class TelemetryService : ITelemetryService
         };
 
         ActivitySource.AddActivityListener(_listener);
-    }
-
-    public Activity? StartActivity(string name, ActivityKind kind = ActivityKind.Internal)
-    {
-        return ActivitySources.Telemetry.StartActivity(name, kind);
     }
 
     private static void OnActivityStopped(Activity activity)

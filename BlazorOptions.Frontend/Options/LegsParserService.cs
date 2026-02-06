@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using BlazorOptions.Diagnostics;
 using BlazorOptions.Services;
 
 namespace BlazorOptions.ViewModels;
@@ -17,22 +18,19 @@ public sealed class LegsParserService : ILegsParserService
     private static readonly string[] PositionExpirationFormats = { "ddMMMyy", "ddMMMyyyy" };
 
     private readonly OptionsChainService _optionsChainService;
-    private readonly ITelemetryService _telemetryService;
     private readonly IExchangeService _exchangeService;
 
     public LegsParserService(
         OptionsChainService optionsChainService,
-        ITelemetryService telemetryService,
         IExchangeService exchangeService)
     {
         _optionsChainService = optionsChainService;
-        _telemetryService = telemetryService;
         _exchangeService = exchangeService;
     }
 
     public IReadOnlyList<LegModel> ParseLegs(string input, decimal defaultSize, DateTime? defaultExpiration, string? baseAsset)
     {
-        using var activity = _telemetryService.StartActivity("LegsParser.ParseLegs");
+        using var activity = ActivitySources.Telemetry.StartActivity("LegsParser.ParseLegs");
         var entries = ParseEntries(input);
         if (entries.Count == 0)
         {
@@ -73,7 +71,7 @@ public sealed class LegsParserService : ILegsParserService
 
     public async Task ApplyTickerDefaultsAsync(IReadOnlyList<LegModel> legs, string? baseAsset, decimal? underlyingPrice)
     {
-        using var activity = _telemetryService.StartActivity("LegsParser.ApplyTickerDefaults");
+        using var activity = ActivitySources.Telemetry.StartActivity("LegsParser.ApplyTickerDefaults");
         if (legs.Count == 0)
         {
             return;
@@ -152,7 +150,7 @@ public sealed class LegsParserService : ILegsParserService
 
     public string BuildPreviewDescription(IEnumerable<LegModel> legs, decimal? underlyingPrice, string? baseAsset)
     {
-        using var activity = _telemetryService.StartActivity("LegsParser.BuildPreviewDescription");
+        using var activity = ActivitySources.Telemetry.StartActivity("LegsParser.BuildPreviewDescription");
         var list = legs.ToList();
         if (list.Count == 0)
         {

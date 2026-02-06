@@ -9,14 +9,6 @@ namespace BlazorOptions.Tests;
 [TestClass]
 public sealed class LegsParserServiceTests
 {
-    private sealed class TestTelemetryService : ITelemetryService
-    {
-        public System.Diagnostics.Activity? StartActivity(string name, System.Diagnostics.ActivityKind kind = System.Diagnostics.ActivityKind.Internal)
-        {
-            return null;
-        }
-    }
-
     [TestMethod]
     public void ParseLegs_ParsesBuySellJsonArray()
     {
@@ -137,9 +129,8 @@ public sealed class LegsParserServiceTests
     {
         var httpClient = new HttpClient();
         var exchangeService = new ExchangeService();
-        var telemetryService = new TestTelemetryService();
-        var optionsChainService = new OptionsChainService(httpClient, exchangeService, telemetryService);
-        return new LegsParserService(optionsChainService, telemetryService, exchangeService);
+        var optionsChainService = new OptionsChainService(httpClient, exchangeService);
+        return new LegsParserService(optionsChainService, exchangeService);
     }
 
     private static void SeedTickers(LegsParserService service, string baseAsset, List<OptionChainTicker> tickers)

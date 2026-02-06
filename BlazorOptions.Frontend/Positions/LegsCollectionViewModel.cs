@@ -1,3 +1,4 @@
+using BlazorOptions.Diagnostics;
 using BlazorOptions.Services;
 using System.Collections.ObjectModel;
 using System.Globalization;
@@ -10,7 +11,6 @@ public sealed class LegsCollectionViewModel : IDisposable
     private readonly ILegsCollectionDialogService _dialogService;
     private readonly LegViewModelFactory _legViewModelFactory;
     private readonly INotifyUserService _notifyUserService;
-    private readonly ITelemetryService _telemetryService;
     private readonly IActivePositionsService _activePositionsService;
     private string _baseAsset = string.Empty;
     private decimal? _currentPrice;
@@ -28,7 +28,6 @@ public sealed class LegsCollectionViewModel : IDisposable
         ILegsCollectionDialogService dialogService,
         LegViewModelFactory legViewModelFactory,
         INotifyUserService notifyUserService,
-        ITelemetryService telemetryService,
         IActivePositionsService activePositionsService,
         IExchangeService exchangeService,
         ILegsParserService legsParserService)
@@ -36,11 +35,10 @@ public sealed class LegsCollectionViewModel : IDisposable
         _dialogService = dialogService;
         _legViewModelFactory = legViewModelFactory;
         _notifyUserService = notifyUserService;
-        _telemetryService = telemetryService;
         _activePositionsService = activePositionsService;
         _exchangeService = exchangeService;
 
-        QuickAdd = new QuickAddViewModel(_notifyUserService, telemetryService, legsParserService);
+        QuickAdd = new QuickAddViewModel(_notifyUserService, legsParserService);
         QuickAdd.LegCreated += HandleQuickAddLegCreated;
 
     }
@@ -161,7 +159,7 @@ public sealed class LegsCollectionViewModel : IDisposable
 
     public async Task AddLegAsync()
     {
-        using var activity = _telemetryService.StartActivity("LegsCollection.AddLeg");
+        using var activity = ActivitySources.Telemetry.StartActivity("LegsCollection.AddLeg");
         if (Position is null)
         {
             return;
@@ -194,7 +192,7 @@ public sealed class LegsCollectionViewModel : IDisposable
 
     public async Task AddQuickLegAsync()
     {
-        using var activity = _telemetryService.StartActivity("LegsCollection.AddQuickLeg");
+        using var activity = ActivitySources.Telemetry.StartActivity("LegsCollection.AddQuickLeg");
         SyncQuickAddPrice();
         await QuickAdd.AddQuickLegAsync();
     }

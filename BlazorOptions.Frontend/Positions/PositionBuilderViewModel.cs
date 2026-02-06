@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using BlazorChart.Models;
 using BlazorOptions.API.Positions;
+using BlazorOptions.Diagnostics;
 using BlazorOptions.Services;
 
 namespace BlazorOptions.ViewModels;
@@ -15,7 +16,6 @@ public class PositionBuilderViewModel : IAsyncDisposable
     private readonly LegsCollectionViewModelFactory _collectionFactory;
     private readonly ClosedPositionsViewModelFactory _closedPositionsFactory;
     private readonly INotifyUserService _notifyUserService;
-    private readonly ITelemetryService _telemetryService;
     private bool _isInitialized;
     private readonly object _persistQueueLock = new();
     private CancellationTokenSource? _persistQueueCts;
@@ -55,8 +55,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         IActivePositionsService activePositionsService,
         LegsCollectionViewModelFactory collectionFactory,
         ClosedPositionsViewModelFactory closedPositionsFactory,
-        INotifyUserService notifyUserService,
-        ITelemetryService telemetryService)
+        INotifyUserService notifyUserService)
     {
         _optionsService = optionsService;
         _positionsPort = positionsPort;
@@ -66,7 +65,6 @@ public class PositionBuilderViewModel : IAsyncDisposable
         _collectionFactory = collectionFactory;
         _closedPositionsFactory = closedPositionsFactory;
         _notifyUserService = notifyUserService;
-        _telemetryService = telemetryService;
     }
 
     public ObservableCollection<PositionModel> Positions { get; } = new();
@@ -332,7 +330,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     public void UpdateChart()
     {
-        using var activity = _telemetryService.StartActivity($"{nameof(PositionBuilderViewModel)}.{nameof(UpdateChart)}");
+        using var activity = ActivitySources.Telemetry.StartActivity($"{nameof(PositionBuilderViewModel)}.{nameof(UpdateChart)}");
 
         var position = SelectedPosition;
         if (position?.Position is null)
@@ -635,7 +633,6 @@ public class PositionBuilderViewModel : IAsyncDisposable
                 _collectionFactory,
                 _closedPositionsFactory,
                 _notifyUserService,
-                _telemetryService,
                 _exchangeTickerService,
                 _activePositionsService
                 )
