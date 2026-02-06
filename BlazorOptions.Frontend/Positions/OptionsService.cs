@@ -39,7 +39,12 @@ namespace BlazorOptions
             return (xs, profits);
         }
 
-        public (decimal[] xs, decimal[] profits, decimal[] theoreticalProfits) GeneratePosition(IEnumerable<LegModel> legs, int points = 200, DateTime? valuationDate = null)
+        public (decimal[] xs, decimal[] profits, decimal[] theoreticalProfits) GeneratePosition(
+            IEnumerable<LegModel> legs,
+            int points = 200,
+            DateTime? valuationDate = null,
+            double? xMinOverride = null,
+            double? xMaxOverride = null)
         {
             var activeLegs = legs.Where(l => l.IsIncluded).ToList();
             var anchor = activeLegs.Count > 0
@@ -48,21 +53,31 @@ namespace BlazorOptions
 
             var start = Math.Max(0m, anchor * 0.5m);
             var end = Math.Max(anchor + 1, anchor * 1.5m);
+            var overrideStart = xMinOverride.HasValue ? (decimal)xMinOverride.Value : (decimal?)null;
+            var overrideEnd = xMaxOverride.HasValue ? (decimal)xMaxOverride.Value : (decimal?)null;
+            if (overrideStart.HasValue && overrideEnd.HasValue && overrideEnd.Value > overrideStart.Value)
+            {
+                start = overrideStart.Value;
+                end = overrideEnd.Value;
+            }
 
             if (points < 20)
             {
                 points = 20;
             }
 
-            var roughStep = (end - start) / (points - 1);
-            var niceStep = CalculateNiceStep(roughStep);
+            var adjustedStep = (end - start) / (points - 1);
+            if (!overrideStart.HasValue || !overrideEnd.HasValue)
+            {
+                var niceStep = CalculateNiceStep(adjustedStep);
+                start = Math.Floor(start / niceStep) * niceStep;
+                end = Math.Ceiling(end / niceStep) * niceStep;
+                var steps = Math.Max(20, (int)Math.Min(points - 1, Math.Ceiling((end - start) / niceStep)));
+                adjustedStep = (end - start) / steps;
+                points = steps + 1;
+            }
 
-            start = Math.Floor(start / niceStep) * niceStep;
-            end = Math.Ceiling(end / niceStep) * niceStep;
-
-            var steps = Math.Max(20, (int)Math.Min(points - 1, Math.Ceiling((end - start) / niceStep)));
-            var adjustedStep = (end - start) / steps;
-            var count = steps + 1;
+            var count = points;
 
             var xs = new decimal[count];
             var profits = new decimal[count];

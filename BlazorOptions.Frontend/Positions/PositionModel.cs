@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using BlazorChart.Models;
 
 namespace BlazorOptions.ViewModels;
 
@@ -12,6 +13,7 @@ public class PositionModel : Bindable
     private string _notes = string.Empty;
     private ObservableCollection<LegsCollectionModel> _collections = new();
     private ClosedModel _closed = new();
+    private ChartRange? _chartRange;
 
     public Guid Id
     {
@@ -53,6 +55,12 @@ public class PositionModel : Bindable
     {
         get => _closed;
         set => SetField(ref _closed, value);
+    }
+
+    public ChartRange? ChartRange
+    {
+        get => _chartRange;
+        set => SetField(ref _chartRange, value);
     }
 }
 

@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using BlazorChart.Models;
 using BlazorOptions.API.Positions;
 using BlazorOptions.Services;
 
@@ -23,6 +24,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
     private readonly object _chartUpdateLock = new();
     private CancellationTokenSource? _chartUpdateCts;
     private static readonly TimeSpan ChartUpdateDelay = TimeSpan.FromMilliseconds(75);
+    private ChartRange? _chartRangeOverride;
 
     private bool _isDisposed;
 
@@ -73,7 +75,11 @@ public class PositionBuilderViewModel : IAsyncDisposable
     public PositionViewModel? SelectedPosition { get; private set; }
 
 
-    public EChartOptions ChartConfig { get; private set; } = new(Guid.Empty, Array.Empty<decimal>(), Array.Empty<string>(), null, Array.Empty<ChartCollectionSeries>(), 0, 0);
+    public ObservableCollection<StrategySeries> ChartStrategies { get; } = new();
+
+    public ObservableCollection<PriceMarker> ChartMarkers { get; } = new();
+
+    public double? ChartSelectedPrice { get; private set; }
 
     public async Task InitializeAsync(Guid? preferredPositionId = null)
     {
@@ -169,6 +175,18 @@ public class PositionBuilderViewModel : IAsyncDisposable
         UpdateLegTickerSubscription();
     }
 
+    public void UpdateChartRange(ChartRange range)
+    {
+        _chartRangeOverride = range;
+        if (SelectedPosition?.Position is not null)
+        {
+            SelectedPosition.Position.ChartRange = range;
+            _ = QueuePersistPositionsAsync(SelectedPosition.Position);
+        }
+        UpdateChart();
+        OnChange?.Invoke();
+    }
+
 
 
     public async Task UpdateCollectionVisibilityAsync(Guid collectionId, bool isVisible)
@@ -252,6 +270,11 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     internal void NotifyLivePriceChanged(decimal? price)
     {
+        if (IsLive)
+        {
+            UpdateChartSelectedPrice(price);
+        }
+
         LivePriceChanged?.Invoke(price);
     }
 
@@ -331,26 +354,20 @@ public class PositionBuilderViewModel : IAsyncDisposable
         RefreshValuationDateBounds(allLegs);
         var valuationDate = ValuationDate;
         var rangeCalculationLegs = ResolveLegsForCalculation(rangeLegs).Where(leg => leg.IsIncluded).ToList();
-        var (xs, _, _) = _optionsService.GeneratePosition(rangeCalculationLegs, 180, valuationDate);
-        var labels = xs.Select(x => x.ToString("0")).ToArray();
+        var (xs, _, _) = _optionsService.GeneratePosition(
+            rangeCalculationLegs,
+            180,
+            valuationDate,
+            _chartRangeOverride?.XMin,
+            _chartRangeOverride?.XMax);
         var displayPrice = GetEffectivePrice();
 
-        var chartCollections = new List<ChartCollectionSeries>();
-        var minProfit = 0.0m;
-        var maxProfit = 0.0m;
-        var hasProfit = false;
-
+        ChartStrategies.Clear();
         foreach (var collection in collections)
         {
             var collectionLegs = ResolveLegsForCalculation(collection.Legs).Where(leg => leg.IsIncluded).ToList();
             var profits = xs.Select(price => _optionsService.CalculateTotalProfit(collectionLegs, price)).ToArray();
             var theoreticalProfits = xs.Select(price => _optionsService.CalculateTotalTheoreticalProfit(collectionLegs, price, valuationDate)).ToArray();
-            var tempPnl = collectionLegs.Any()
-                ? _optionsService.CalculateTotalTheoreticalProfit(collectionLegs, displayPrice, valuationDate)
-                : (decimal?)null;
-            var tempExpiryPnl = collectionLegs.Any()
-                ? _optionsService.CalculateTotalProfit(collectionLegs, displayPrice)
-                : (decimal?)null;
 
             if (Math.Abs(closedPositionsTotal) > 0.0001m)
             {
@@ -363,85 +380,43 @@ public class PositionBuilderViewModel : IAsyncDisposable
                 {
                     theoreticalProfits[i] += closedPositionsTotal;
                 }
-
-                if (tempPnl.HasValue)
-                {
-                    tempPnl = tempPnl.Value + closedPositionsTotal;
-                }
-
-                if (tempExpiryPnl.HasValue)
-                {
-                    tempExpiryPnl = tempExpiryPnl.Value + closedPositionsTotal;
-                }
             }
 
-            if (collection.IsVisible)
-            {
-                foreach (var value in profits)
-                {
-                    if (!hasProfit)
-                    {
-                        minProfit = value;
-                        maxProfit = value;
-                        hasProfit = true;
-                    }
-                    else
-                    {
-                        minProfit = Math.Min(minProfit, value);
-                        maxProfit = Math.Max(maxProfit, value);
-                    }
-                }
-
-                foreach (var value in theoreticalProfits)
-                {
-                    if (!hasProfit)
-                    {
-                        minProfit = value;
-                        maxProfit = value;
-                        hasProfit = true;
-                    }
-                    else
-                    {
-                        minProfit = Math.Min(minProfit, value);
-                        maxProfit = Math.Max(maxProfit, value);
-                    }
-                }
-
-                if (tempPnl.HasValue)
-                {
-                    minProfit = Math.Min(minProfit, tempPnl.Value);
-                    maxProfit = Math.Max(maxProfit, tempPnl.Value);
-                }
-
-                if (tempExpiryPnl.HasValue)
-                {
-                    minProfit = Math.Min(minProfit, tempExpiryPnl.Value);
-                    maxProfit = Math.Max(maxProfit, tempExpiryPnl.Value);
-                }
-            }
-
-            chartCollections.Add(new ChartCollectionSeries(
-                collection.Collection.Id,
+            var tempPoints = BuildPayoffPoints(xs, theoreticalProfits);
+            var expiryPoints = BuildPayoffPoints(xs, profits);
+            ChartStrategies.Add(new StrategySeries(
+                collection.Collection.Id.ToString(),
                 collection.Name,
                 collection.Color,
-                collection.IsVisible,
-                profits,
-                theoreticalProfits,
-                tempPnl,
-                tempExpiryPnl));
+                showBreakEvens: true,
+                tempPoints,
+                expiryPoints,
+                collection.IsVisible));
         }
 
-        if (!hasProfit)
+        ChartSelectedPrice = (double)displayPrice;
+    }
+
+    private static IReadOnlyList<PayoffPoint> BuildPayoffPoints(IReadOnlyList<decimal> prices, IReadOnlyList<decimal> profits)
+    {
+        var count = Math.Min(prices.Count, profits.Count);
+        if (count == 0)
         {
-            minProfit = -10;
-            maxProfit = 10;
+            return Array.Empty<PayoffPoint>();
         }
 
-        var range = Math.Abs(maxProfit - minProfit);
-        var padding = Math.Max(10, range * 0.1m);
-        var positionId = position?.Position.Id ?? Guid.Empty;
+        var points = new PayoffPoint[count];
+        for (var i = 0; i < count; i++)
+        {
+            points[i] = new PayoffPoint((double)prices[i], (double)profits[i]);
+        }
 
-        ChartConfig = new EChartOptions(positionId, xs, labels, displayPrice, chartCollections, minProfit - padding, maxProfit + padding);
+        return points;
+    }
+
+    private void SyncChartSelectedPrice()
+    {
+        ChartSelectedPrice = (double)GetEffectivePrice();
     }
 
   
@@ -485,12 +460,24 @@ public class PositionBuilderViewModel : IAsyncDisposable
         }
 
         SelectedPosition.SetSelectedPrice(price);
+        SyncChartSelectedPrice();
         if (!refresh)
         {
+            OnChange?.Invoke();
             return;
         }
 
         UpdateChart();
+    }
+
+    public void UpdateChartSelectedPrice(decimal? price)
+    {
+        if (!IsLive)
+        {
+            return;
+        }
+
+        ChartSelectedPrice = (double)(price ?? 0m);
     }
 
     public async Task SetIsLiveAsync(bool isEnabled)
@@ -516,6 +503,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         }
 
         UpdateLegTickerSubscription();
+        SyncChartSelectedPrice();
         OnChange?.Invoke();
     }
 
@@ -635,6 +623,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         if (position == null)
         {
             SelectedPosition = null;
+            _chartRangeOverride = null;
             return;
         }
 
@@ -653,6 +642,8 @@ public class PositionBuilderViewModel : IAsyncDisposable
             {
                 Position = position
             };
+
+       _chartRangeOverride = position.ChartRange;
 
        await SelectedPosition.InitializeAsync();
     }

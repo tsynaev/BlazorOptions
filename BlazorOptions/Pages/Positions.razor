@@ -9,6 +9,7 @@
 @using Microsoft.AspNetCore.Components.Web
 @using BlazorOptions.Shared
 @using BlazorOptions.ViewModels
+@using BlazorChart.Models
 
 <PageTitle>Positions</PageTitle>
 
@@ -81,12 +82,12 @@ else
                                 </MudChip>
                             </MudStack>
                            
-                            <PayoffChart Config="@ViewModel.ChartConfig"
-                                         PriceSelected="HandleChartPriceSelected"
-                                         LegendSelectionChanged="HandleLegendSelectionChanged"
-                                         Height="420px"
-                                         Style="min-height:420px;"
-                                         @ref="_chart" />
+                            <PayoffChart Strategies="@ViewModel.ChartStrategies"
+                                         SelectedPrice="@ViewModel.ChartSelectedPrice"
+                                         SelectedPriceChanged="HandleChartPriceSelected"
+                                         Markers="@ViewModel.ChartMarkers"
+                                         ShowLegends="true"
+                                         RangeChanged="HandleChartRangeChanged" />
 
                                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="chart-controls-row">
                                     <MudText Typo="Typo.subtitle2">Valuation date</MudText>
@@ -266,7 +267,6 @@ else
 
 @code {
     private int _activeTabIndex;
-    private PayoffChart? _chart;
     private bool HasActivePosition => ViewModel.SelectedPosition?.Position is not null;
     private bool _viewModelReady;
     private Guid? _pendingRoutePositionId;
@@ -300,10 +300,16 @@ else
         }
     }
 
-    private async Task HandleChartPriceSelected(decimal price)
+    private async Task HandleChartPriceSelected(double? price)
     {
-        ViewModel.SetSelectedPrice(price);
+        ViewModel.UpdateSelectedPrice(price.HasValue ? (decimal?)price.Value : null, refresh: true);
         await InvokeAsync(StateHasChanged);
+    }
+
+    private Task HandleChartRangeChanged(ChartRange range)
+    {
+        ViewModel.UpdateChartRange(range);
+        return Task.CompletedTask;
     }
 
     private Task OnSwipeEnd(SwipeEventArgs args) => args.SwipeDirection switch
@@ -352,11 +358,6 @@ else
     private async Task OnTemporaryPriceChanged(decimal? price)
     {
         ViewModel.UpdateSelectedPrice(price, refresh: false);
-        if (_chart is not null)
-        {
-            await _chart.UpdateTemporaryPriceAsync(price);
-        }
-
         await InvokeAsync(StateHasChanged);
     }
 
@@ -373,12 +374,11 @@ else
 
     private void HandleLivePriceChanged(decimal? price)
     {
-        if (_chart is null)
+        _ = InvokeAsync(() =>
         {
-            return;
-        }
-
-        _ = InvokeAsync(() => _chart.UpdateTemporaryPriceAsync(price).AsTask());
+            ViewModel.UpdateChartSelectedPrice(price);
+            StateHasChanged();
+        });
     }
 
     private Task OnValuationDateChanged(DateTime? date)
@@ -402,11 +402,6 @@ else
     }
 
 
-
-    private Task HandleLegendSelectionChanged(LegendSelectionChangedEventArgs args)
-    {
-        return ViewModel.UpdateCollectionVisibilityAsync(args.CollectionId, args.IsVisible);
-    }
 
     private async Task CreatePosition()
     {
@@ -534,10 +529,6 @@ else
 
         if (await ViewModel.RemovePositionAsync(position.Position))
         {
-            if (_chart is not null)
-            {
-                await _chart.ClearRangesAsync(position.Position.Id);
-            }
             SyncActiveTabIndex();
             await RefreshChartAsync();
         }

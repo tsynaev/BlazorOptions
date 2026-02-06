@@ -15,4 +15,12 @@ public sealed class PositionDto
     public List<LegsCollectionDto> Collections { get; set; } = new();
 
     public ClosedPositionsDto Closed { get; set; } = new();
+
+    public double? ChartXMin { get; set; }
+
+    public double? ChartXMax { get; set; }
+
+    public double? ChartYMin { get; set; }
+
+    public double? ChartYMax { get; set; }
 }

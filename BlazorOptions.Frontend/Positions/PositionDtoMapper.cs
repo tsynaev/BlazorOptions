@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using BlazorChart.Models;
 using BlazorOptions.API.Positions;
 using BlazorOptions.ViewModels;
 
@@ -16,7 +17,11 @@ public static class PositionDtoMapper
             Name = model.Name ?? string.Empty,
             Notes = model.Notes ?? string.Empty,
             Collections = model.Collections.Select(ToDto).ToList(),
-            Closed = ToDto(model.Closed)
+            Closed = ToDto(model.Closed),
+            ChartXMin = model.ChartRange?.XMin,
+            ChartXMax = model.ChartRange?.XMax,
+            ChartYMin = model.ChartRange?.YMin,
+            ChartYMax = model.ChartRange?.YMax
         };
 
         return dto;
@@ -32,7 +37,10 @@ public static class PositionDtoMapper
             Name = dto.Name ?? string.Empty,
             Notes = dto.Notes ?? string.Empty,
             Collections = new ObservableCollection<LegsCollectionModel>(),
-            Closed = ToModel(dto.Closed)
+            Closed = ToModel(dto.Closed),
+            ChartRange = dto.ChartXMin.HasValue && dto.ChartXMax.HasValue && dto.ChartYMin.HasValue && dto.ChartYMax.HasValue
+                ? new ChartRange(dto.ChartXMin.Value, dto.ChartXMax.Value, dto.ChartYMin.Value, dto.ChartYMax.Value)
+                : null
         };
 
         if (dto.Collections is not null)
