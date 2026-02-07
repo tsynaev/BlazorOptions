@@ -3,12 +3,17 @@ using BlazorOptions.Server.Models;
 using BlazorOptions.Server.Options;
 using BlazorOptions.Server.Services;
 using BlazorOptions.Services;
+using Microsoft.AspNetCore.ResponseCompression;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+builder.Services.AddResponseCompression(options =>
+{
+    options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(new[] { "application/octet-stream" });
+});
 builder.Services.Configure<DataStorageOptions>(
     builder.Configuration.GetSection(DataStorageOptions.SectionName));
 builder.Services.AddSingleton<UserRegistryService>();
@@ -34,6 +39,7 @@ if (app.Environment.IsDevelopment())
     app.UseWebAssemblyDebugging();
 }
 
+app.UseResponseCompression();
 app.MapPost("/api/auth/register", async (HttpContext context, AuthRequest request, UserRegistryService registry) =>
 {
     var deviceId = GetDeviceId(context);

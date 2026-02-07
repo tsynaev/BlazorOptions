@@ -13,7 +13,7 @@
             <MudSelect T="ThemeMode" Label="Theme" @bind-Value="ViewModel.SelectedTheme">
                 @foreach (var option in ViewModel.ThemeOptions)
                 {
-                    <MudSelectItem Value="option.Mode">@option.Label</MudSelectItem>
+                    <MudSelectItem Value="option.Mode" @key="option.Mode">@option.Label</MudSelectItem>
                 }
             </MudSelect>
             <MudText Typo="Typo.body2" Color="Color.Secondary">@ViewModel.SelectedThemeDescription</MudText>

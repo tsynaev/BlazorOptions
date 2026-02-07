@@ -25,6 +25,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
     private CancellationTokenSource? _chartUpdateCts;
     private static readonly TimeSpan ChartUpdateDelay = TimeSpan.FromMilliseconds(75);
     private ChartRange? _chartRangeOverride;
+    private bool _initialChartScheduled;
 
     private bool _isDisposed;
 
@@ -97,7 +98,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
             Positions.Add(defaultPosition);
             await SetSelectedPositionAsync(defaultPosition);
 
-            UpdateChart();
+            _ = ScheduleInitialChartUpdateAsync();
 
             UpdateLegTickerSubscription();
             await SelectedPosition!.EnsureLiveSubscriptionAsync();
@@ -121,7 +122,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
         await SetSelectedPositionAsync(selectedPosition);
 
-        UpdateChart();
+        _ = ScheduleInitialChartUpdateAsync();
 
         UpdateLegTickerSubscription();
         await SelectedPosition!.EnsureLiveSubscriptionAsync();
@@ -160,6 +161,19 @@ public class PositionBuilderViewModel : IAsyncDisposable
         await SelectedPosition!.EnsureLiveSubscriptionAsync();
         await Task.CompletedTask;
         return true;
+    }
+
+    private async Task ScheduleInitialChartUpdateAsync()
+    {
+        if (_initialChartScheduled)
+        {
+            return;
+        }
+
+        _initialChartScheduled = true;
+        await Task.Yield();
+        UpdateChart();
+        OnChange?.Invoke();
     }
 
     public async Task UpdateNameAsync(PositionModel position, string name)

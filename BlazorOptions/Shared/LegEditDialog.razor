@@ -13,7 +13,7 @@
                        Disabled="@ViewModel.Leg.IsReadOnly">
                 @foreach (var type in ViewModel.LegTypes)
                 {
-                    <MudSelectItem Value="@type">@type</MudSelectItem>
+                    <MudSelectItem Value="@type" @key="type">@type</MudSelectItem>
                 }
             </MudSelect>
 
@@ -32,7 +32,7 @@
                     {
                         @foreach (var expiration in ViewModel.AvailableExpirations)
                         {
-                            <MudSelectItem T="DateTime?" Value="@expiration">@FormatExpiration(expiration)</MudSelectItem>
+                            <MudSelectItem T="DateTime?" Value="@expiration" @key="expiration">@FormatExpiration(expiration)</MudSelectItem>
                         }
                     }
                 </MudSelect>
@@ -45,7 +45,7 @@
                            Disabled="@(ViewModel.Leg.IsReadOnly || ViewModel.Leg.Type == LegType.Future || !ViewModel.Leg.ExpirationDate.HasValue)">
                     @foreach (var strike in ViewModel.AvailableStrikes)
                     {
-                        <MudSelectItem T="decimal?" Value="@strike">@strike.ToString("0.##")</MudSelectItem>
+                        <MudSelectItem T="decimal?" Value="@strike" @key="strike">@strike.ToString("0.##")</MudSelectItem>
                     }
                 </MudSelect>
             </MudStack>

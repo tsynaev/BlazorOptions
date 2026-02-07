@@ -3,6 +3,7 @@ using BlazorOptions.Services;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Text.RegularExpressions;
+using System.Threading;
 
 namespace BlazorOptions.ViewModels;
 
@@ -19,7 +20,12 @@ public sealed class LegsCollectionViewModel : IDisposable
     private LegsCollectionModel _collection = default!;
     private readonly Dictionary<string, LegViewModel> _legViewModels = new(StringComparer.Ordinal);
     private readonly ObservableCollection<LegViewModel> _legs = new();
+    private IReadOnlyList<LegGroup> _groupedLegs = Array.Empty<LegGroup>();
     private IExchangeService _exchangeService;
+    private int _pricingUpdateVersion;
+    private int _pricingUpdateScheduled;
+    private const int PricingYieldBatch = 16;
+    private const int PricingSyncThreshold = 12;
 
 
     private static readonly string[] PositionExpirationFormats = { "ddMMMyy", "ddMMMyyyy" };
@@ -65,12 +71,8 @@ public sealed class LegsCollectionViewModel : IDisposable
             }
 
             _currentPrice = value;
-            foreach (var leg in _legs)
-            {
-                leg.CurrentPrice = value;
-            }
-
             QuickAdd.Price = value;
+            SchedulePricingUpdate();
         }
     }
 
@@ -85,10 +87,7 @@ public sealed class LegsCollectionViewModel : IDisposable
             }
 
             _isLive = value;
-            foreach (var leg in _legs)
-            {
-                leg.IsLive = value;
-            }
+            SchedulePricingUpdate();
         }
     }
 
@@ -103,11 +102,94 @@ public sealed class LegsCollectionViewModel : IDisposable
             }
 
             _valuationDate = value;
-            foreach (var leg in _legs)
+            SchedulePricingUpdate();
+        }
+    }
+
+    // Apply pricing context changes in one pass to avoid UI stalls during rapid updates.
+    private void SchedulePricingUpdate()
+    {
+        Interlocked.Increment(ref _pricingUpdateVersion);
+        if (Interlocked.Exchange(ref _pricingUpdateScheduled, 1) == 1)
+        {
+            return;
+        }
+
+        if (_legs.Count <= PricingSyncThreshold)
+        {
+            var version = _pricingUpdateVersion;
+            ApplyPricingUpdate(version);
+            Interlocked.Exchange(ref _pricingUpdateScheduled, 0);
+            if (version != _pricingUpdateVersion)
             {
-                leg.ValuationDate = value;
+                SchedulePricingUpdate();
+            }
+
+            return;
+        }
+
+        _ = RunPricingUpdateAsync();
+    }
+
+    private async Task RunPricingUpdateAsync()
+    {
+        while (true)
+        {
+            var version = _pricingUpdateVersion;
+            if (!await ApplyPricingUpdateAsync(version))
+            {
+                continue;
+            }
+
+            if (version == _pricingUpdateVersion)
+            {
+                Interlocked.Exchange(ref _pricingUpdateScheduled, 0);
+                if (version != _pricingUpdateVersion)
+                {
+                    continue;
+                }
+
+                return;
             }
         }
+    }
+
+    private void ApplyPricingUpdate(int version)
+    {
+        var currentPrice = _currentPrice;
+        var isLive = _isLive;
+        var valuationDate = _valuationDate;
+        foreach (var leg in _legs)
+        {
+            leg.CurrentPrice = currentPrice;
+            leg.IsLive = isLive;
+            leg.ValuationDate = valuationDate;
+        }
+    }
+
+    private async Task<bool> ApplyPricingUpdateAsync(int version)
+    {
+        var currentPrice = _currentPrice;
+        var isLive = _isLive;
+        var valuationDate = _valuationDate;
+        var index = 0;
+        foreach (var leg in _legs)
+        {
+            leg.CurrentPrice = currentPrice;
+            leg.IsLive = isLive;
+            leg.ValuationDate = valuationDate;
+            index++;
+            if (index % PricingYieldBatch == 0)
+            {
+                await Task.Yield();
+                if (version != _pricingUpdateVersion)
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     public LegsCollectionModel Collection
@@ -122,6 +204,8 @@ public sealed class LegsCollectionViewModel : IDisposable
     }
 
     public ObservableCollection<LegViewModel> Legs => _legs;
+
+    public IReadOnlyList<LegGroup> GroupedLegs => _groupedLegs;
 
     public QuickAddViewModel QuickAdd { get; }
 
@@ -462,6 +546,7 @@ public sealed class LegsCollectionViewModel : IDisposable
 
         Collection.Legs.Remove(leg);
         RemoveLegViewModel(leg);
+        RebuildLegGroups();
         await RaiseUpdatedAsync(LegsCollectionUpdateKind.CollectionChanged);
         await RaiseLegRemovedAsync(leg);
     }
@@ -575,6 +660,8 @@ public sealed class LegsCollectionViewModel : IDisposable
         {
             _legs.Add(viewModel);
         }
+
+        RebuildLegGroups();
     }
 
     private void AttachLegViewModel(LegViewModel viewModel)
@@ -596,7 +683,36 @@ public sealed class LegsCollectionViewModel : IDisposable
 
     private void HandleLegViewModelChanged(LegsCollectionUpdateKind updateKind)
     {
+        if (updateKind == LegsCollectionUpdateKind.LegModelChanged || updateKind == LegsCollectionUpdateKind.CollectionChanged)
+        {
+            RebuildLegGroups();
+        }
+
         _ = RaiseUpdatedAsync(updateKind);
+    }
+
+    private void RebuildLegGroups()
+    {
+        if (_legs.Count == 0)
+        {
+            _groupedLegs = Array.Empty<LegGroup>();
+            return;
+        }
+
+        // Cache the grouping to keep Razor rendering lightweight during frequent updates.
+        var grouped = _legs
+            .OrderBy(leg => leg.Leg.ExpirationDate ?? DateTime.MaxValue)
+            .GroupBy(leg => leg.Leg.ExpirationDate?.Date)
+            .Select(group =>
+            {
+                var legs = group
+                    .OrderBy(leg => leg.Leg.Strike ?? decimal.MaxValue)
+                    .ToList();
+                return new LegGroup(group.Key, legs);
+            })
+            .ToList();
+
+        _groupedLegs = grouped;
     }
 
     private void EnsureLegSymbol(LegModel leg)

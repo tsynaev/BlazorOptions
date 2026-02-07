@@ -10,6 +10,8 @@ public class OptionChainDialogViewModel : IDisposable
     private readonly ILocalStorageService _localStorageService;
     private PositionModel? _position;
     private List<OptionChainTicker> _chainTickers = new();
+    private List<OptionChainTicker> _filteredTickers = new();
+    private readonly Dictionary<(decimal Strike, LegType Type), OptionChainTicker> _strikeLookup = new();
     private string? _baseAsset;
     private DateTime? _selectedExpiration;
     private decimal? _atmStrike;
@@ -63,6 +65,7 @@ public class OptionChainDialogViewModel : IDisposable
         }
 
         _chainTickers = GetBaseAssetTickers().ToList();
+        UpdateFilteredTickers();
         UpdateExpirations();
 
         if (Legs.Count > 0)
@@ -270,6 +273,7 @@ public class OptionChainDialogViewModel : IDisposable
 
         await _optionsChainService.RefreshAsync(_baseAsset);
         _chainTickers = GetBaseAssetTickers();
+        UpdateFilteredTickers();
         UpdateExpirations();
         UpdateStrikes();
         IsRefreshing = false;
@@ -278,7 +282,7 @@ public class OptionChainDialogViewModel : IDisposable
 
     private void UpdateExpirations()
     {
-        var expirations = GetFilteredTickers()
+        var expirations = _filteredTickers
             .Select(ticker => ticker.ExpirationDate.Date)
             .Distinct()
             .OrderBy(date => date)
@@ -309,7 +313,7 @@ public class OptionChainDialogViewModel : IDisposable
             return;
         }
 
-        var relevantTickers = GetFilteredTickers()
+        var relevantTickers = _filteredTickers
             .Where(ticker => ticker.ExpirationDate.Date == _selectedExpiration.Value.Date)
             .ToList();
 
@@ -322,21 +326,25 @@ public class OptionChainDialogViewModel : IDisposable
         AvailableStrikes = strikes;
         _atmStrike = DetermineAtmStrike(relevantTickers, strikes, _underlyingPrice);
         DisplayStrikes = BuildStrikeWindow(strikes, _atmStrike, _strikeWindowSize);
+        UpdateStrikeLookup();
         _ = UpdateTickerSubscriptionsAsync();
     }
 
-    private IEnumerable<OptionChainTicker> GetFilteredTickers()
+    private void UpdateFilteredTickers()
     {
         if (string.IsNullOrWhiteSpace(_baseAsset))
         {
-            return _chainTickers;
+            _filteredTickers = _chainTickers;
+            UpdateStrikeLookup();
+            return;
         }
 
         var filtered = _chainTickers
             .Where(ticker => string.Equals(ticker.BaseAsset, _baseAsset, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        return filtered.Count > 0 ? filtered : _chainTickers;
+        _filteredTickers = filtered.Count > 0 ? filtered : _chainTickers;
+        UpdateStrikeLookup();
     }
 
     public bool IsAtmStrike(decimal strike)
@@ -356,24 +364,47 @@ public class OptionChainDialogViewModel : IDisposable
             return null;
         }
 
-        var candidates = GetFilteredTickers()
-            .Where(ticker => ticker.ExpirationDate.Date == _selectedExpiration.Value.Date
-                && Math.Abs(ticker.Strike - strike) < 0.01m)
-            .ToList();
+        var expiration = _selectedExpiration.Value.Date;
+        decimal? callIv = null;
+        decimal? putIv = null;
+        foreach (var ticker in _filteredTickers)
+        {
+            if (ticker.ExpirationDate.Date != expiration)
+            {
+                continue;
+            }
 
-        if (candidates.Count == 0)
+            if (Math.Abs(ticker.Strike - strike) >= 0.01m)
+            {
+                continue;
+            }
+
+            if (ticker.Type == LegType.Call)
+            {
+                callIv ??= ticker.MarkIv;
+            }
+            else if (ticker.Type == LegType.Put)
+            {
+                putIv ??= ticker.MarkIv;
+            }
+
+            if (callIv.HasValue && putIv.HasValue)
+            {
+                break;
+            }
+        }
+
+        if (!callIv.HasValue && !putIv.HasValue)
         {
             return null;
         }
 
-        var callIv = candidates.FirstOrDefault(ticker => ticker.Type == LegType.Call)?.MarkIv;
         var normalizedCall = NormalizeIv(callIv);
         if (normalizedCall.HasValue && normalizedCall.Value > 0)
         {
             return normalizedCall.Value;
         }
 
-        var putIv = candidates.FirstOrDefault(ticker => ticker.Type == LegType.Put)?.MarkIv;
         var normalizedPut = NormalizeIv(putIv);
         return normalizedPut.HasValue && normalizedPut.Value > 0 ? normalizedPut.Value : null;
     }
@@ -385,10 +416,8 @@ public class OptionChainDialogViewModel : IDisposable
             return null;
         }
 
-        return GetFilteredTickers()
-            .FirstOrDefault(ticker => ticker.ExpirationDate.Date == _selectedExpiration.Value.Date
-                && ticker.Type == type
-                && Math.Abs(ticker.Strike - strike) < 0.01m);
+        var key = (NormalizeStrike(strike), type);
+        return _strikeLookup.TryGetValue(key, out var ticker) ? ticker : null;
     }
 
     public decimal GetTotalPremium()
@@ -515,6 +544,31 @@ public class OptionChainDialogViewModel : IDisposable
         return window;
     }
 
+    private void UpdateStrikeLookup()
+    {
+        // Cache strike lookups to avoid repeated scans during Razor rendering.
+        _strikeLookup.Clear();
+        if (!_selectedExpiration.HasValue || _filteredTickers.Count == 0)
+        {
+            return;
+        }
+
+        var expiration = _selectedExpiration.Value.Date;
+        foreach (var ticker in _filteredTickers)
+        {
+            if (ticker.ExpirationDate.Date != expiration)
+            {
+                continue;
+            }
+
+            var key = (NormalizeStrike(ticker.Strike), ticker.Type);
+            if (!_strikeLookup.ContainsKey(key))
+            {
+                _strikeLookup.Add(key, ticker);
+            }
+        }
+    }
+
     private static decimal? NormalizeIv(decimal? value)
     {
         if (!value.HasValue || value.Value <= 0)
@@ -523,6 +577,11 @@ public class OptionChainDialogViewModel : IDisposable
         }
 
         return value.Value <= 3 ? value.Value * 100 : value.Value;
+    }
+
+    private static decimal NormalizeStrike(decimal strike)
+    {
+        return Math.Round(strike, 2, MidpointRounding.AwayFromZero);
     }
 
     private async Task UpdateTickerSubscriptionsAsync()
@@ -577,6 +636,7 @@ public class OptionChainDialogViewModel : IDisposable
     private async Task HandleTickerUpdated(OptionChainTicker ticker)
     {
         _chainTickers = GetBaseAssetTickers();
+        UpdateFilteredTickers();
         OnChange?.Invoke();
     }
 }

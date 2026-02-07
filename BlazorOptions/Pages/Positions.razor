@@ -44,7 +44,7 @@ else
                                        AdornmentIcon="@Icons.Material.Filled.ListAlt">
                                 @foreach (var pos in ViewModel.Positions)
                                 {
-                                    <MudSelectItem T="Guid?" Value="@pos.Id">@pos.Name</MudSelectItem>
+                                    <MudSelectItem T="Guid?" Value="@pos.Id" @key="pos.Id">@pos.Name</MudSelectItem>
                                 }
                             </MudSelect>
                             <MudIconButton Icon="@Icons.Material.Filled.AddCircle" Color="Color.Primary" OnClick="CreatePosition" />

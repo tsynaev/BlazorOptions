@@ -50,14 +50,14 @@
                 <MudText Typo="Typo.caption" Class="leg-greeks-total">
                     Δ @FormatGreek(ViewModel.TotalDelta) · Γ @FormatGreek(ViewModel.TotalGamma) · ν @FormatGreek(ViewModel.TotalVega) · Θ @FormatGreek(ViewModel.TotalTheta)
                 </MudText>
-                @foreach (var group in GroupedLegs)
+                @foreach (var group in ViewModel.GroupedLegs)
                 {
-                    <MudStack Spacing="1" Class="leg-group">
-                        <MudText Typo="Typo.subtitle2" Class="leg-group-title">@FormatExpiration(group.Key)</MudText>
+                    <MudStack Spacing="1" Class="leg-group" @key="group.ExpirationDate">
+                        <MudText Typo="Typo.subtitle2" Class="leg-group-title">@FormatExpiration(group.ExpirationDate)</MudText>
                         <MudGrid Class="leg-grid">
-                            @foreach (var leg in group.OrderBy(leg => leg.Leg.Strike ?? decimal.MaxValue))
+                            @foreach (var leg in group.Legs)
                             {
-                                <MudItem xs="12" sm="6" md="4" lg="3">
+                                <MudItem xs="12" sm="6" md="4" lg="3" @key="leg.Leg.Id">
                                     <LegCard ViewModel="leg" />
                                 </MudItem>
                             }
@@ -74,11 +74,6 @@
 
 @code {
     [Parameter, EditorRequired] public LegsCollectionViewModel ViewModel { get; set; }
-
-    private IEnumerable<IGrouping<DateTime?, LegViewModel>> GroupedLegs =>
-        ViewModel.Legs
-            .OrderBy(leg => leg.Leg.ExpirationDate ?? DateTime.MaxValue)
-            .GroupBy(leg => leg.Leg.ExpirationDate?.Date);
 
     private static string FormatExpiration(DateTime? date)
     {

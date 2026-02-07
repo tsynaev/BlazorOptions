@@ -62,7 +62,7 @@
                     <MudTh></MudTh>
                 </HeaderContent>
                 <RowTemplate>
-                    <ClosedPositionRow ViewModel="context" OnOpenSymbolDialog="OpenSymbolDialogAsync" />
+                    <ClosedPositionRow ViewModel="context" OnOpenSymbolDialog="OpenSymbolDialogAsync" @key="context.Model.Id" />
                 </RowTemplate>
             </MudTable>
         </MudCardContent>

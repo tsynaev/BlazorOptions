@@ -59,7 +59,7 @@
                                     var call = ViewModel.GetStrikeTicker(strike, LegType.Call);
                                     var put = ViewModel.GetStrikeTicker(strike, LegType.Put);
                                     var rowClass = StrikeRowClass(strike, 0);
-                                    <tr class="@rowClass">
+                                    <tr class="@rowClass" @key="strike">
                                         <td>
                                             @if (call is not null && call.BidPrice > 0)
                                             {
@@ -120,9 +120,9 @@
                 <MudItem xs="12" sm="8">
                     <MudPaper Class="pa-2">
                         <table class="legs-table">
-                            <tbody>
-                                @foreach (var leg in ViewModel.Legs)
-                                {
+                            @foreach (var leg in ViewModel.Legs)
+                            {
+                                <tbody @key="leg.Id">
                                     <tr class="contract-row">
                                         <td class="contract-cell" colspan="2">
                                             <MudText Typo="Typo.subtitle2" Class="contract-symbol">@ViewModel.GetContractSymbol(leg)</MudText>
@@ -170,8 +170,8 @@
                                         </td>
                                         <td class="actions-cell"></td>
                                     </tr>
-                                }
-                            </tbody>
+                                </tbody>
+                            }
                             <tfoot>
                                 <tr>
                                     <td colspan="2">

@@ -55,5 +55,7 @@ See `doc/LegParsing.md` for the full parsing rules, defaults, and UI preview beh
 - Chart data is regenerated using the user-adjusted axis range whenever the payoff chart range changes, and the last range is saved per position.
 - Payoff chart styling adapts to the current light/dark theme.
 - Chart recalculation ignores pricing-context updates (live/selected price changes) to keep price selection responsive.
+- Pricing context updates (selected/live price, valuation date) are applied in a single batched pass per collection to keep the UI responsive.
+- Initial payoff chart rendering is deferred until after the first UI paint to keep page load snappy.
 - Notes persist when the text field loses focus, instead of on every keystroke.
 - The positions header now shows base/settle assets and combined total P&L (temp + closed).

@@ -38,6 +38,13 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
     private ChartRange? _lastRangeFromUser;
     private IReadOnlyList<StrategySeries>? _subscribedStrategies;
     private readonly Dictionary<string, CancellationTokenSource> _debounceTokens = new();
+    // The chart DOM is JS-managed, so avoid re-rendering the container.
+    private bool _hasRendered;
+
+    protected override bool ShouldRender()
+    {
+        return !_hasRendered;
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -77,6 +84,7 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
             await _module.InvokeVoidAsync("updateCandles", _instanceId, Candles);
         }
 
+        _hasRendered = true;
     }
 
     protected override async Task OnParametersSetAsync()

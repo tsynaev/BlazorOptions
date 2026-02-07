@@ -33,7 +33,8 @@
                 {
                     <MudChip T="string"
                              Color="@(preview.IsBuy ? Color.Success : Color.Error)"
-                             Variant="Variant.Filled">
+                             Variant="Variant.Filled"
+                             @key="preview.Description">
                         @preview.Description
                     </MudChip>
                 }

@@ -6,6 +6,11 @@
 - Try to keep child ViewModels independent from parent ViewModels. Use event to notify parent about changes. 
   The changes can be raised after some operation after user action or system event. 
   You have to avoid calling viewmodel event on every property changes.
+- For responsiveness, apply pricing-context updates in a single batched pass per collection instead of updating each leg immediately.
+- For performance, avoid heavy LINQ in Razor; precompute grouped or sorted data in view models.
+- For list rendering stability, add `@key` to repeated items when possible.
+- For JS-rendered components, override `ShouldRender` to avoid unnecessary Blazor re-renders.
+- Keep response compression enabled for WASM/static payloads on the server.
 
 - Prefer MudBlazor components for layout, inputs, and actions instead of raw HTML.
 - Use ECharts for chart rendering.
