@@ -34,7 +34,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     public decimal? LivePrice => SelectedPosition?.LivePrice;
 
-    public bool IsLive => SelectedPosition?.IsLive ?? true;
+    public bool IsLive => SelectedPosition?.IsLive ?? false;
 
     public DateTime ValuationDate => SelectedPosition?.ValuationDate ?? DateTime.UtcNow.Date;
 
