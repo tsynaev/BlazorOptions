@@ -16,9 +16,13 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
     [Parameter] public ObservableCollection<StrategySeries> Strategies { get; set; } = new();
     [Parameter] public double? SelectedPrice { get; set; }
     [Parameter] public ObservableCollection<PriceMarker> Markers { get; set; } = new();
+    [Parameter] public ObservableCollection<CandlePoint> Candles { get; set; } = new();
+    [Parameter] public bool ShowCandles { get; set; } = true;
     [Parameter] public bool ShowLegends { get; set; } = true;
+    [Parameter] public bool IsDarkTheme { get; set; }
     [Parameter] public EventCallback<double?> SelectedPriceChanged { get; set; }
     [Parameter] public EventCallback<ChartRange> RangeChanged { get; set; }
+    [Parameter] public EventCallback<TimeRange> TimeRangeChanged { get; set; }
 
     private ElementReference _chartDiv;
     private IJSObjectReference? _module;
@@ -27,8 +31,13 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
     private ObservableCollection<StrategySeries>? _lastStrategies;
     private double? _lastSelectedPrice;
     private ObservableCollection<PriceMarker>? _lastMarkers;
+    private ObservableCollection<CandlePoint>? _lastCandles;
+    private bool _lastShowCandles;
+    private bool _lastIsDarkTheme;
+    private TimeRange? _lastTimeRangeFromUser;
     private ChartRange? _lastRangeFromUser;
     private IReadOnlyList<StrategySeries>? _subscribedStrategies;
+    private readonly Dictionary<string, CancellationTokenSource> _debounceTokens = new();
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -45,9 +54,13 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
         _lastStrategies = Strategies;
         _lastSelectedPrice = SelectedPrice;
         _lastMarkers = Markers;
+        _lastCandles = Candles;
+        _lastShowCandles = ShowCandles;
+        _lastIsDarkTheme = IsDarkTheme;
         SubscribeStrategies(Strategies);
         SubscribeCollection(Strategies);
         SubscribeMarkers(Markers);
+        SubscribeCandles(Candles);
 
         if (SelectedPrice.HasValue)
         {
@@ -58,6 +71,12 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
         {
             await _module.InvokeVoidAsync("setMarkers", _instanceId, Markers);
         }
+
+        if (ShowCandles)
+        {
+            await _module.InvokeVoidAsync("updateCandles", _instanceId, Candles);
+        }
+
     }
 
     protected override async Task OnParametersSetAsync()
@@ -70,37 +89,53 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
         if (!ReferenceEquals(_lastStrategies, Strategies))
         {
             UnsubscribeCollection(_lastStrategies);
-            await _module.InvokeVoidAsync("setOption", _instanceId, BuildOption());
+            await ScheduleOptionUpdate();
             _lastStrategies = Strategies;
             SubscribeStrategies(Strategies);
             SubscribeCollection(Strategies);
-
-            if (_lastSelectedPrice.HasValue)
-            {
-                await _module.InvokeVoidAsync("setSelectedPrice", _instanceId, _lastSelectedPrice);
-            }
-
-            await _module.InvokeVoidAsync("setMarkers", _instanceId, Markers);
         }
 
         if (_lastSelectedPrice != SelectedPrice)
         {
-            await _module.InvokeVoidAsync("setSelectedPrice", _instanceId, SelectedPrice);
+            await ScheduleSelectedUpdate();
             _lastSelectedPrice = SelectedPrice;
         }
 
         if (!ReferenceEquals(_lastMarkers, Markers))
         {
             UnsubscribeMarkers(_lastMarkers);
-            await _module.InvokeVoidAsync("setMarkers", _instanceId, Markers);
+            await ScheduleMarkersUpdate();
             _lastMarkers = Markers;
             SubscribeMarkers(Markers);
         }
+
+        if (!ReferenceEquals(_lastCandles, Candles))
+        {
+            UnsubscribeCandles(_lastCandles);
+            await ScheduleOptionUpdate();
+            _lastCandles = Candles;
+            SubscribeCandles(Candles);
+        }
+
+        if (_lastShowCandles != ShowCandles)
+        {
+            await ScheduleOptionUpdate();
+            _lastShowCandles = ShowCandles;
+        }
+
+        if (_lastIsDarkTheme != IsDarkTheme)
+        {
+            await ScheduleOptionUpdate();
+            _lastIsDarkTheme = IsDarkTheme;
+        }
+
     }
 
     [JSInvokable]
     public async Task OnChartClick(double price)
     {
+        Console.WriteLine($"[PayoffChart.OnChartClick] price={price} utc={DateTime.UtcNow:O}");
+
         _lastSelectedPrice = price;
         if (_module != null && _instanceId != null)
         {
@@ -109,8 +144,16 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
 
         if (SelectedPriceChanged.HasDelegate)
         {
-            await SelectedPriceChanged.InvokeAsync(price);
+            _ = SelectedPriceChanged.InvokeAsync(price);
         }
+    }
+
+    [JSInvokable]
+    public async Task OnChartClickWithTiming(double price, double clientNow)
+    {
+        Console.WriteLine($"[PayoffChart.OnChartClickWithTiming] price={price} clientNow={clientNow} utc={DateTime.UtcNow:O}");
+
+        await OnChartClick(price);
     }
 
     [JSInvokable]
@@ -123,6 +166,16 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
         }
     }
 
+    [JSInvokable]
+    public async Task OnTimeRangeChanged(double min, double max)
+    {
+        _lastTimeRangeFromUser = new TimeRange(min, max);
+        if (TimeRangeChanged.HasDelegate)
+        {
+            await TimeRangeChanged.InvokeAsync(_lastTimeRangeFromUser);
+        }
+    }
+
     private object BuildOption()
     {
         var series = new List<object>();
@@ -131,6 +184,23 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
         var xMax = _lastRangeFromUser?.XMax ?? xRange.max;
         var yMin = _lastRangeFromUser?.YMin;
         var yMax = _lastRangeFromUser?.YMax;
+        var axisText = IsDarkTheme ? "#cbd5f5" : "#4b5563";
+        var axisLine = IsDarkTheme ? "#475569" : "#9ca3af";
+        var splitLine = IsDarkTheme ? "rgba(148,163,184,0.25)" : "rgba(148,163,184,0.35)";
+        var tooltipBg = IsDarkTheme ? "rgba(15,23,42,0.9)" : "rgba(255,255,255,0.95)";
+        var tooltipText = IsDarkTheme ? "#e2e8f0" : "#111827";
+        var timeRange = _lastTimeRangeFromUser;
+        var timeBounds = GetTimeRange();
+        var timeMin = timeRange?.Min ?? timeBounds.min;
+        var timeMax = timeRange?.Max ?? timeBounds.max;
+        if (ShowCandles)
+        {
+            var tickerSeries = BuildTickerSeries();
+            if (tickerSeries.Count > 0)
+            {
+                series.AddRange(tickerSeries);
+            }
+        }
 
         foreach (var strategy in Strategies.Where(s => s.Visible))
         {
@@ -162,14 +232,15 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
             {
                 symbol = "none",
                 label = new { show = false },
-                lineStyle = new { color = "#111827", width = 1 }
+                lineStyle = new { color = IsDarkTheme ? "#e2e8f0" : "#111827", width = 1 }
             }
         });
 
         return new
         {
             animation = false,
-            grid = new { containLabel = true, left = 0, right = 18, top = 20, bottom = 40 },
+            backgroundColor = IsDarkTheme ? "#0f172a" : "#ffffff",
+            grid = new { containLabel = true, left = 0, right = ShowCandles ? 60 : 18, top = 20, bottom = 40 },
             tooltip = new
             {
                 trigger = "axis",
@@ -177,7 +248,10 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
                 show = true,
                 showContent = true,
                 alwaysShowContent = false,
-                triggerOn = "mousemove|click"
+                triggerOn = "mousemove|click",
+                backgroundColor = tooltipBg,
+                textStyle = new { color = tooltipText },
+                borderWidth = 0
             },
             legend = ShowLegends ? new
             {
@@ -189,7 +263,7 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
                 right = 10,
                 itemWidth = 12,
                 itemHeight = 8,
-                textStyle = new { fontSize = 11 },
+                textStyle = new { fontSize = 11, color = axisText },
                 data = Strategies.Where(s => s.Visible).Select(s => s.Name).Distinct().ToArray(),
                 selectedMode = true,
                 hoverLink = false
@@ -199,37 +273,61 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
                 type = "value",
                 nameLocation = "middle",
                 nameGap = 30,
-                axisLabel = new { formatter = "{value}", fontSize = 10 },
-                nameTextStyle = new { fontSize = 11 },
+                axisLabel = new { formatter = "{value}", fontSize = 10, color = axisText },
+                nameTextStyle = new { fontSize = 11, color = axisText },
+                axisLine = new { lineStyle = new { color = axisLine } },
+                axisTick = new { lineStyle = new { color = axisLine } },
+                splitLine = new { lineStyle = new { color = splitLine } },
                 min = xRange.min,
                 max = xRange.max
             },
-            yAxis = new
-            {
-                type = "value",
-                nameLocation = "middle",
-                nameGap = 45,
-                axisLabel = new { formatter = "{value}", fontSize = 10 },
-                nameTextStyle = new { fontSize = 11 },
-                min = yMin,
-                max = yMax
-            },
-            dataZoom = new object[]
-            {
-                new
+            yAxis = ShowCandles
+                ? new object[]
                 {
-                    type = "inside",
-                    xAxisIndex = 0,
-                    orient = "horizontal",
-                    moveOnMouseMove = true,
-                    moveOnMouseWheel = false,
-                    zoomOnMouseWheel = false,
-                    zoomOnMouseMove = false,
-                    filterMode = "none",
-                    startValue = xMin,
-                    endValue = xMax
+                    new
+                    {
+                        type = "value",
+                        nameLocation = "middle",
+                        nameGap = 45,
+                        axisLabel = new { formatter = "{value}", fontSize = 10, color = axisText },
+                        nameTextStyle = new { fontSize = 11, color = axisText },
+                        axisLine = new { lineStyle = new { color = axisLine } },
+                        axisTick = new { lineStyle = new { color = axisLine } },
+                        splitLine = new { lineStyle = new { color = splitLine } },
+                        min = yMin,
+                        max = yMax
+                    },
+                    new
+                    {
+                        type = "time",
+                        position = "right",
+                        inverse = true,
+                        boundaryGap = false,
+                        axisLabel = new { show = true, fontSize = 9, color = axisText },
+                        axisLine = new { show = true, lineStyle = new { color = axisLine } },
+                        axisTick = new { show = true, lineStyle = new { color = axisLine } },
+                        splitLine = new { show = false },
+                        min = timeMin,
+                        max = timeMax
+                    }
                 }
-            },
+                : new object[]
+                {
+                    new
+                    {
+                        type = "value",
+                        nameLocation = "middle",
+                        nameGap = 45,
+                        axisLabel = new { formatter = "{value}", fontSize = 10, color = axisText },
+                        nameTextStyle = new { fontSize = 11, color = axisText },
+                        axisLine = new { lineStyle = new { color = axisLine } },
+                        axisTick = new { lineStyle = new { color = axisLine } },
+                        splitLine = new { lineStyle = new { color = splitLine } },
+                        min = yMin,
+                        max = yMax
+                    }
+                },
+            dataZoom = Array.Empty<object>(),
             series
         };
     }
@@ -283,6 +381,50 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
             tooltip = new { show = false },
             data = points.Select(p => new[] { p, 0d }).ToArray()
         };
+    }
+
+    private List<object> BuildTickerSeries()
+    {
+        var result = new List<object>();
+        var candleData = (Candles == null || Candles.Count == 0)
+            ? Array.Empty<object[]>()
+            : Candles.Select(c => new object[] { c.Time, c.Open, c.Close, c.Low, c.High }).ToArray();
+
+        result.Add(new
+        {
+            id = "__ticker_candles__",
+            name = "Ticker Candles",
+            type = "custom",
+            coordinateSystem = "cartesian2d",
+            renderKind = "tickerCandles",
+            xAxisIndex = 0,
+            yAxisIndex = 1,
+            data = candleData,
+            silent = true,
+            tooltip = new { show = false },
+            z = 0,
+            zlevel = 0,
+            skipTooltip = true
+        });
+
+        result.Add(new
+        {
+            id = "__ticker_line__",
+            name = "Ticker Line",
+            type = "line",
+            xAxisIndex = 0,
+            yAxisIndex = 1,
+            data = candleData.Select(c => new object[] { c[2], c[0] }).ToArray(),
+            silent = true,
+            tooltip = new { show = false },
+            showSymbol = false,
+            lineStyle = new { color = "rgba(107,114,128,0.35)", width = 1 },
+            z = 0,
+            zlevel = 0,
+            skipTooltip = true
+        });
+
+        return result;
     }
 
     private static List<double> GetBreakEvens(IReadOnlyList<PayoffPoint> points)
@@ -380,6 +522,19 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
         return (min, max);
     }
 
+    private (double? min, double? max) GetTimeRange()
+    {
+        if (Candles == null || Candles.Count == 0)
+        {
+            return (null, null);
+        }
+
+        var min = Candles.Min(c => c.Time);
+        var max = Candles.Max(c => c.Time);
+
+        return (min, max);
+    }
+
     private static void UpdateRange(IReadOnlyList<PayoffPoint> points, ref double? min, ref double? max)
     {
         for (var i = 0; i < points.Count; i++)
@@ -390,6 +545,46 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
         }
     }
 
+    
+    private async Task DebounceJsAsync(string key, int delayMs, Func<Task> action)
+    {
+        if (_debounceTokens.TryGetValue(key, out var existing))
+        {
+            existing.Cancel();
+            existing.Dispose();
+        }
+
+        var cts = new CancellationTokenSource();
+        _debounceTokens[key] = cts;
+        var token = cts.Token;
+        try
+        {
+            await Task.Delay(delayMs, token);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+
+        if (token.IsCancellationRequested)
+        {
+            return;
+        }
+
+        await action();
+    }
+
+    private void CancelAllDebounces()
+    {
+        foreach (var entry in _debounceTokens.Values)
+        {
+            entry.Cancel();
+            entry.Dispose();
+        }
+
+        _debounceTokens.Clear();
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_module != null && _instanceId != null)
@@ -397,9 +592,11 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
             await _module.InvokeVoidAsync("dispose", _instanceId);
         }
 
+        CancelAllDebounces();
         UnsubscribeStrategies(_lastStrategies);
         UnsubscribeCollection(_lastStrategies);
         UnsubscribeMarkers(_lastMarkers);
+        UnsubscribeCandles(_lastCandles);
         _dotNetRef?.Dispose();
         if (_module != null)
         {
@@ -441,7 +638,12 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
 
     private async void OnStrategyPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (e.PropertyName != nameof(StrategySeries.Visible) && e.PropertyName != nameof(StrategySeries.ShowBreakEvens))
+        if (e.PropertyName != nameof(StrategySeries.Visible)
+            && e.PropertyName != nameof(StrategySeries.ShowBreakEvens)
+            && e.PropertyName != nameof(StrategySeries.TempPnl)
+            && e.PropertyName != nameof(StrategySeries.ExpiredPnl)
+            && e.PropertyName != nameof(StrategySeries.Color)
+            && e.PropertyName != nameof(StrategySeries.Name))
         {
             return;
         }
@@ -451,13 +653,55 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
             return;
         }
 
-        await _module.InvokeVoidAsync("setOption", _instanceId, BuildOption());
-        if (_lastSelectedPrice.HasValue)
+        await DebounceJsAsync("strategies", 500, async () =>
         {
-            await _module.InvokeVoidAsync("setSelectedPrice", _instanceId, _lastSelectedPrice);
+            if (_module == null || _instanceId == null)
+            {
+                return;
+            }
+
+            await _module.InvokeVoidAsync("setOption", _instanceId, BuildOption());
+        });
+    }
+
+    private async Task ScheduleOptionUpdate()
+    {
+        if (_module == null || _instanceId == null)
+        {
+            return;
         }
 
-        await _module.InvokeVoidAsync("setMarkers", _instanceId, Markers);
+        await DebounceJsAsync("option", 150, () => _module.InvokeVoidAsync("setOption", _instanceId, BuildOption()).AsTask());
+    }
+
+    private async Task ScheduleMarkersUpdate()
+    {
+        if (_module == null || _instanceId == null)
+        {
+            return;
+        }
+
+        await DebounceJsAsync("markers", 200, () => _module.InvokeVoidAsync("setMarkers", _instanceId, Markers).AsTask());
+    }
+
+    private async Task ScheduleSelectedUpdate()
+    {
+        if (_module == null || _instanceId == null)
+        {
+            return;
+        }
+
+        await DebounceJsAsync("selected", 200, () => _module.InvokeVoidAsync("setSelectedPrice", _instanceId, SelectedPrice).AsTask());
+    }
+
+    private async Task ScheduleCandlesUpdate()
+    {
+        if (_module == null || _instanceId == null)
+        {
+            return;
+        }
+
+        await DebounceJsAsync("candles", 200, () => _module.InvokeVoidAsync("updateCandles", _instanceId, Candles).AsTask());
     }
 
     private void SubscribeCollection(ObservableCollection<StrategySeries>? strategies)
@@ -489,13 +733,7 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
         }
 
         SubscribeStrategies(Strategies);
-        await _module.InvokeVoidAsync("setOption", _instanceId, BuildOption());
-        if (_lastSelectedPrice.HasValue)
-        {
-            await _module.InvokeVoidAsync("setSelectedPrice", _instanceId, _lastSelectedPrice);
-        }
-
-        await _module.InvokeVoidAsync("setMarkers", _instanceId, Markers);
+        await ScheduleOptionUpdate();
     }
 
     private void SubscribeMarkers(ObservableCollection<PriceMarker>? markers)
@@ -526,6 +764,42 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
             return;
         }
 
-        await _module.InvokeVoidAsync("setMarkers", _instanceId, Markers);
+        await ScheduleMarkersUpdate();
+    }
+
+    private void SubscribeCandles(ObservableCollection<CandlePoint>? candles)
+    {
+        if (candles == null)
+        {
+            return;
+        }
+
+        candles.CollectionChanged -= OnCandlesCollectionChanged;
+        candles.CollectionChanged += OnCandlesCollectionChanged;
+    }
+
+    private void UnsubscribeCandles(ObservableCollection<CandlePoint>? candles)
+    {
+        if (candles == null)
+        {
+            return;
+        }
+
+        candles.CollectionChanged -= OnCandlesCollectionChanged;
+    }
+
+    private async void OnCandlesCollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        if (_module == null || _instanceId == null)
+        {
+            return;
+        }
+
+        if (!ShowCandles)
+        {
+            return;
+        }
+
+        await ScheduleCandlesUpdate();
     }
 }

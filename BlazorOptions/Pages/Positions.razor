@@ -5,6 +5,7 @@
 @inject IDialogService DialogService
 @inject INavigationService NavigationService
 @inject NavigationManager NavigationManager
+@inject ThemeService ThemeService
 @using System.Linq
 @using Microsoft.AspNetCore.Components.Web
 @using BlazorOptions.Shared
@@ -86,7 +87,9 @@ else
                                          SelectedPrice="@ViewModel.ChartSelectedPrice"
                                          SelectedPriceChanged="HandleChartPriceSelected"
                                          Markers="@ViewModel.ChartMarkers"
+                                         ShowCandles="false"
                                          ShowLegends="true"
+                                         IsDarkTheme="@ThemeService.IsDarkMode"
                                          RangeChanged="HandleChartRangeChanged" />
 
                                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="chart-controls-row">
@@ -300,10 +303,19 @@ else
         }
     }
 
-    private async Task HandleChartPriceSelected(double? price)
+    private Task HandleChartPriceSelected(double? price)
     {
-        ViewModel.UpdateSelectedPrice(price.HasValue ? (decimal?)price.Value : null, refresh: true);
-        await InvokeAsync(StateHasChanged);
+        _ = InvokeAsync(async () =>
+        {
+            var start = System.Diagnostics.Stopwatch.StartNew();
+            await Task.Yield();
+            ViewModel.UpdateSelectedPrice(price.HasValue ? (decimal?)price.Value : null, refresh: false);
+            StateHasChanged();
+            start.Stop();
+            Console.WriteLine($"[Positions.HandleChartPriceSelected] price={price} handlerMs={start.ElapsedMilliseconds} utc={DateTime.UtcNow:O}");
+        });
+
+        return Task.CompletedTask;
     }
 
     private Task HandleChartRangeChanged(ChartRange range)

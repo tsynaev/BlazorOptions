@@ -238,7 +238,6 @@ public sealed class PositionViewModel : IDisposable
     private async Task HandleCollectionUpdatedAsync(LegsCollectionUpdateKind updateKind)
     {
         var updateChart = updateKind == LegsCollectionUpdateKind.LegModelChanged
-            || updateKind == LegsCollectionUpdateKind.PricingContextUpdated
             || updateKind == LegsCollectionUpdateKind.CollectionChanged;
         var refreshTicker = updateKind == LegsCollectionUpdateKind.CollectionChanged;
         var persist = updateKind == LegsCollectionUpdateKind.LegModelChanged

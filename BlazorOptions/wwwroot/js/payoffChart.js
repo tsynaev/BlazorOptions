@@ -1,5 +1,6 @@
-﻿const instances = new Map();
+const instances = new Map();
 let nextId = 1;
+const candleMetaBySeries = new Map();
 
 export function init(element, dotNetRef) {
     const chart = echarts.init(element, null, { renderer: 'canvas', useDirtyRect: true });
@@ -54,7 +55,11 @@ export function init(element, dotNetRef) {
         seriesCache: new Map(),
         legendSelected: null,
         pointerDragActive: false,
-        tooltipHidden: false
+        tooltipHidden: false,
+        currentRangeX: null,
+        currentRangeY: null,
+        currentRangeTime: null,
+        preserveRange: false
     };
     instance.touchHandler = (evt) => {
         if (!evt.cancelable) {
@@ -84,7 +89,7 @@ export function init(element, dotNetRef) {
     element.addEventListener('touchstart', instance.touchHandler, { passive: false });
     element.addEventListener('touchmove', instance.touchHandler, { passive: false });
 
-    chart.on('dataZoom', () => scheduleRangeChanged(instance));
+    // dataZoom disabled; we use custom drag handlers for ranges.
     chart.on('legendselectchanged', (params) => handleLegendToggle(instance, params));
     zr.on('mousedown', (evt) => handleAxisDragStart(instance, evt));
     zr.on('mousemove', (evt) => handleAxisDragMove(instance, evt));
@@ -108,9 +113,31 @@ export function setOption(instanceId, option) {
     instance.lastOption = normalized;
     instance.chart.setOption(normalized, { notMerge: true, lazyUpdate: false });
     cacheSeries(instance, normalized);
+    syncAxisRanges(instance, normalized);
+    const hasTimeAxis = Array.isArray(instance.lastOption?.yAxis) && instance.lastOption.yAxis.length > 1;
+    if (!hasTimeAxis) {
+        instance.currentRangeTime = null;
+    }
+    if (instance.lastOption?.xAxis && instance.currentRangeX) {
+        instance.chart.setOption({ xAxis: { min: instance.currentRangeX.min, max: instance.currentRangeX.max } }, { notMerge: false, lazyUpdate: true });
+    }
+    if (hasTimeAxis) {
+        if (instance.currentRangeY || instance.currentRangeTime) {
+            instance.chart.setOption({
+                yAxis: [
+                    instance.currentRangeY ? { min: instance.currentRangeY.min, max: instance.currentRangeY.max } : {},
+                    instance.currentRangeTime ? { min: instance.currentRangeTime.min, max: instance.currentRangeTime.max } : {}
+                ]
+            }, { notMerge: false, lazyUpdate: true });
+        }
+    } else if (instance.lastOption?.yAxis && instance.currentRangeY) {
+        instance.chart.setOption({ yAxis: { min: instance.currentRangeY.min, max: instance.currentRangeY.max } }, { notMerge: false, lazyUpdate: true });
+    }
     if (instance.legendSelected) {
         applyLegendSelection(instance);
     }
+    refreshCandleMetaFromOption(instance, normalized);
+    applyMarkers(instance);
 }
 
 export function setSelectedPrice(instanceId, priceOrNull) {
@@ -131,6 +158,47 @@ export function setMarkers(instanceId, markers) {
 
     instance.markers = Array.isArray(markers) ? markers : [];
     applyMarkers(instance);
+}
+
+
+export function updateCandles(instanceId, candles) {
+    const instance = instances.get(instanceId);
+    if (!instance || !Array.isArray(candles)) {
+        return;
+    }
+
+    let minTime = Number.POSITIVE_INFINITY;
+    let maxTime = Number.NEGATIVE_INFINITY;
+    const candleData = candles.map((c) => {
+        const time = Number.isFinite(c.time) ? c.time : c.Time;
+        const open = Number.isFinite(c.open) ? c.open : c.Open;
+        const high = Number.isFinite(c.high) ? c.high : c.High;
+        const low = Number.isFinite(c.low) ? c.low : c.Low;
+        const close = Number.isFinite(c.close) ? c.close : c.Close;
+        if (Number.isFinite(time)) {
+            minTime = Math.min(minTime, time);
+            maxTime = Math.max(maxTime, time);
+        }
+        return [time, open, close, low, high];
+    });
+
+    const lineData = candleData.map((c) => [c[2], c[0]]);
+
+    const option = {
+        series: [
+            { id: '__ticker_candles__', data: candleData },
+            { id: '__ticker_line__', data: lineData }
+        ]
+    };
+
+    const hasTimeAxis = Array.isArray(instance.lastOption?.yAxis) && instance.lastOption.yAxis.length > 1;
+    if (hasTimeAxis && !instance.preserveRange && Number.isFinite(minTime) && Number.isFinite(maxTime)) {
+        instance.currentRangeTime = { min: minTime, max: maxTime };
+        option.yAxis = [{}, { min: minTime, max: maxTime }];
+    }
+
+    instance.chart.setOption(option, { notMerge: false, lazyUpdate: true });
+    refreshCandleMeta(instance, candleData);
 }
 
 function formatPrice(value) {
@@ -181,17 +249,19 @@ function formatPrice(value) {
 function applyMarkers(instance) {
     const markLineData = [];
     const selected = instance.selectedPrice;
+    const isDark = Boolean(instance.lastOption?.backgroundColor) && instance.lastOption.backgroundColor !== '#ffffff';
+    const selectedColor = isDark ? '#e2e8f0' : '#111827';
 
     if (selected != null) {
         markLineData.push({
             xAxis: selected,
-            lineStyle: { color: '#111827', width: 1, type: 'solid' },
+            lineStyle: { color: selectedColor, width: 1, type: 'solid' },
             label: {
                 show: true,
                 formatter: `Futures ${formatPrice(selected)}`,
                 rotate: 90,
                 position: 'insideEndTop',
-                color: '#111827',
+                color: selectedColor,
                 fontSize: 9,
                 distance: 0,
                 offset: [0, 0]
@@ -284,63 +354,74 @@ function handleDomClick(instance, evt) {
     selectPriceAtPoint(instance, point);
 }
 
-function scheduleRangeChanged(instance) {
-    if (instance.rangeTimer) {
-        clearTimeout(instance.rangeTimer);
+function emitRangeChanged(instance) {
+    const xRange = instance.currentRangeX ?? getVisibleRange(instance.chart, 'x', 0);
+    const yRange = instance.currentRangeY ?? getVisibleRange(instance.chart, 'y', 0);
+    const timeRange = instance.currentRangeTime ?? getVisibleRange(instance.chart, 'y', 1);
+    if (!xRange || !yRange) {
+        return;
     }
 
-    // Debounce to avoid flooding .NET while the user is still panning/zooming.
-    instance.rangeTimer = setTimeout(() => {
-        const xRange = instance.rangeOverride?.x ?? getVisibleRange(instance.chart, 'x', 0);
-        const yRange = instance.rangeOverride?.y ?? getVisibleRange(instance.chart, 'y', 0);
-        if (!xRange || !yRange) {
-            return;
-        }
-
-        instance.dotNetRef.invokeMethodAsync('OnRangeChanged', xRange.min, xRange.max, yRange.min, yRange.max);
-        instance.rangeOverride = null;
-    }, 300);
+    instance.dotNetRef.invokeMethodAsync('OnRangeChanged', xRange.min, xRange.max, yRange.min, yRange.max);
+    if (timeRange) {
+        instance.dotNetRef.invokeMethodAsync('OnTimeRangeChanged', timeRange.min, timeRange.max);
+    }
+    instance.rangeOverride = null;
+    instance.timeRangeOverride = null;
 }
 
 function getVisibleRange(chart, axis, axisIndex) {
+    const option = chart.getOption();
+    if (axis === 'x') {
+        const xAxis = Array.isArray(option?.xAxis) ? option.xAxis[axisIndex] : option?.xAxis;
+        if (xAxis && Number.isFinite(xAxis.min) && Number.isFinite(xAxis.max)) {
+            return { min: xAxis.min, max: xAxis.max };
+        }
+    } else {
+        const yAxis = Array.isArray(option?.yAxis) ? option.yAxis[axisIndex] : option?.yAxis;
+        if (yAxis && Number.isFinite(yAxis.min) && Number.isFinite(yAxis.max)) {
+            return { min: yAxis.min, max: yAxis.max };
+        }
+    }
+
     const axisComponent = chart.getModel().getComponent(`${axis}Axis`, axisIndex);
     if (!axisComponent) {
         return null;
     }
 
+    const axisOption = axisComponent.option ?? {};
+    if (Number.isFinite(axisOption.min) && Number.isFinite(axisOption.max)) {
+        return { min: axisOption.min, max: axisOption.max };
+    }
+
     const extent = axisComponent.axis.scale.getExtent();
-    const dataZoom = chart.getOption().dataZoom ?? [];
-    const zoom = dataZoom.find((item) => {
-        const idx = axis === 'x' ? item.xAxisIndex : item.yAxisIndex;
-        return idx === axisIndex || (Array.isArray(idx) && idx.includes(axisIndex));
-    });
-
-    if (!zoom) {
-        return { min: extent[0], max: extent[1] };
-    }
-
-    // Use explicit startValue/endValue when available to reflect the actual visible window.
-    if (Number.isFinite(zoom.startValue) && Number.isFinite(zoom.endValue)) {
-        return { min: zoom.startValue, max: zoom.endValue };
-    }
-
-    const start = Number.isFinite(zoom.start) ? zoom.start : 0;
-    const end = Number.isFinite(zoom.end) ? zoom.end : 100;
-    const span = extent[1] - extent[0];
-    const min = extent[0] + (span * start) / 100;
-    const max = extent[0] + (span * end) / 100;
-    return { min, max };
+    return { min: extent[0], max: extent[1] };
 }
 
 function normalizeOption(option, instance) {
     const normalized = option ?? {};
 
-    if (normalized.xAxis?.axisLabel) {
-        normalized.xAxis.axisLabel.formatter = (value) => String(value);
+    const xAxes = Array.isArray(normalized.xAxis) ? normalized.xAxis : (normalized.xAxis ? [normalized.xAxis] : []);
+    const yAxes = Array.isArray(normalized.yAxis) ? normalized.yAxis : (normalized.yAxis ? [normalized.yAxis] : []);
+
+    if (xAxes[0]?.axisLabel) {
+        xAxes[0].axisLabel.formatter = (value) => String(value);
     }
 
-    if (normalized.yAxis?.axisLabel) {
-        normalized.yAxis.axisLabel.formatter = (value) => Number(value).toFixed(2);
+    if (yAxes[0]?.axisLabel) {
+        yAxes[0].axisLabel.formatter = (value) => Number(value).toFixed(2);
+    }
+
+    if (Array.isArray(normalized.xAxis)) {
+        normalized.xAxis = xAxes;
+    } else if (xAxes.length > 0) {
+        normalized.xAxis = xAxes[0];
+    }
+
+    if (Array.isArray(normalized.yAxis)) {
+        normalized.yAxis = yAxes;
+    } else if (yAxes.length > 0) {
+        normalized.yAxis = yAxes[0];
     }
 
     normalized.tooltip = normalized.tooltip ?? {};
@@ -356,6 +437,9 @@ function normalizeOption(option, instance) {
             const value = Array.isArray(entry.data) ? entry.data[1] : entry.value;
             const pnl = Number(value).toFixed(2);
             const seriesOption = instance?.lastOption?.series?.[entry.seriesIndex];
+            if (seriesOption?.skipTooltip) {
+                continue;
+            }
             const kind = seriesOption?.payoffKind ? ` ${seriesOption.payoffKind}` : '';
             lines.push(`${entry.marker}${entry.seriesName}${kind}: ${pnl}`);
         }
@@ -370,6 +454,9 @@ function normalizeOption(option, instance) {
             }
 
             const id = typeof series.id === 'string' ? series.id : '';
+            if (series.renderKind === 'tickerCandles') {
+                series.renderItem = renderTickerCandles;
+            }
             if (id.endsWith('-be-exp') || id.endsWith('-be-temp')) {
                 series.label = series.label ?? {};
                 series.label.formatter = (params) => formatPrice(Array.isArray(params.value) ? params.value[0] : params.value);
@@ -378,6 +465,94 @@ function normalizeOption(option, instance) {
     }
 
     return normalized;
+}
+
+function renderTickerCandles(params, api) {
+    const time = api.value(0);
+    const open = api.value(1);
+    const close = api.value(2);
+    const low = api.value(3);
+    const high = api.value(4);
+
+    if (!Number.isFinite(time) || !Number.isFinite(open) || !Number.isFinite(close) || !Number.isFinite(low) || !Number.isFinite(high)) {
+        return null;
+    }
+
+    const meta = candleMetaBySeries.get(params.seriesId);
+    const bodyHeight = meta?.bodyHeight ?? 6;
+    const coordSys = params.coordSys;
+    const rawY = api.coord([open, time])[1];
+    if (!coordSys || !Number.isFinite(rawY)) {
+        return null;
+    }
+
+    // Allow edge candles to be fully visible by snapping within half height.
+    const minY = coordSys.y + bodyHeight / 2;
+    const maxY = coordSys.y + coordSys.height - bodyHeight / 2;
+    if (rawY < coordSys.y - bodyHeight || rawY > coordSys.y + coordSys.height + bodyHeight) {
+        return null;
+    }
+
+    const y = Math.min(Math.max(rawY, minY), maxY);
+    const lowPoint = api.coord([low, time]);
+    const highPoint = api.coord([high, time]);
+    const openPoint = api.coord([open, time]);
+    const closePoint = api.coord([close, time]);
+
+    const left = Math.min(openPoint[0], closePoint[0]);
+    const width = Math.max(1, Math.abs(closePoint[0] - openPoint[0]));
+    const top = y - bodyHeight / 2;
+
+    const isUp = close >= open;
+    const color = isUp ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)';
+    const border = isUp ? 'rgba(16,185,129,0.55)' : 'rgba(239,68,68,0.55)';
+
+    const lineShape = {
+        type: 'line',
+        shape: {
+            x1: lowPoint[0],
+            y1: y,
+            x2: highPoint[0],
+            y2: y
+        },
+        style: {
+            stroke: border,
+            lineWidth: 1
+        }
+    };
+
+    const rectShape = {
+        type: 'rect',
+        shape: {
+            x: left,
+            y: top,
+            width,
+            height: bodyHeight
+        },
+        style: {
+            fill: color,
+            stroke: border,
+            lineWidth: 1
+        }
+    };
+
+    const group = {
+        type: 'group',
+        children: [lineShape, rectShape]
+    };
+    if (coordSys) {
+        group.clipPath = {
+            type: 'rect',
+            shape: {
+                x: coordSys.x,
+                y: coordSys.y,
+                width: coordSys.width,
+                height: coordSys.height
+            }
+        };
+    }
+
+    return group;
 }
 
 function cacheSeries(instance, option) {
@@ -448,8 +623,9 @@ function handleAxisDragStart(instance, evt) {
         anchor,
         startValueAtPoint: anchor,
         startRange: {
-            x: getVisibleRange(instance.chart, 'x', 0),
-            y: getVisibleRange(instance.chart, 'y', 0)
+            x: instance.currentRangeX ?? getVisibleRange(instance.chart, 'x', 0),
+            y: instance.currentRangeY ?? getVisibleRange(instance.chart, 'y', 0),
+            time: instance.currentRangeTime ?? getVisibleRange(instance.chart, 'y', 1)
         },
         rect: getGridRect(instance.chart)
     };
@@ -461,7 +637,7 @@ function handleAxisDragMove(instance, evt) {
     instance.chart.getZr().setCursorStyle(
         mode === 'x'
             ? 'ew-resize'
-            : mode === 'y'
+            : (mode === 'y' || mode === 'y-time')
                 ? 'ns-resize'
                 : mode === 'plot'
                     ? 'move'
@@ -483,13 +659,23 @@ function handleAxisDragMove(instance, evt) {
         // Dragging right/left on the axis expands/contracts by moving the min while keeping max fixed.
         const zoomed = stretchRangeFromMax(drag.startRange.x, deltaValue);
         applyZoom(instance.chart, 'x', 0, zoomed);
+        instance.currentRangeX = zoomed;
         instance.rangeOverride = { x: zoomed };
     } else if (drag.mode === 'y') {
         const deltaPixels = drag.startY - point[1];
         // Dragging up shrinks the range (max down, min up). Dragging down expands it.
         const zoomed = scaleRange(drag.startRange.y, -deltaPixels, drag.rect.height, 0.9);
         instance.chart.setOption({ yAxis: { min: zoomed.min, max: zoomed.max } }, { notMerge: false, lazyUpdate: true });
+        instance.currentRangeY = zoomed;
         instance.rangeOverride = { y: zoomed };
+    } else if (drag.mode === 'y-time') {
+        const deltaPixels = point[1] - drag.startY;
+        const deltaValue = pixelsToValueDelta(drag.startRange.time, deltaPixels, drag.rect.height);
+        const zoomed = stretchRangeFromMax(drag.startRange.time, deltaValue);
+        instance.chart.setOption({ yAxis: [{}, { min: zoomed.min, max: zoomed.max }] }, { notMerge: false, lazyUpdate: true });
+        instance.currentRangeTime = zoomed;
+        instance.timeRangeOverride = zoomed;
+        refreshCandleMeta(instance);
     } else if (drag.mode === 'plot') {
         const deltaPixelsX = point[0] - drag.startX;
         const deltaPixelsY = drag.startY - point[1];
@@ -499,6 +685,8 @@ function handleAxisDragMove(instance, evt) {
         const shiftedY = shiftRange(drag.startRange.y, deltaY);
         applyZoom(instance.chart, 'x', 0, shiftedX);
         instance.chart.setOption({ yAxis: { min: shiftedY.min, max: shiftedY.max } }, { notMerge: false, lazyUpdate: true });
+        instance.currentRangeX = shiftedX;
+        instance.currentRangeY = shiftedY;
         instance.rangeOverride = { x: shiftedX, y: shiftedY };
     }
 
@@ -513,8 +701,25 @@ function handleAxisDragMove(instance, evt) {
 }
 
 function handleAxisDragEnd(instance) {
-    if (instance.axisDrag && instance.rangeOverride) {
-        scheduleRangeChanged(instance);
+    if (instance.axisDrag && (instance.rangeOverride || instance.timeRangeOverride)) {
+        instance.currentRangeX = getVisibleRange(instance.chart, 'x', 0);
+        instance.currentRangeY = getVisibleRange(instance.chart, 'y', 0);
+        instance.currentRangeTime = getVisibleRange(instance.chart, 'y', 1);
+        instance.preserveRange = true;
+    if (instance.currentRangeX || instance.currentRangeY || instance.currentRangeTime) {
+        const hasTimeAxis = Array.isArray(instance.lastOption?.yAxis) && instance.lastOption.yAxis.length > 1;
+        const yAxisOption = hasTimeAxis && instance.currentRangeTime
+            ? [
+                { min: instance.currentRangeY?.min, max: instance.currentRangeY?.max },
+                { min: instance.currentRangeTime.min, max: instance.currentRangeTime.max }
+            ]
+            : { min: instance.currentRangeY?.min, max: instance.currentRangeY?.max };
+        instance.chart.setOption({
+            xAxis: instance.currentRangeX ? { min: instance.currentRangeX.min, max: instance.currentRangeX.max } : {},
+            yAxis: yAxisOption
+        }, { notMerge: false, lazyUpdate: true });
+    }
+        emitRangeChanged(instance);
     }
     if (instance.clickState?.moved || instance.isDragging) {
         instance.suppressClickUntil = performance.now() + 250;
@@ -528,7 +733,10 @@ function handleAxisDragEnd(instance) {
         instance.tooltipHidden = false;
         instance.chart.setOption({ tooltip: { show: true } }, { notMerge: false, lazyUpdate: true });
     }
+
+    refreshCandleMeta(instance);
 }
+
 
 function getPoint(evt) {
     const x = Number.isFinite(evt.offsetX) ? evt.offsetX : evt.zrX;
@@ -545,6 +753,7 @@ function getAxisDragMode(chart, point) {
     const [x, y] = point;
     const axisBandX = { min: rect.x, max: rect.x + rect.width, top: rect.y + rect.height - 6, bottom: rect.y + rect.height + 36 };
     const axisBandY = { min: rect.y, max: rect.y + rect.height, left: rect.x - 44, right: rect.x + 6 };
+    const axisBandYRight = { min: rect.y, max: rect.y + rect.height, left: rect.x + rect.width - 6, right: rect.x + rect.width + 54 };
 
     if (x >= axisBandX.min && x <= axisBandX.max && y >= axisBandX.top && y <= axisBandX.bottom) {
         return 'x';
@@ -552,6 +761,10 @@ function getAxisDragMode(chart, point) {
 
     if (y >= axisBandY.min && y <= axisBandY.max && x >= axisBandY.left && x <= axisBandY.right) {
         return 'y';
+    }
+
+    if (y >= axisBandYRight.min && y <= axisBandYRight.max && x >= axisBandYRight.left && x <= axisBandYRight.right) {
+        return 'y-time';
     }
 
     if (x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height) {
@@ -647,20 +860,95 @@ function applyZoom(chart, axis, axisIndex, range) {
     }
 
     if (axis === 'x') {
-        chart.dispatchAction({
-            type: 'dataZoom',
-            xAxisIndex: axisIndex,
-            startValue: range.min,
-            endValue: range.max
-        });
+        chart.setOption({ xAxis: { min: range.min, max: range.max } }, { notMerge: false, lazyUpdate: true });
     } else {
-        chart.dispatchAction({
-            type: 'dataZoom',
-            yAxisIndex: axisIndex,
-            startValue: range.min,
-            endValue: range.max
-        });
+        chart.setOption({ yAxis: { min: range.min, max: range.max } }, { notMerge: false, lazyUpdate: true });
     }
+}
+
+function syncAxisRanges(instance, option) {
+    if (!instance || !option) {
+        return;
+    }
+
+    if (instance.preserveRange) {
+        return;
+    }
+
+    const xAxis = Array.isArray(option.xAxis) ? option.xAxis[0] : option.xAxis;
+    if (xAxis && Number.isFinite(xAxis.min) && Number.isFinite(xAxis.max)) {
+        instance.currentRangeX = { min: xAxis.min, max: xAxis.max };
+    }
+
+    const yAxis = Array.isArray(option.yAxis) ? option.yAxis[0] : option.yAxis;
+    if (yAxis && Number.isFinite(yAxis.min) && Number.isFinite(yAxis.max)) {
+        instance.currentRangeY = { min: yAxis.min, max: yAxis.max };
+    }
+
+    const timeAxis = Array.isArray(option.yAxis) && option.yAxis.length > 1 ? option.yAxis[1] : null;
+    if (timeAxis && Number.isFinite(timeAxis.min) && Number.isFinite(timeAxis.max)) {
+        instance.currentRangeTime = { min: timeAxis.min, max: timeAxis.max };
+    } else {
+        instance.currentRangeTime = null;
+    }
+}
+
+function refreshCandleMetaFromOption(instance, option) {
+    if (!option || !Array.isArray(option.series)) {
+        return;
+    }
+
+    const candleSeries = option.series.find((s) => s && s.id === '__ticker_candles__');
+    if (!candleSeries || !Array.isArray(candleSeries.data)) {
+        candleMetaBySeries.delete('__ticker_candles__');
+        return;
+    }
+
+    refreshCandleMeta(instance, candleSeries.data);
+}
+
+function refreshCandleMeta(instance, candleData) {
+    if (!instance || !instance.lastOption) {
+        return;
+    }
+
+    const hasTimeAxis = Array.isArray(instance.lastOption?.yAxis) && instance.lastOption.yAxis.length > 1;
+    if (!hasTimeAxis) {
+        candleMetaBySeries.delete('__ticker_candles__');
+        return;
+    }
+
+    const data = Array.isArray(candleData)
+        ? candleData
+        : (instance.lastOption?.series?.find((s) => s && s.id === '__ticker_candles__')?.data ?? []);
+    if (!Array.isArray(data) || data.length === 0) {
+        candleMetaBySeries.delete('__ticker_candles__');
+        return;
+    }
+
+    const range = instance.currentRangeTime ?? getVisibleRange(instance.chart, 'y', 1);
+    if (!range || !Number.isFinite(range.min) || !Number.isFinite(range.max)) {
+        return;
+    }
+
+    const rect = getGridRect(instance.chart);
+    if (!rect) {
+        return;
+    }
+
+    const min = Math.min(range.min, range.max);
+    const max = Math.max(range.min, range.max);
+    let visibleCount = 0;
+    for (const candle of data) {
+        const time = candle?.[0];
+        if (Number.isFinite(time) && time >= min && time <= max) {
+            visibleCount++;
+        }
+    }
+
+    const spacing = rect.height / Math.max(1, visibleCount);
+    const bodyHeight = Math.max(2, Math.min(12, spacing * 0.6));
+    candleMetaBySeries.set('__ticker_candles__', { bodyHeight });
 }
 
 function selectPriceAtPoint(instance, point) {
@@ -684,7 +972,11 @@ function selectPriceAtPoint(instance, point) {
         xValue = Array.isArray(axisValue) ? axisValue[0] : axisValue;
     }
     if (Number.isFinite(xValue)) {
-        instance.dotNetRef.invokeMethodAsync('OnChartClick', xValue);
+        const now = performance.now();
+        instance.selectedPrice = xValue;
+        applyMarkers(instance);
+        console.log('[PayoffChart] click', { price: xValue, now });
+        instance.dotNetRef.invokeMethodAsync('OnChartClickWithTiming', xValue, now);
     }
 }
 
