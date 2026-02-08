@@ -434,7 +434,17 @@ function getVisibleRange(chart, axis, axisIndex) {
         return { min: axisOption.min, max: axisOption.max };
     }
 
-    const extent = axisComponent.axis.scale.getExtent();
+    const axisRuntime = axisComponent.axis;
+    const scale = axisRuntime?.scale;
+    if (!scale || typeof scale.getExtent !== 'function') {
+        return null;
+    }
+
+    const extent = scale.getExtent();
+    if (!Array.isArray(extent) || extent.length < 2 || !Number.isFinite(extent[0]) || !Number.isFinite(extent[1])) {
+        return null;
+    }
+
     return { min: extent[0], max: extent[1] };
 }
 

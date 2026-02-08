@@ -493,6 +493,7 @@ public sealed class PositionViewModel : IDisposable
         }
 
         SetLivePrice(update.Price);
+        _positionBuilder.AppendTickerPrice(update.Price, update.Timestamp);
         _positionBuilder.NotifyLivePriceChanged(update.Price);
 
         return Task.CompletedTask;
@@ -555,6 +556,8 @@ public sealed class PositionViewModel : IDisposable
             {
                 _positionBuilder.UpdateSelectedPrice(fetchedPrice.Value, refresh: false);
             }
+
+            _positionBuilder.AppendTickerPrice(fetchedPrice, DateTime.UtcNow);
         }
         catch
         {

@@ -1,5 +1,8 @@
 using System.Collections.Concurrent;
+using System.Globalization;
+using System.Text.Json;
 using BlazorOptions.ViewModels;
+using BlazorChart.Models;
 using Microsoft.Extensions.Options;
 
 namespace BlazorOptions.Services;
@@ -7,6 +10,7 @@ namespace BlazorOptions.Services;
 public class ExchangeTickerService : ITickersService
 {
     private static readonly Uri DefaultBybitWebSocketUrl = new("wss://stream.bybit.com/v5/public/linear");
+    private const string BybitKlineUrl = "https://api.bybit.com/v5/market/kline";
     private readonly IReadOnlyDictionary<string, IExchangeTickerClient> _clients;
     private readonly ConcurrentDictionary<IExchangeTickerClient, Func<ExchangePriceUpdate, Task>> _handlers = new();
     private readonly object _subscriberLock = new();
@@ -14,14 +18,19 @@ public class ExchangeTickerService : ITickersService
     private IExchangeTickerClient? _activeClient;
     private Uri? _activeWebSocketUrl;
     private readonly IOptions<BybitSettings> _bybitSettingsOptions;
+    private readonly HttpClient _httpClient;
     private TimeSpan _livePriceUpdateInterval = TimeSpan.FromMilliseconds(1000);
     private readonly Dictionary<string, DateTime> _lastUpdateUtc = new(StringComparer.OrdinalIgnoreCase);
 
-    public ExchangeTickerService(IEnumerable<IExchangeTickerClient> clients, IOptions<BybitSettings> bybitSettingsOptions)
+    public ExchangeTickerService(
+        IEnumerable<IExchangeTickerClient> clients,
+        IOptions<BybitSettings> bybitSettingsOptions,
+        HttpClient httpClient)
     {
         // TODO: Evaluate Bybit.Net usage when it supports Blazor WebAssembly.
         _clients = clients.ToDictionary(client => client.Exchange, StringComparer.OrdinalIgnoreCase);
         _bybitSettingsOptions = bybitSettingsOptions;
+        _httpClient = httpClient;
 
         foreach (var client in _clients.Values)
         {
@@ -29,6 +38,74 @@ public class ExchangeTickerService : ITickersService
             _handlers[client] = handler;
             client.PriceUpdated += handler;
         }
+    }
+
+    public async Task<IReadOnlyList<CandlePoint>> GetCandlesAsync(
+        string symbol,
+        DateTime fromUtc,
+        DateTime toUtc,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return Array.Empty<CandlePoint>();
+        }
+
+        var from = NormalizeUtc(fromUtc);
+        var to = NormalizeUtc(toUtc);
+        if (to <= from)
+        {
+            to = from.AddMinutes(1);
+        }
+
+        var query = $"category=linear&symbol={Uri.EscapeDataString(symbol.Trim().ToUpperInvariant())}&interval=60&start={new DateTimeOffset(from).ToUnixTimeMilliseconds()}&end={new DateTimeOffset(to).ToUnixTimeMilliseconds()}&limit=1000";
+        using var response = await _httpClient.GetAsync($"{BybitKlineUrl}?{query}", cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return Array.Empty<CandlePoint>();
+        }
+
+        var payload = await response.Content.ReadAsStringAsync(cancellationToken);
+        using var document = JsonDocument.Parse(payload);
+        var root = document.RootElement;
+        if (!root.TryGetProperty("retCode", out var retCodeElement)
+            || !retCodeElement.TryGetInt32(out var retCode)
+            || retCode != 0)
+        {
+            return Array.Empty<CandlePoint>();
+        }
+
+        if (!root.TryGetProperty("result", out var resultElement)
+            || !resultElement.TryGetProperty("list", out var listElement)
+            || listElement.ValueKind != JsonValueKind.Array)
+        {
+            return Array.Empty<CandlePoint>();
+        }
+
+        var candles = new List<CandlePoint>();
+        foreach (var item in listElement.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Array || item.GetArrayLength() < 5)
+            {
+                continue;
+            }
+
+            var values = item.EnumerateArray().ToArray();
+            if (!TryParseLong(values[0], out var timeMs)
+                || !TryParseDouble(values[1], out var open)
+                || !TryParseDouble(values[2], out var high)
+                || !TryParseDouble(values[3], out var low)
+                || !TryParseDouble(values[4], out var close))
+            {
+                continue;
+            }
+
+            candles.Add(new CandlePoint(timeMs, open, high, low, close));
+        }
+
+        return candles
+            .OrderBy(c => c.Time)
+            .ToArray();
     }
 
   
@@ -198,5 +275,44 @@ public class ExchangeTickerService : ITickersService
             _activeClient = null;
             _activeWebSocketUrl = null;
         }
+    }
+
+    private static bool TryParseLong(JsonElement element, out long value)
+    {
+        if (element.ValueKind == JsonValueKind.Number && element.TryGetInt64(out value))
+        {
+            return true;
+        }
+
+        if (element.ValueKind == JsonValueKind.String
+            && long.TryParse(element.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out value))
+        {
+            return true;
+        }
+
+        value = 0;
+        return false;
+    }
+
+    private static bool TryParseDouble(JsonElement element, out double value)
+    {
+        if (element.ValueKind == JsonValueKind.Number && element.TryGetDouble(out value))
+        {
+            return true;
+        }
+
+        if (element.ValueKind == JsonValueKind.String
+            && double.TryParse(element.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out value))
+        {
+            return true;
+        }
+
+        value = 0;
+        return false;
+    }
+
+    private static DateTime NormalizeUtc(DateTime value)
+    {
+        return value.Kind == DateTimeKind.Utc ? value : value.ToUniversalTime();
     }
 }

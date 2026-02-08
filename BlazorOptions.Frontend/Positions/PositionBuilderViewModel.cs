@@ -8,6 +8,9 @@ namespace BlazorOptions.ViewModels;
 
 public class PositionBuilderViewModel : IAsyncDisposable
 {
+    private static readonly TimeSpan CandleBucket = TimeSpan.FromHours(1);
+    private static readonly TimeSpan DefaultCandlesWindow = TimeSpan.FromHours(48);
+    private const int MaxChartCandles = 5000;
     private readonly OptionsService _optionsService;
     private readonly IPositionsPort _positionsPort;
     private readonly IExchangeService _exchangeService;
@@ -23,7 +26,11 @@ public class PositionBuilderViewModel : IAsyncDisposable
     private CancellationTokenSource? _chartUpdateCts;
     private static readonly TimeSpan ChartUpdateDelay = TimeSpan.FromMilliseconds(75);
     private ChartRange? _chartRangeOverride;
+    private TimeRange? _chartTimeRange;
     private bool _initialChartScheduled;
+    private long? _lastCandleBucketTime;
+    private readonly object _candlesLoadLock = new();
+    private CancellationTokenSource? _candlesLoadCts;
 
     private bool _isDisposed;
 
@@ -71,9 +78,12 @@ public class PositionBuilderViewModel : IAsyncDisposable
     public ObservableCollection<StrategySeries> ChartStrategies { get; } = new();
 
     public ObservableCollection<PriceMarker> ChartMarkers { get; } = new();
+    public ObservableCollection<CandlePoint> ChartCandles { get; } = new();
 
     public double? ChartSelectedPrice { get; private set; }
     public ChartRange? ChartRange => _chartRangeOverride;
+    public TimeRange? ChartTimeRange => _chartTimeRange;
+    public bool ShowCandles { get; private set; }
 
     public async Task InitializeAsync(Guid? preferredPositionId = null)
     {
@@ -281,6 +291,73 @@ public class PositionBuilderViewModel : IAsyncDisposable
         }
 
         LivePriceChanged?.Invoke(price);
+    }
+
+    public async Task SetShowCandlesAsync(bool isEnabled)
+    {
+        if (ShowCandles == isEnabled)
+        {
+            return;
+        }
+
+        ShowCandles = isEnabled;
+        if (!ShowCandles)
+        {
+            OnChange?.Invoke();
+            return;
+        }
+
+        await LoadMissingCandlesForCurrentTimeRangeAsync();
+        OnChange?.Invoke();
+    }
+
+    public async Task UpdateChartTimeRangeAsync(TimeRange range)
+    {
+        _chartTimeRange = range;
+        if (!ShowCandles)
+        {
+            OnChange?.Invoke();
+            return;
+        }
+
+        await LoadMissingCandlesForCurrentTimeRangeAsync();
+        OnChange?.Invoke();
+    }
+
+    internal void AppendTickerPrice(decimal? price, DateTime timestampUtc)
+    {
+        if (!ShowCandles || !price.HasValue || price.Value <= 0)
+        {
+            return;
+        }
+
+        var utc = timestampUtc.Kind == DateTimeKind.Utc
+            ? timestampUtc
+            : timestampUtc.ToUniversalTime();
+        var bucketTime = AlignToBucket(utc, CandleBucket);
+        var bucketMs = new DateTimeOffset(bucketTime).ToUnixTimeMilliseconds();
+        var value = (double)price.Value;
+
+        if (ChartCandles.Count > 0 && _lastCandleBucketTime == bucketMs)
+        {
+            var last = ChartCandles[ChartCandles.Count - 1];
+            var updated = last with
+            {
+                High = Math.Max(last.High, value),
+                Low = Math.Min(last.Low, value),
+                Close = value
+            };
+            ChartCandles[ChartCandles.Count - 1] = updated;
+            return;
+        }
+
+        ChartCandles.Add(new CandlePoint(bucketMs, value, value, value, value));
+        _lastCandleBucketTime = bucketMs;
+
+        while (ChartCandles.Count > MaxChartCandles)
+        {
+            ChartCandles.RemoveAt(0);
+        }
     }
 
     private async Task RunChartUpdateAsync(CancellationToken cancellationToken)
@@ -666,6 +743,9 @@ public class PositionBuilderViewModel : IAsyncDisposable
         {
             SelectedPosition = null;
             _chartRangeOverride = null;
+            _chartTimeRange = null;
+            ChartCandles.Clear();
+            _lastCandleBucketTime = null;
             return;
         }
 
@@ -684,8 +764,15 @@ public class PositionBuilderViewModel : IAsyncDisposable
             };
 
        _chartRangeOverride = position.ChartRange;
+       _chartTimeRange = null;
+       ChartCandles.Clear();
+       _lastCandleBucketTime = null;
 
        await SelectedPosition.InitializeAsync();
+       if (ShowCandles)
+       {
+           await LoadMissingCandlesForCurrentTimeRangeAsync();
+       }
     }
 
 
@@ -915,6 +1002,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         }
         CancelAndDispose(ref _persistQueueCts, _persistQueueLock);
         CancelAndDispose(ref _chartUpdateCts, _chartUpdateLock);
+        CancelAndDispose(ref _candlesLoadCts, _candlesLoadLock);
     }
 
     private static void CancelAndDispose(ref CancellationTokenSource? source, object gate)
@@ -946,6 +1034,183 @@ public class PositionBuilderViewModel : IAsyncDisposable
         {
             toDispose.Dispose();
         }
+    }
+
+    private static DateTime AlignToBucket(DateTime timestampUtc, TimeSpan bucket)
+    {
+        var ticks = timestampUtc.Ticks - (timestampUtc.Ticks % bucket.Ticks);
+        return new DateTime(ticks, DateTimeKind.Utc);
+    }
+
+    private async Task LoadMissingCandlesForCurrentTimeRangeAsync()
+    {
+        var symbol = GetCurrentSymbol();
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return;
+        }
+
+        var (fromUtc, toUtc) = ResolveTimeWindowUtc();
+        var requestedFromMs = new DateTimeOffset(fromUtc).ToUnixTimeMilliseconds();
+        var requestedToMs = new DateTimeOffset(toUtc).ToUnixTimeMilliseconds();
+        var bucketMs = (long)CandleBucket.TotalMilliseconds;
+        var loadedRange = GetLoadedCandleRange();
+        var needsFullLoad = loadedRange is null;
+        var rangesToLoad = new List<(DateTime fromUtc, DateTime toUtc)>();
+
+        if (loadedRange is null)
+        {
+            rangesToLoad.Add((fromUtc, toUtc));
+        }
+        else
+        {
+            var loaded = loadedRange.Value;
+            if (requestedFromMs < loaded.minMs - bucketMs)
+            {
+                var leftToUtc = DateTimeOffset.FromUnixTimeMilliseconds(loaded.minMs).UtcDateTime;
+                rangesToLoad.Add((fromUtc, leftToUtc));
+            }
+
+            if (requestedToMs > loaded.maxMs + bucketMs)
+            {
+                var rightFromUtc = DateTimeOffset.FromUnixTimeMilliseconds(loaded.maxMs).UtcDateTime;
+                rangesToLoad.Add((rightFromUtc, toUtc));
+            }
+        }
+
+        if (rangesToLoad.Count == 0)
+        {
+            if (ChartCandles.Count == 0)
+            {
+                AppendTickerPrice(GetEffectivePrice(), DateTime.UtcNow);
+            }
+            return;
+        }
+
+        CancellationToken token;
+        lock (_candlesLoadLock)
+        {
+            _candlesLoadCts?.Cancel();
+            _candlesLoadCts?.Dispose();
+            _candlesLoadCts = new CancellationTokenSource();
+            token = _candlesLoadCts.Token;
+        }
+
+        var fetchedCandles = new List<CandlePoint>();
+        try
+        {
+            foreach (var range in rangesToLoad)
+            {
+                if (range.toUtc <= range.fromUtc)
+                {
+                    continue;
+                }
+
+                var candles = await _exchangeService.Tickers.GetCandlesAsync(symbol, range.fromUtc, range.toUtc, token);
+                if (candles.Count > 0)
+                {
+                    fetchedCandles.AddRange(candles);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch
+        {
+            return;
+        }
+
+        if (token.IsCancellationRequested)
+        {
+            return;
+        }
+
+        if (needsFullLoad)
+        {
+            ChartCandles.Clear();
+        }
+
+        MergeCandles(fetchedCandles);
+        _lastCandleBucketTime = ChartCandles.Count > 0 ? ChartCandles[^1].Time : null;
+        if (ChartCandles.Count == 0)
+        {
+            AppendTickerPrice(GetEffectivePrice(), DateTime.UtcNow);
+        }
+    }
+
+    private (DateTime fromUtc, DateTime toUtc) ResolveTimeWindowUtc()
+    {
+        if (_chartTimeRange is not null)
+        {
+            var from = DateTimeOffset.FromUnixTimeMilliseconds((long)_chartTimeRange.Min).UtcDateTime;
+            var to = DateTimeOffset.FromUnixTimeMilliseconds((long)_chartTimeRange.Max).UtcDateTime;
+            return from <= to ? (from, to) : (to, from);
+        }
+
+        var now = DateTime.UtcNow;
+        var fromUtc = now - DefaultCandlesWindow;
+        var toUtc = now;
+        _chartTimeRange = new TimeRange(
+            new DateTimeOffset(fromUtc).ToUnixTimeMilliseconds(),
+            new DateTimeOffset(toUtc).ToUnixTimeMilliseconds());
+        return (fromUtc, toUtc);
+    }
+
+    private (long minMs, long maxMs)? GetLoadedCandleRange()
+    {
+        if (ChartCandles.Count == 0)
+        {
+            return null;
+        }
+
+        return (ChartCandles.Min(c => c.Time), ChartCandles.Max(c => c.Time));
+    }
+
+    private void MergeCandles(IEnumerable<CandlePoint> candles)
+    {
+        var mergedByTime = new SortedDictionary<long, CandlePoint>();
+        foreach (var existing in ChartCandles)
+        {
+            mergedByTime[existing.Time] = existing;
+        }
+
+        foreach (var candle in candles)
+        {
+            mergedByTime[candle.Time] = candle;
+        }
+
+        if (mergedByTime.Count == 0)
+        {
+            return;
+        }
+
+        ChartCandles.Clear();
+        foreach (var candle in mergedByTime.Values)
+        {
+            ChartCandles.Add(candle);
+        }
+
+        while (ChartCandles.Count > MaxChartCandles)
+        {
+            ChartCandles.RemoveAt(0);
+        }
+    }
+
+    private string? GetCurrentSymbol()
+    {
+        var position = SelectedPosition?.Position;
+        var baseAsset = position?.BaseAsset?.Trim();
+        var quoteAsset = position?.QuoteAsset?.Trim();
+        if (string.IsNullOrWhiteSpace(baseAsset) || string.IsNullOrWhiteSpace(quoteAsset))
+        {
+            return null;
+        }
+
+        return $"{baseAsset}{quoteAsset}"
+            .Replace(" ", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .ToUpperInvariant();
     }
 }
 

@@ -1,5 +1,6 @@
 using System.Globalization;
 using BlazorOptions.ViewModels;
+using BlazorChart.Models;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace BlazorOptions.Services;
@@ -130,17 +131,6 @@ public sealed class ExchangeService : IExchangeService
         return true;
     }
 
-    private static string? TryExtractBaseAssetFromSymbol(string? symbol)
-    {
-        if (string.IsNullOrWhiteSpace(symbol))
-        {
-            return null;
-        }
-
-        var parts = symbol.Split('-', StringSplitOptions.RemoveEmptyEntries);
-        return parts.Length > 0 ? parts[0].ToUpperInvariant() : null;
-    }
-
     private sealed class NullOrdersService : IOrdersService
     {
         public Task<IReadOnlyList<ExchangeOrder>> GetOpenOrdersAsync(CancellationToken cancellationToken = default)
@@ -171,6 +161,15 @@ public sealed class ExchangeService : IExchangeService
         public ValueTask<IDisposable> SubscribeAsync(string symbol, Func<ExchangePriceUpdate, Task> handler, CancellationToken cancellationToken = default)
         {
             return new ValueTask<IDisposable>(new SubscriptionRegistration(() => { }));
+        }
+
+        public Task<IReadOnlyList<CandlePoint>> GetCandlesAsync(
+            string symbol,
+            DateTime fromUtc,
+            DateTime toUtc,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<CandlePoint>>(Array.Empty<CandlePoint>());
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

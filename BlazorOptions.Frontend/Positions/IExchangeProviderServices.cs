@@ -1,4 +1,5 @@
 using BlazorOptions.ViewModels;
+using BlazorChart.Models;
 namespace BlazorOptions.Services;
 
 public interface IOrdersService
@@ -46,5 +47,11 @@ public interface ITickersService : IAsyncDisposable
     ValueTask<IDisposable> SubscribeAsync(
         string symbol,
         Func<ExchangePriceUpdate, Task> handler,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<CandlePoint>> GetCandlesAsync(
+        string symbol,
+        DateTime fromUtc,
+        DateTime toUtc,
         CancellationToken cancellationToken = default);
 }

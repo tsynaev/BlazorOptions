@@ -52,3 +52,43 @@ export function setRange(storageKey, range) {
         // ignore storage failures (private mode, quota)
     }
 }
+
+export function getTimeIntervalMs(storageKey) {
+    if (!storageKey) {
+        return null;
+    }
+
+    try {
+        const raw = localStorage.getItem(storageKey);
+        if (!raw) {
+            return null;
+        }
+
+        const value = Number(raw);
+        if (!Number.isFinite(value) || value <= 0) {
+            return null;
+        }
+
+        return value;
+    } catch {
+        return null;
+    }
+}
+
+export function setTimeIntervalMs(storageKey, intervalMs) {
+    if (!storageKey) {
+        return;
+    }
+
+    try {
+        const value = Number(intervalMs);
+        if (!Number.isFinite(value) || value <= 0) {
+            localStorage.removeItem(storageKey);
+            return;
+        }
+
+        localStorage.setItem(storageKey, String(value));
+    } catch {
+        // ignore storage failures (private mode, quota)
+    }
+}

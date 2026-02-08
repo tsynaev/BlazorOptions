@@ -76,17 +76,34 @@ else
                                 <MudChip T="string" Variant="Variant.Filled" Size="Size.Small" Color="@ResolvePnlColor(ResolveTotalCombinedPnl())">
                                     Total P/L: @FormatPrice(ResolveTotalCombinedPnl())
                                 </MudChip>
+                                <MudChip T="string"
+                                         Variant="Variant.Outlined"
+                                         Size="Size.Small"
+                                         Color="@(ViewModel.IsLive ? Color.Success : Color.Default)"
+                                         OnClick="ToggleLive">
+                                    Live: @(ViewModel.IsLive ? "On" : "Off")
+                                </MudChip>
+                                <MudChip T="string"
+                                         Variant="Variant.Outlined"
+                                         Size="Size.Small"
+                                         Color="@(ViewModel.ShowCandles ? Color.Info : Color.Default)"
+                                         OnClick="ToggleCandles">
+                                    Candles: @(ViewModel.ShowCandles ? "On" : "Off")
+                                </MudChip>
                             </MudStack>
                            
                             <PayoffChart Strategies="@ViewModel.ChartStrategies"
                                          SelectedPrice="@ViewModel.ChartSelectedPrice"
                                          SelectedPriceChanged="HandleChartPriceSelected"
                                          Markers="@ViewModel.ChartMarkers"
-                                         ShowCandles="false"
+                                         Candles="@ViewModel.ChartCandles"
+                                         ShowCandles="@ViewModel.ShowCandles"
                                          ShowLegends="true"
                                          IsDarkTheme="@IsDarkMode"
                                          Range="@ViewModel.ChartRange"
-                                         RangeChanged="HandleChartRangeChanged" />
+                                         RangeChanged="HandleChartRangeChanged"
+                                         TimeRange="@ViewModel.ChartTimeRange"
+                                         TimeRangeChanged="HandleChartTimeRangeChanged" />
 
                                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="chart-controls-row">
                                     <MudText Typo="Typo.subtitle2">Valuation date</MudText>
@@ -99,11 +116,6 @@ else
                                                    Class="valuation-date-picker" />
                                     <MudText Typo="Typo.caption">@ViewModel.DaysToExpiryLabel</MudText>
                                     <MudSpacer />
-                                    <MudSwitch T="bool"
-                                               Color="Color.Primary"
-                                               Value="@ViewModel.IsLive"
-                                               ValueChanged="OnLivePriceChanged"
-                                               Label="Live" />
                                     <MudText Typo="Typo.caption" Class="ml-2">Index Price</MudText>
                                     <MudNumericField T="decimal?"
                                                      Value="@ViewModel.SelectedPrice"
@@ -276,6 +288,7 @@ else
 
 @code {
     private const string ChartRangeStoragePrefix = "positions.chartRange.";
+    private const string ChartTimeIntervalStorageKey = "positions.chartTimeIntervalMs";
     private int _activeTabIndex;
     private bool HasActivePosition => ViewModel.SelectedPosition?.Position is not null;
     private bool _viewModelReady;
@@ -294,6 +307,7 @@ else
         _viewModelReady = true;
         await ApplyRouteAsync(_pendingRoutePositionId);
         await RestoreChartRangeIfMissingAsync();
+        await RestoreChartTimeIntervalAsync();
     }
 
     public async ValueTask DisposeAsync()
@@ -389,12 +403,6 @@ else
         await InvokeAsync(StateHasChanged);
     }
 
-    private async Task OnLivePriceChanged(bool isEnabled)
-    {
-        await ViewModel.SetIsLiveAsync(isEnabled);
-        await InvokeAsync(StateHasChanged);
-    }
-
     private void HandleViewModelChanged()
     {
         _ = InvokeAsync(StateHasChanged);
@@ -427,6 +435,29 @@ else
     {
         ViewModel.SetValuationDateFromOffset(offset);
         return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ToggleCandles()
+    {
+        await ViewModel.SetShowCandlesAsync(!ViewModel.ShowCandles);
+        if (ViewModel.ChartTimeRange is not null)
+        {
+            await SaveChartTimeIntervalAsync(ViewModel.ChartTimeRange);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ToggleLive()
+    {
+        await ViewModel.SetIsLiveAsync(!ViewModel.IsLive);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task HandleChartTimeRangeChanged(TimeRange range)
+    {
+        await ViewModel.UpdateChartTimeRangeAsync(range);
+        await SaveChartTimeIntervalAsync(range);
+        await InvokeAsync(StateHasChanged);
     }
 
 
@@ -630,6 +661,69 @@ else
         try
         {
             await module.InvokeVoidAsync("setRange", storageKey, range);
+        }
+        catch (JSException)
+        {
+            // ignore storage failures
+        }
+    }
+
+    private async Task RestoreChartTimeIntervalAsync()
+    {
+        if (ViewModel.ChartTimeRange is not null)
+        {
+            return;
+        }
+
+        var module = await GetChartRangeModuleAsync();
+        if (module is null)
+        {
+            return;
+        }
+
+        double? intervalMs = null;
+        try
+        {
+            intervalMs = await module.InvokeAsync<double?>("getTimeIntervalMs", ChartTimeIntervalStorageKey);
+        }
+        catch (JSException)
+        {
+            return;
+        }
+
+        if (!intervalMs.HasValue || intervalMs.Value <= 0)
+        {
+            return;
+        }
+
+        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var fromMs = nowMs - intervalMs.Value;
+        if (fromMs >= nowMs)
+        {
+            return;
+        }
+
+        await ViewModel.UpdateChartTimeRangeAsync(new TimeRange(fromMs, nowMs));
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SaveChartTimeIntervalAsync(TimeRange range)
+    {
+        var intervalMs = range.Max - range.Min;
+        if (intervalMs <= 0)
+        {
+            return;
+        }
+
+        var module = await GetChartRangeModuleAsync();
+        if (module is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await module.InvokeVoidAsync("setTimeIntervalMs", ChartTimeIntervalStorageKey, intervalMs);
         }
         catch (JSException)
         {
