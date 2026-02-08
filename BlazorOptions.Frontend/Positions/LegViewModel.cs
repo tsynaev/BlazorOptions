@@ -15,6 +15,7 @@ public sealed class LegViewModel : IDisposable
     private readonly LegsCollectionViewModel _collectionViewModel;
     private readonly OptionsService _optionsService;
     private readonly OptionsChainService _optionsChainService;
+    private readonly FuturesInstrumentsService _futuresInstrumentsService;
     private readonly ExchangeTickerService _exchangeTicker;
     private readonly IExchangeService _exchangeService;
     private readonly BlackScholes _blackScholes;
@@ -50,6 +51,7 @@ public sealed class LegViewModel : IDisposable
         LegsCollectionViewModel collectionViewModel,
         OptionsService optionsService,
         OptionsChainService optionsChainService,
+        FuturesInstrumentsService futuresInstrumentsService,
         ExchangeTickerService exchangeTicker,
         IExchangeService exchangeService,
         BlackScholes blackScholes)
@@ -57,6 +59,7 @@ public sealed class LegViewModel : IDisposable
         _collectionViewModel = collectionViewModel;
         _optionsService = optionsService;
         _optionsChainService = optionsChainService;
+        _futuresInstrumentsService = futuresInstrumentsService;
         _exchangeTicker = exchangeTicker;
         _exchangeService = exchangeService;
         _blackScholes = blackScholes;
@@ -202,6 +205,11 @@ public sealed class LegViewModel : IDisposable
         RunLegUpdate(() =>
         {
             Leg.Type = type;
+            if (type == LegType.Future)
+            {
+                Leg.Strike = null;
+                Leg.ImpliedVolatility = null;
+            }
             ResetGreeks();
             SyncLegSymbol();
             RefreshExpDatesAndStrikes();
@@ -246,10 +254,7 @@ public sealed class LegViewModel : IDisposable
 
         RunLegUpdate(() =>
         {
-            if (date.HasValue)
-            {
-                Leg.ExpirationDate = date.Value;
-            }
+            Leg.ExpirationDate = date;
 
             ResetGreeks();
             SyncLegSymbol();
@@ -553,22 +558,28 @@ public sealed class LegViewModel : IDisposable
     {
         using var activity = ActivitySources.Telemetry.StartActivity("LegViewModel.RefreshExpDatesAndStrikes");
 
+        if (Leg.Type == LegType.Future)
+        {
+            var baseAsset = _collectionViewModel.BaseAsset;
+            var quoteAsset = _collectionViewModel.Position?.Position.QuoteAsset;
+            var cachedExpirations = _futuresInstrumentsService.GetCachedExpirations(baseAsset, quoteAsset).ToList();
+
+            if (!cachedExpirations.Contains(null))
+            {
+                cachedExpirations.Insert(0, null);
+            }
+
+            _cachedExpirations = cachedExpirations;
+            _cachedStrikes = Array.Empty<decimal>();
+            return;
+        }
+
         var tickers = _optionsChainService.GetTickersByBaseAsset(_collectionViewModel.BaseAsset, Leg.Type);
 
         _cachedExpirations = tickers.Select(ticker => (DateTime?)ticker.ExpirationDate.Date)
             .Distinct()
             .OrderBy(item => item)
             .ToList();
-
-        if (Leg.Type == LegType.Future)
-        {
-            _cachedExpirations.Insert(0, null);
-
-            _cachedStrikes = Array.Empty<decimal>();
-
-            return;
-        }
-
 
         _cachedStrikes = tickers
             .Where(ticker => ticker.ExpirationDate.Date == Leg.ExpirationDate?.Date)
@@ -578,6 +589,24 @@ public sealed class LegViewModel : IDisposable
             .ToList();
 
 
+    }
+
+    public async Task EnsureFutureExpirationsLoadedAsync()
+    {
+        var baseAsset = _collectionViewModel.Position?.Position.BaseAsset;
+        var quoteAsset = _collectionViewModel.Position?.Position.QuoteAsset;
+        if (string.IsNullOrWhiteSpace(baseAsset))
+        {
+            return;
+        }
+
+        await _futuresInstrumentsService.EnsureExpirationsAsync(baseAsset, quoteAsset);
+
+        if (Leg.Type == LegType.Future)
+        {
+            RefreshExpDatesAndStrikes();
+            Changed?.Invoke(LegsCollectionUpdateKind.ViewModelDataUpdated);
+        }
     }
 
 

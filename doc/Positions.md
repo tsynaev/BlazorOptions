@@ -62,3 +62,5 @@ See `doc/LegParsing.md` for the full parsing rules, defaults, and UI preview beh
 - Notes persist when the text field loses focus, instead of on every keystroke.
 - The positions header shows combined total P&L (temp + closed).
 - Position labels in the selector use the `{baseAsset}/{quoteAsset} - {name}` format.
+- Futures legs now use exchange-provided expiration lists (including Perpetual) and no strike/IV inputs.
+- Futures expiration dates are fetched when the leg edit dialog opens, then reused from cache for subsequent edits.

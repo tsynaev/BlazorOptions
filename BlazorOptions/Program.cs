@@ -46,6 +46,7 @@ builder.Services.AddScoped<ExchangeTickerService>();
 builder.Services.AddSingleton<IExchangeService, ExchangeService>();
 builder.Services.AddScoped<IExchangeTickerClient, BybitTickerClient>();
 builder.Services.AddScoped<OptionsChainService>();
+builder.Services.AddScoped<FuturesInstrumentsService>();
 builder.Services.AddScoped<ILegsParserService, LegsParserService>();
 builder.Services.AddScoped<IOptions<BybitSettings>, LocalStorageBybitSettingsOptions>();
 builder.Services.AddScoped<MainLayoutViewModel>();

@@ -18,63 +18,98 @@
             </MudSelect>
 
             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                <MudSelect T="DateTime?"
-                           Label="Expiration"
-                           Value="@ViewModel.Leg.ExpirationDate"
-                           ValueChanged="ViewModel.UpdateLegExpirationAsync"
-                           Dense="true"
-                           Disabled="@(ViewModel.Leg.IsReadOnly || ViewModel.Leg.Type == LegType.Future || ViewModel.AvailableExpirations.Count == 0)">
-                    @if (ViewModel.AvailableExpirations.Count == 0)
-                    {
-                        <MudSelectItem T="DateTime?" Disabled="true">No expirations available</MudSelectItem>
-                    }
-                    else
-                    {
-                        @foreach (var expiration in ViewModel.AvailableExpirations)
+                @if (ViewModel.Leg.Type == LegType.Future)
+                {
+                    <MudSelect T="DateTime?"
+                               Label="Expiration"
+                               Value="@ViewModel.Leg.ExpirationDate"
+                               ValueChanged="ViewModel.UpdateLegExpirationAsync"
+                               Dense="true"
+                               Disabled="@ViewModel.Leg.IsReadOnly">
+                        @if (ViewModel.AvailableExpirations.Count == 0)
                         {
-                            <MudSelectItem T="DateTime?" Value="@expiration" @key="expiration">@FormatExpiration(expiration)</MudSelectItem>
+                            <MudSelectItem T="DateTime?" Value="@((DateTime?)null)">Perpetual</MudSelectItem>
                         }
-                    }
-                </MudSelect>
+                        else
+                        {
+                            @foreach (var expiration in ViewModel.AvailableExpirations)
+                            {
+                                <MudSelectItem T="DateTime?" Value="@expiration" @key="expiration">@FormatExpiration(expiration)</MudSelectItem>
+                            }
+                        }
+                    </MudSelect>
+                }
+                else
+                {
+                    <MudSelect T="DateTime?"
+                               Label="Expiration"
+                               Value="@ViewModel.Leg.ExpirationDate"
+                               ValueChanged="ViewModel.UpdateLegExpirationAsync"
+                               Dense="true"
+                               Disabled="@(ViewModel.Leg.IsReadOnly || ViewModel.AvailableExpirations.Count == 0)">
+                        @if (ViewModel.AvailableExpirations.Count == 0)
+                        {
+                            <MudSelectItem T="DateTime?" Disabled="true">No expirations available</MudSelectItem>
+                        }
+                        else
+                        {
+                            @foreach (var expiration in ViewModel.AvailableExpirations)
+                            {
+                                <MudSelectItem T="DateTime?" Value="@expiration" @key="expiration">@FormatExpiration(expiration)</MudSelectItem>
+                            }
+                        }
+                    </MudSelect>
+                }
 
-                <MudSelect T="decimal?"
-                           Label="Strike"
-                           Value="@ViewModel.Leg.Strike"
-                           ValueChanged="ViewModel.UpdateLegStrikeAsync"
-                           Dense="true"
-                           Disabled="@(ViewModel.Leg.IsReadOnly || ViewModel.Leg.Type == LegType.Future || !ViewModel.Leg.ExpirationDate.HasValue)">
-                    @foreach (var strike in ViewModel.AvailableStrikes)
-                    {
-                        <MudSelectItem T="decimal?" Value="@strike" @key="strike">@strike.ToString("0.##")</MudSelectItem>
-                    }
-                </MudSelect>
+                @if (ViewModel.Leg.Type != LegType.Future)
+                {
+                    <MudSelect T="decimal?"
+                               Label="Strike"
+                               Value="@ViewModel.Leg.Strike"
+                               ValueChanged="ViewModel.UpdateLegStrikeAsync"
+                               Dense="true"
+                               Disabled="@(ViewModel.Leg.IsReadOnly || !ViewModel.Leg.ExpirationDate.HasValue)">
+                        @foreach (var strike in ViewModel.AvailableStrikes)
+                        {
+                            <MudSelectItem T="decimal?" Value="@strike" @key="strike">@strike.ToString("0.##")</MudSelectItem>
+                        }
+                    </MudSelect>
+                }
             </MudStack>
 
-            <MudNumericField T="decimal"
-                             Label="Size"
-                             Value="@ViewModel.Leg.Size"
-                             ValueChanged="ViewModel.UpdateLegSizeAsync"
-                             Margin="Margin.Dense"
-                             Disabled="@ViewModel.Leg.IsReadOnly" />
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="6">
+                    <MudNumericField T="decimal"
+                                     Label="Size"
+                                     Value="@ViewModel.Leg.Size"
+                                     ValueChanged="ViewModel.UpdateLegSizeAsync"
+                                     Margin="Margin.Dense"
+                                     Disabled="@ViewModel.Leg.IsReadOnly" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudNumericField T="decimal?"
+                                     Label="Price"
+                                     Value="@ViewModel.Leg.Price"
+                                     ValueChanged="async value => await ViewModel.UpdateLegPriceAsync(value)"
+                                     Margin="Margin.Dense"
+                                     Adornment="Adornment.End"
+                                     AdornmentText="USDT"
+                                     Placeholder="@FormatPrice(ViewModel.PlaceholderPrice)"
+                                     Disabled="@ViewModel.Leg.IsReadOnly" />
+                </MudItem>
+            </MudGrid>
 
-            <MudNumericField T="decimal?"
-                             Label="Price"
-                             Value="@ViewModel.Leg.Price"
-                             ValueChanged="async value => await ViewModel.UpdateLegPriceAsync(value)"
-                             Margin="Margin.Dense"
-                             Adornment="Adornment.End"
-                             AdornmentText="USDT"
-                             Placeholder="@FormatPrice(ViewModel.PlaceholderPrice)"
-                             Disabled="@ViewModel.Leg.IsReadOnly" />
-
-            <MudNumericField T="decimal?"
-                             Label="IV"
-                             Value="@ViewModel.Leg.ImpliedVolatility"
-                             ValueChanged="ViewModel.UpdateLegIvAsync"
-                             Margin="Margin.Dense"
-                             Adornment="Adornment.End"
-                             AdornmentText="%"
-                             Disabled="@ViewModel.Leg.IsReadOnly" />
+            @if (ViewModel.Leg.Type != LegType.Future)
+            {
+                <MudNumericField T="decimal?"
+                                 Label="IV"
+                                 Value="@ViewModel.Leg.ImpliedVolatility"
+                                 ValueChanged="ViewModel.UpdateLegIvAsync"
+                                 Margin="Margin.Dense"
+                                 Adornment="Adornment.End"
+                                 AdornmentText="%"
+                                 Disabled="@ViewModel.Leg.IsReadOnly" />
+            }
         </MudStack>
     </DialogContent>
     <DialogActions>
@@ -87,6 +122,12 @@
     [Parameter, EditorRequired] public LegViewModel ViewModel { get; set; } = default!;
 
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ViewModel.EnsureFutureExpirationsLoadedAsync();
+        await InvokeAsync(StateHasChanged);
+    }
 
     private Task SaveAsync()
     {
@@ -102,7 +143,7 @@
 
     private static string FormatExpiration(DateTime? date)
     {
-        return date.HasValue ? date.Value.ToString("yyyy-MM-dd") : string.Empty;
+        return date.HasValue ? date.Value.ToString("yyyy-MM-dd") : "Perpetual";
     }
 
     private static string FormatPrice(decimal? price)

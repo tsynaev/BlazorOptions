@@ -157,7 +157,7 @@
     {
         return ViewModel.Leg.ExpirationDate.HasValue
             ? ViewModel.Leg.ExpirationDate.Value.ToString("dd.MM.yy")
-            : "No expiration";
+            : ViewModel.Leg.Type == LegType.Future ? "Perpetual" : "No expiration";
     }
 
     private string GetSymbolLabel()
