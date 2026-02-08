@@ -374,8 +374,9 @@ public sealed class LegsCollectionViewModel : IDisposable
             var positions = positionsTask.Result;
             var orders = ordersTask.Result;
             var candidates = new List<AvailableLegCandidate>();
-            var knownSymbols = new HashSet<string>(
+            var knownPositionSymbols = new HashSet<string>(
                 Collection.Legs
+                    .Where(leg => leg.Status != LegStatus.Order)
                     .Select(leg => leg.Symbol)
                     .Where(symbol => !string.IsNullOrWhiteSpace(symbol))
                     .Select(symbol => symbol!.Trim()),
@@ -390,7 +391,7 @@ public sealed class LegsCollectionViewModel : IDisposable
                 }
 
                 var symbol = leg.Symbol.Trim();
-                if (!knownSymbols.Add(symbol))
+                if (!knownPositionSymbols.Add(symbol))
                 {
                     continue;
                 }
@@ -414,14 +415,17 @@ public sealed class LegsCollectionViewModel : IDisposable
                     continue;
                 }
 
-                var symbol = leg.Symbol.Trim();
-                if (!knownSymbols.Add(symbol))
+                if (IsLegAlreadyInCollection(leg))
                 {
                     continue;
                 }
 
+                var symbol = leg.Symbol.Trim();
+                var orderId = string.IsNullOrWhiteSpace(order.OrderId)
+                    ? $"{symbol}:{Math.Sign(leg.Size)}:{Math.Abs(leg.Size):0.########}:{(leg.Price.HasValue ? leg.Price.Value.ToString("0.########", CultureInfo.InvariantCulture) : "mkt")}"
+                    : order.OrderId.Trim();
                 candidates.Add(new AvailableLegCandidate(
-                    Id: $"order:{symbol}:{Math.Sign(leg.Size)}",
+                    Id: $"order:{orderId}",
                     Kind: AvailableLegSourceKind.Order,
                     Symbol: symbol,
                     Type: leg.Type,
@@ -477,17 +481,139 @@ public sealed class LegsCollectionViewModel : IDisposable
 
         EnsureLegSymbol(leg);
 
-        var existing = PositionBuilderViewModel.FindMatchingLeg(Collection.Legs, leg);
-        if (existing is not null)
+        if (IsLegAlreadyInCollection(leg))
         {
             _notifyUserService.NotifyUser("This position/order is already in the collection.");
             return;
         }
 
         Collection.Legs.Add(leg);
+        RemoveAvailableCandidate(candidate);
         SyncLegViewModels();
         await RaiseUpdatedAsync(LegsCollectionUpdateKind.CollectionChanged);
-        await RefreshAvailableLegCandidatesAsync();
+        await RaiseUpdatedAsync(LegsCollectionUpdateKind.ViewModelDataUpdated);
+    }
+
+    private bool IsLegAlreadyInCollection(LegModel candidate)
+    {
+        foreach (var leg in Collection.Legs)
+        {
+            if (BuildLegIdentity(leg) == BuildLegIdentity(candidate))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string BuildLegIdentity(LegModel leg)
+    {
+        var symbol = string.IsNullOrWhiteSpace(leg.Symbol) ? string.Empty : leg.Symbol.Trim().ToUpperInvariant();
+        var expiration = leg.ExpirationDate?.Date.ToString("yyyyMMdd", CultureInfo.InvariantCulture) ?? "-";
+        var strike = leg.Strike.HasValue ? leg.Strike.Value.ToString("0.########", CultureInfo.InvariantCulture) : "-";
+        var price = leg.Price.HasValue ? leg.Price.Value.ToString("0.########", CultureInfo.InvariantCulture) : "-";
+        var size = Math.Abs(leg.Size).ToString("0.########", CultureInfo.InvariantCulture);
+        var side = Math.Sign(leg.Size).ToString(CultureInfo.InvariantCulture);
+        return $"{symbol}|{leg.Type}|{expiration}|{strike}|{side}|{size}|{price}|{(int)leg.Status}|{leg.IsIncluded}";
+    }
+
+    private void RemoveAvailableCandidate(AvailableLegCandidate candidate)
+    {
+        if (_availableLegCandidates.Count == 0)
+        {
+            return;
+        }
+
+        List<AvailableLegCandidate> updated;
+        if (candidate.Kind == AvailableLegSourceKind.Position)
+        {
+            // Position chips are symbol-deduped, so remove by symbol.
+            updated = _availableLegCandidates
+                .Where(item => !(item.Kind == AvailableLegSourceKind.Position
+                    && string.Equals(item.Symbol, candidate.Symbol, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+        }
+        else
+        {
+            // Order chips are per-order entries, remove only the clicked one.
+            updated = _availableLegCandidates.Where(item => item.Id != candidate.Id).ToList();
+        }
+
+        _availableLegCandidates = updated;
+    }
+
+    private void AddAvailableCandidateFromRemovedLeg(LegModel leg)
+    {
+        if (!leg.IsReadOnly || string.IsNullOrWhiteSpace(leg.Symbol))
+        {
+            return;
+        }
+
+        var symbol = leg.Symbol.Trim();
+        var kind = leg.Status == LegStatus.Order ? AvailableLegSourceKind.Order : AvailableLegSourceKind.Position;
+
+        if (kind == AvailableLegSourceKind.Position)
+        {
+            // Keep one position chip per symbol and avoid re-adding if a matching leg still exists.
+            if (_availableLegCandidates.Any(item =>
+                    item.Kind == AvailableLegSourceKind.Position
+                    && string.Equals(item.Symbol, symbol, StringComparison.OrdinalIgnoreCase)))
+            {
+                return;
+            }
+
+            if (Collection.Legs.Any(item =>
+                    item.IsReadOnly
+                    && item.Status != LegStatus.Order
+                    && string.Equals(item.Symbol, symbol, StringComparison.OrdinalIgnoreCase)))
+            {
+                return;
+            }
+
+            var positionCandidate = new AvailableLegCandidate(
+                Id: $"position:{symbol}:{Math.Sign(leg.Size)}",
+                Kind: AvailableLegSourceKind.Position,
+                Symbol: symbol,
+                Type: leg.Type,
+                Size: leg.Size,
+                Price: leg.Price,
+                ExpirationDate: leg.ExpirationDate,
+                Strike: leg.Strike);
+
+            _availableLegCandidates = _availableLegCandidates
+                .Append(positionCandidate)
+                .OrderBy(item => item.Kind)
+                .ThenBy(item => item.Symbol, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            return;
+        }
+
+        var orderId = string.IsNullOrWhiteSpace(leg.Id)
+            ? $"order:{symbol}:{Math.Sign(leg.Size)}:{Math.Abs(leg.Size):0.########}:{(leg.Price.HasValue ? leg.Price.Value.ToString("0.########", CultureInfo.InvariantCulture) : "mkt")}"
+            : leg.Id;
+
+        var orderCandidate = new AvailableLegCandidate(
+            Id: $"order:{orderId}",
+            Kind: AvailableLegSourceKind.Order,
+            Symbol: symbol,
+            Type: leg.Type,
+            Size: leg.Size,
+            Price: leg.Price,
+            ExpirationDate: leg.ExpirationDate,
+            Strike: leg.Strike);
+
+        if (_availableLegCandidates.Any(item => item.Id == orderCandidate.Id))
+        {
+            return;
+        }
+
+        _availableLegCandidates = _availableLegCandidates
+            .Append(orderCandidate)
+            .OrderBy(item => item.Kind)
+            .ThenBy(item => item.Symbol, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     public async Task AddBybitPositionsToCollectionAsync(IReadOnlyList<BybitPosition> positions)
@@ -779,9 +905,11 @@ public sealed class LegsCollectionViewModel : IDisposable
 
         Collection.Legs.Remove(leg);
         RemoveLegViewModel(leg);
+        AddAvailableCandidateFromRemovedLeg(leg);
         RebuildLegGroups();
         await RaiseUpdatedAsync(LegsCollectionUpdateKind.CollectionChanged);
         await RaiseLegRemovedAsync(leg);
+        await RaiseUpdatedAsync(LegsCollectionUpdateKind.ViewModelDataUpdated);
     }
 
 

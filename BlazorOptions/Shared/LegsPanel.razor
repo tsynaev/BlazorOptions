@@ -1,4 +1,5 @@
 @using System.Globalization
+@using System.Linq
 @using BlazorOptions.ViewModels
 @using Microsoft.AspNetCore.Components.Web
 
@@ -50,8 +51,9 @@
                 <MudText Typo="Typo.caption" Class="leg-greeks-total">
                     Δ @FormatGreek(ViewModel.TotalDelta) · Γ @FormatGreek(ViewModel.TotalGamma) · ν @FormatGreek(ViewModel.TotalVega) · Θ @FormatGreek(ViewModel.TotalTheta)
                 </MudText>
-                @foreach (var group in ViewModel.GroupedLegs)
+                @foreach (var group in BuildDisplayGroups())
                 {
+                    var groupCandidates = GetCandidatesForGroup(group.ExpirationDate);
                     <MudStack Spacing="1" Class="leg-group" @key="group.ExpirationDate">
                         <MudText Typo="Typo.subtitle2" Class="leg-group-title">@FormatExpiration(group.ExpirationDate)</MudText>
                         <MudGrid Class="leg-grid">
@@ -62,41 +64,26 @@
                                 </MudItem>
                             }
                         </MudGrid>
+                        @if (groupCandidates.Count > 0)
+                        {
+                            <MudChipSet T="AvailableLegCandidate" Class="available-legs-group">
+                                @foreach (var item in groupCandidates)
+                                {
+                                    <MudChip T="AvailableLegCandidate"
+                                             Variant="Variant.Outlined"
+                                             Color="@(item.Kind == AvailableLegSourceKind.Order ? Color.Warning : Color.Info)"
+                                             OnClick="async () => await AddCandidateAsync(item)"
+                                             @key="item.Id">
+                                        @FormatCandidate(item)
+                                    </MudChip>
+                                }
+                            </MudChipSet>
+                        }
                     </MudStack>
                 }
             </MudStack>
             <MudCardActions>
                 <QuickAddPanel ViewModel="ViewModel.QuickAdd"/>
-            </MudCardActions>
-            <MudCardActions>
-                <MudStack Spacing="1" Class="available-legs-row">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                        <MudText Typo="Typo.caption" Class="available-legs-title">Available positions/orders</MudText>
-                        @if (ViewModel.IsLoadingAvailableLegs)
-                        {
-                            <MudProgressCircular Size="Size.Small" Indeterminate="true" />
-                        }
-                    </MudStack>
-                    @if (ViewModel.AvailableLegCandidates.Count > 0)
-                    {
-                        <MudChipSet T="AvailableLegCandidate">
-                            @foreach (var item in ViewModel.AvailableLegCandidates)
-                            {
-                                <MudChip T="AvailableLegCandidate"
-                                         Variant="Variant.Outlined"
-                                         Color="@(item.Kind == AvailableLegSourceKind.Order ? Color.Warning : Color.Info)"
-                                         OnClick="async () => await AddCandidateAsync(item)"
-                                         @key="item.Id">
-                                    @FormatCandidate(item)
-                                </MudChip>
-                            }
-                        </MudChipSet>
-                    }
-                    else if (!ViewModel.IsLoadingAvailableLegs)
-                    {
-                        <MudText Typo="Typo.caption" Class="available-legs-empty">No available positions/orders.</MudText>
-                    }
-                </MudStack>
             </MudCardActions>
         </MudCardContent>
     </MudCard>
@@ -126,6 +113,34 @@
     private async Task AddCandidateAsync(AvailableLegCandidate candidate)
     {
         await ViewModel.AddAvailableCandidateAsLegAsync(candidate);
+    }
+
+    private IReadOnlyList<LegGroup> BuildDisplayGroups()
+    {
+        var groups = ViewModel.GroupedLegs.ToList();
+        var existingExpirations = new HashSet<DateTime?>(groups.Select(group => group.ExpirationDate?.Date));
+
+        foreach (var expiration in ViewModel.AvailableLegCandidates.Select(item => item.ExpirationDate?.Date).Distinct())
+        {
+            if (existingExpirations.Contains(expiration))
+            {
+                continue;
+            }
+
+            groups.Add(new LegGroup(expiration, Array.Empty<LegViewModel>()));
+        }
+
+        return groups
+            .OrderBy(group => group.ExpirationDate ?? DateTime.MaxValue)
+            .ToList();
+    }
+
+    private IReadOnlyList<AvailableLegCandidate> GetCandidatesForGroup(DateTime? expirationDate)
+    {
+        var normalizedExpiration = expirationDate?.Date;
+        return ViewModel.AvailableLegCandidates
+            .Where(item => item.ExpirationDate?.Date == normalizedExpiration)
+            .ToList();
     }
 
     private static string FormatExpiration(DateTime? date)
@@ -208,12 +223,7 @@
         opacity: 0.8;
     }
 
-    .available-legs-row {
-        width: 100%;
-    }
-
-    .available-legs-title,
-    .available-legs-empty {
-        opacity: 0.8;
+    .available-legs-group {
+        margin-top: 10px;
     }
 </style>

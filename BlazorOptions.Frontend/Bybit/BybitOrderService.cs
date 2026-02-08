@@ -80,6 +80,7 @@ public sealed class BybitOrderService : BybitApiService
                         continue;
                     }
 
+                    TryReadString(entry, "orderId", out var orderId);
                     TryReadString(entry, "side", out var side);
                     TryReadString(entry, "orderType", out var orderType);
                     var qty = ReadDecimal(entry, "qty");
@@ -92,7 +93,7 @@ public sealed class BybitOrderService : BybitApiService
                         ?? ReadNullableDecimal(entry, "avgPrice")
                         ?? ReadNullableDecimal(entry, "triggerPrice");
 
-                    orders.Add(new BybitOrder(symbol, side, category, orderType, orderStatus, qty, price));
+                    orders.Add(new BybitOrder(orderId, symbol, side, category, orderType, orderStatus, qty, price));
                 }
             }
 
@@ -190,6 +191,7 @@ public sealed class BybitOrderService : BybitApiService
 }
 
 public sealed record BybitOrder(
+    string OrderId,
     string Symbol,
     string Side,
     string Category,
