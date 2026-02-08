@@ -95,6 +95,7 @@ public static class PositionDtoMapper
             Id = model.Id ?? string.Empty,
             IsIncluded = model.IsIncluded,
             IsReadOnly = model.IsReadOnly,
+            Status = (BlazorOptions.API.Positions.LegStatus)model.Status,
             Type = (BlazorOptions.API.Positions.LegType)model.Type,
             Strike = model.Strike,
             ExpirationDate = model.ExpirationDate,
@@ -107,11 +108,20 @@ public static class PositionDtoMapper
 
     private static LegModel ToModel(LegDto dto)
     {
+        var status = (ViewModels.LegStatus)dto.Status;
+
+        // Backward compatibility for saved payloads created before Status was persisted.
+        if (dto.Status == BlazorOptions.API.Positions.LegStatus.New && dto.IsReadOnly && !dto.IsIncluded)
+        {
+            status = ViewModels.LegStatus.Order;
+        }
+
         return new LegModel
         {
             Id = string.IsNullOrWhiteSpace(dto.Id) ? Guid.NewGuid().ToString("N") : dto.Id,
             IsIncluded = dto.IsIncluded,
             IsReadOnly = dto.IsReadOnly,
+            Status = status,
             Type = (ViewModels.LegType)dto.Type,
             Strike = dto.Strike,
             ExpirationDate = dto.ExpirationDate,

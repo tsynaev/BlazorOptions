@@ -376,6 +376,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
         var displayPrice = GetEffectivePrice();
 
         ChartStrategies.Clear();
+        ChartMarkers.Clear();
         foreach (var collection in collections)
         {
             var collectionLegs = ResolveLegsForCalculation(collection.Legs).Where(leg => leg.IsIncluded).ToList();
@@ -405,9 +406,44 @@ public class PositionBuilderViewModel : IAsyncDisposable
                 tempPoints,
                 expiryPoints,
                 collection.IsVisible));
+
+            if (!collection.IsVisible)
+            {
+                continue;
+            }
+
+            foreach (var orderLeg in collection.Legs.Where(item => item.Leg.Status == LegStatus.Order || (item.Leg.IsReadOnly && !item.Leg.IsIncluded)))
+            {
+                if (!TryCreateOrderMarker(orderLeg, collection.Color, out var marker))
+                {
+                    continue;
+                }
+
+                ChartMarkers.Add(marker);
+            }
         }
 
         ChartSelectedPrice = displayPrice.HasValue ? (double)displayPrice.Value : null;
+    }
+
+    private static bool TryCreateOrderMarker(LegViewModel leg, string color, out PriceMarker marker)
+    {
+        marker = default!;
+
+        var price = leg.Leg.Type == LegType.Future
+            ? leg.Leg.Price
+            : leg.Leg.Strike;
+
+        if (!price.HasValue)
+        {
+            return false;
+        }
+
+        var direction = leg.Leg.Size >= 0 ? "Buy" : "Sell";
+        var symbol = string.IsNullOrWhiteSpace(leg.Leg.Symbol) ? leg.Leg.Type.ToString() : leg.Leg.Symbol!;
+        var size = Math.Abs(leg.Leg.Size);
+        marker = new PriceMarker((double)price.Value, $"Order {direction} {size:0.##}: {symbol}", color);
+        return true;
     }
 
     private static IReadOnlyList<PayoffPoint> BuildPayoffPoints(IReadOnlyList<decimal> prices, IReadOnlyList<decimal> profits)

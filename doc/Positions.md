@@ -66,3 +66,4 @@ See `doc/LegParsing.md` for the full parsing rules, defaults, and UI preview beh
 - Futures expiration dates are fetched when the leg edit dialog opens, then reused from cache for subsequent edits.
 - Each leg collection shows available exchange positions and open orders as chips; clicking a chip adds it as a leg.
 - Legs created from open orders are added with `IsIncluded = false` and `LegStatus = Order`.
+- Order legs are rendered on the payoff chart as vertical markers for quick placement context.

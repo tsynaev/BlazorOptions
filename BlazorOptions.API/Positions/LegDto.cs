@@ -8,6 +8,8 @@ public sealed class LegDto
 
     public bool IsReadOnly { get; set; }
 
+    public LegStatus Status { get; set; } = LegStatus.New;
+
     public LegType Type { get; set; }
 
     public decimal? Strike { get; set; }
