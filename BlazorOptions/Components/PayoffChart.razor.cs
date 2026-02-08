@@ -149,7 +149,11 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
             _lastTimeRangeParam = TimeRange;
             if (_module != null && _instanceId != null)
             {
-                await _module.InvokeVoidAsync("resetAutoScale", _instanceId, Range == null, TimeRange == null);
+                // Only reset chart auto-scale when parent explicitly clears a range.
+                if (Range == null || TimeRange == null)
+                {
+                    await _module.InvokeVoidAsync("resetAutoScale", _instanceId, Range == null, TimeRange == null);
+                }
                 await ScheduleOptionUpdate();
             }
         }

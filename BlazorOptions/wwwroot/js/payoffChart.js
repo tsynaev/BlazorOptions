@@ -378,10 +378,9 @@ export function resetAutoScale(instanceId, resetXy, resetTime) {
     }
     if (resetXy || resetTime) {
         instance.preserveRange = false;
-    }
-
-    if (instance.lastOption) {
-        instance.chart.setOption(instance.lastOption, { notMerge: true, lazyUpdate: true });
+        if (instance.lastOption) {
+            instance.chart.setOption(instance.lastOption, { notMerge: true, lazyUpdate: true });
+        }
     }
 }
 
