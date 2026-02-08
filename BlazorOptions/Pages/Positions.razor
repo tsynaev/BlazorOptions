@@ -46,7 +46,7 @@ else
                                        AdornmentIcon="@Icons.Material.Filled.ListAlt">
                                 @foreach (var pos in ViewModel.Positions)
                                 {
-                                    <MudSelectItem T="Guid?" Value="@pos.Id" @key="pos.Id">@pos.Name</MudSelectItem>
+                                    <MudSelectItem T="Guid?" Value="@pos.Id" @key="pos.Id">@FormatPositionName(pos)</MudSelectItem>
                                 }
                             </MudSelect>
                             <MudIconButton Icon="@Icons.Material.Filled.AddCircle" Color="Color.Primary" OnClick="CreatePosition" />
@@ -74,12 +74,6 @@ else
                     <MudPaper Class="chart-surface" Elevation="0">
                         <MudStack Spacing="2">
                             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="position-summary-row">
-                                <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small" Color="Color.Default">
-                                    Base: @ResolveAssetLabel(ViewModel.SelectedPosition?.Position?.BaseAsset)
-                                </MudChip>
-                                <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small" Color="Color.Default">
-                                    Settle: @ResolveAssetLabel(ViewModel.SelectedPosition?.Position?.QuoteAsset)
-                                </MudChip>
                                 <MudChip T="string" Variant="Variant.Filled" Size="Size.Small" Color="@ResolvePnlColor(ResolveTotalCombinedPnl())">
                                     Total P/L: @FormatPrice(ResolveTotalCombinedPnl())
                                 </MudChip>
@@ -717,6 +711,14 @@ else
     private static string ResolveAssetLabel(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? "N/A" : value.Trim().ToUpperInvariant();
+    }
+
+    private static string FormatPositionName(PositionModel position)
+    {
+        var baseAsset = ResolveAssetLabel(position.BaseAsset);
+        var quoteAsset = ResolveAssetLabel(position.QuoteAsset);
+        var name = string.IsNullOrWhiteSpace(position.Name) ? "Position" : position.Name.Trim();
+        return $"{baseAsset}/{quoteAsset} - {name}";
     }
 
     private decimal? ResolveTotalTempPnl()

@@ -60,4 +60,5 @@ See `doc/LegParsing.md` for the full parsing rules, defaults, and UI preview beh
 - Pricing context updates (selected/live price, valuation date) are applied in a single batched pass per collection to keep the UI responsive.
 - Initial payoff chart rendering is deferred until after the first UI paint to keep page load snappy.
 - Notes persist when the text field loses focus, instead of on every keystroke.
-- The positions header now shows base/settle assets and combined total P&L (temp + closed).
+- The positions header shows combined total P&L (temp + closed).
+- Position labels in the selector use the `{baseAsset}/{quoteAsset} - {name}` format.
