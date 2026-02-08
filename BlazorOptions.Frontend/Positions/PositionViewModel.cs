@@ -29,14 +29,14 @@ public sealed class PositionViewModel : IDisposable
     private readonly LegsCollectionViewModelFactory _collectionFactory;
     private readonly ClosedPositionsViewModelFactory _closedPositionsFactory;
     private readonly INotifyUserService _notifyUserService;
-    private readonly ExchangeTickerService _exchangeTickerService;
-    private readonly IActivePositionsService _activePositionsService;
+    private readonly IExchangeService _exchangeService;
     private decimal? _currentPrice;
     private DateTime _valuationDate = DateTime.UtcNow;
     private decimal? _selectedPrice;
     private decimal? _livePrice;
     private bool _isLive = false;
     private IDisposable? _tickerSubscription;
+    private IDisposable? _positionsSubscription;
     private string? _currentSymbol;
     private PositionModel _position = null!;
     private bool _suppressNotesPersist;
@@ -47,16 +47,14 @@ public sealed class PositionViewModel : IDisposable
         LegsCollectionViewModelFactory collectionFactory,
         ClosedPositionsViewModelFactory closedPositionsFactory,
         INotifyUserService notifyUserService,
-        ExchangeTickerService exchangeTickerService,
-        IActivePositionsService activePositionsService)
+        IExchangeService exchangeService)
     {
         _positionBuilder = positionBuilder;
         _positionsPort = positionsPort;
         _collectionFactory = collectionFactory;
         _closedPositionsFactory = closedPositionsFactory;
         _notifyUserService = notifyUserService;
-        _exchangeTickerService = exchangeTickerService;
-        _activePositionsService = activePositionsService;
+        _exchangeService = exchangeService;
        
   
     }
@@ -132,8 +130,7 @@ public sealed class PositionViewModel : IDisposable
         UpdateDerivedState();
 
         _ = EnsureLiveSubscriptionAsync();
-        _activePositionsService.PositionUpdated += HandleActivePositionUpdated;
-        _activePositionsService.PositionsUpdated += HandleActivePositionsSnapshot;
+        _positionsSubscription = await _exchangeService.Positions.SubscribeAsync(HandleActivePositionsSnapshot);
 
         await ClosedPositions.InitializeAsync();
         await RefreshExchangeMissingFlagsAsync();
@@ -307,8 +304,8 @@ public sealed class PositionViewModel : IDisposable
     public void Dispose()
     {
         _ = StopTickerAsync();
-        _activePositionsService.PositionUpdated -= HandleActivePositionUpdated;
-        _activePositionsService.PositionsUpdated -= HandleActivePositionsSnapshot;
+        _positionsSubscription?.Dispose();
+        _positionsSubscription = null;
         foreach (var collection in Collections)
         {
             if (collection is null)
@@ -329,11 +326,6 @@ public sealed class PositionViewModel : IDisposable
         }
 
         await UpdateExchangeMissingFlagsAsync(positions);
-    }
-
-    private void HandleActivePositionUpdated(BybitPosition position)
-    {
-        ApplyActivePositionUpdate(position);
     }
 
     private void ApplyActivePositionUpdate(BybitPosition position)
@@ -360,7 +352,7 @@ public sealed class PositionViewModel : IDisposable
 
     private async Task RefreshExchangeMissingFlagsAsync()
     {
-        var positions = (await _activePositionsService.GetPositionsAsync()).ToList();
+        var positions = (await _exchangeService.Positions.GetPositionsAsync()).ToList();
         await UpdateExchangeMissingFlagsAsync(positions);
     }
 
@@ -475,7 +467,7 @@ public sealed class PositionViewModel : IDisposable
         _currentSymbol = symbol;
 
         _tickerSubscription?.Dispose();
-        _tickerSubscription = await _exchangeTickerService.SubscribeAsync(symbol, HandlePriceUpdated);
+        _tickerSubscription = await _exchangeService.Tickers.SubscribeAsync(symbol, HandlePriceUpdated);
     }
 
     internal async Task StopTickerAsync()

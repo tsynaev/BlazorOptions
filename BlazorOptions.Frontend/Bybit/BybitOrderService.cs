@@ -5,7 +5,7 @@ using Microsoft.Extensions.Options;
 
 namespace BlazorOptions.Services;
 
-public sealed class BybitOrderService : BybitApiService
+public sealed class BybitOrderService : BybitApiService, IOrdersService
 {
     private const string RequestPath = "/v5/order/realtime";
     private const string DefaultSettleCoin = "USDT";
@@ -18,10 +18,10 @@ public sealed class BybitOrderService : BybitApiService
         _bybitSettingsOptions = bybitSettingsOptions;
     }
 
-    public async Task<IReadOnlyList<BybitOrder>> GetOpenOrdersAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ExchangeOrder>> GetOpenOrdersAsync(CancellationToken cancellationToken = default)
     {
         var settings = _bybitSettingsOptions.Value;
-        var allOrders = new List<BybitOrder>();
+        var allOrders = new List<ExchangeOrder>();
 
         foreach (var category in new[] { "linear", "inverse" })
         {
@@ -32,13 +32,13 @@ public sealed class BybitOrderService : BybitApiService
         return allOrders;
     }
 
-    private async Task<IReadOnlyList<BybitOrder>> GetOrdersByCategoryAsync(
+    private async Task<IReadOnlyList<ExchangeOrder>> GetOrdersByCategoryAsync(
         BybitSettings settings,
         string category,
         string? settleCoin,
         CancellationToken cancellationToken)
     {
-        var orders = new List<BybitOrder>();
+        var orders = new List<ExchangeOrder>();
         string? cursor = null;
 
         while (true)
@@ -93,7 +93,7 @@ public sealed class BybitOrderService : BybitApiService
                         ?? ReadNullableDecimal(entry, "avgPrice")
                         ?? ReadNullableDecimal(entry, "triggerPrice");
 
-                    orders.Add(new BybitOrder(orderId, symbol, side, category, orderType, orderStatus, qty, price));
+                    orders.Add(new ExchangeOrder(orderId, symbol, side, category, orderType, orderStatus, qty, price));
                 }
             }
 
@@ -190,7 +190,7 @@ public sealed class BybitOrderService : BybitApiService
     }
 }
 
-public sealed record BybitOrder(
+public sealed record ExchangeOrder(
     string OrderId,
     string Symbol,
     string Side,

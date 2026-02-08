@@ -12,8 +12,6 @@ public sealed class LegsCollectionViewModel : IDisposable
     private readonly ILegsCollectionDialogService _dialogService;
     private readonly LegViewModelFactory _legViewModelFactory;
     private readonly INotifyUserService _notifyUserService;
-    private readonly IActivePositionsService _activePositionsService;
-    private readonly BybitOrderService _bybitOrderService;
     private string _baseAsset = string.Empty;
     private decimal? _currentPrice;
     private bool _isLive;
@@ -37,16 +35,12 @@ public sealed class LegsCollectionViewModel : IDisposable
         ILegsCollectionDialogService dialogService,
         LegViewModelFactory legViewModelFactory,
         INotifyUserService notifyUserService,
-        IActivePositionsService activePositionsService,
-        BybitOrderService bybitOrderService,
         IExchangeService exchangeService,
         ILegsParserService legsParserService)
     {
         _dialogService = dialogService;
         _legViewModelFactory = legViewModelFactory;
         _notifyUserService = notifyUserService;
-        _activePositionsService = activePositionsService;
-        _bybitOrderService = bybitOrderService;
         _exchangeService = exchangeService;
 
         QuickAdd = new QuickAddViewModel(_notifyUserService, legsParserService);
@@ -367,8 +361,8 @@ public sealed class LegsCollectionViewModel : IDisposable
 
         try
         {
-            var positionsTask = _activePositionsService.GetPositionsAsync();
-            var ordersTask = _bybitOrderService.GetOpenOrdersAsync();
+            var positionsTask = _exchangeService.Positions.GetPositionsAsync();
+            var ordersTask = _exchangeService.Orders.GetOpenOrdersAsync();
             await Task.WhenAll(positionsTask, ordersTask);
 
             var positions = positionsTask.Result;
@@ -409,7 +403,7 @@ public sealed class LegsCollectionViewModel : IDisposable
 
             foreach (var order in orders)
             {
-                var leg = CreateLegFromBybitOrder(order, baseAsset);
+                var leg = CreateLegFromExchangeOrder(order, baseAsset);
                 if (leg is null || string.IsNullOrWhiteSpace(leg.Symbol))
                 {
                     continue;
@@ -731,7 +725,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         };
     }
 
-    internal LegModel? CreateLegFromBybitOrder(BybitOrder order, string baseAsset)
+    internal LegModel? CreateLegFromExchangeOrder(ExchangeOrder order, string baseAsset)
     {
         if (string.IsNullOrWhiteSpace(order.Symbol))
         {
@@ -840,7 +834,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         return magnitude;
     }
 
-    private static decimal DetermineSignedSize(BybitOrder order)
+    private static decimal DetermineSignedSize(ExchangeOrder order)
     {
         var magnitude = Math.Abs(order.Qty);
         if (magnitude < 0.0001m)
@@ -1089,7 +1083,7 @@ public sealed class LegsCollectionViewModel : IDisposable
 
     public async Task RefreshExchangeMissingFlagsAsync()
     {
-        var positions = (await _activePositionsService.GetPositionsAsync()).ToList();
+        var positions = (await _exchangeService.Positions.GetPositionsAsync()).ToList();
         await UpdateExchangeMissingFlagsAsync(positions);
     }
 

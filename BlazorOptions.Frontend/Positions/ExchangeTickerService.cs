@@ -4,14 +4,13 @@ using Microsoft.Extensions.Options;
 
 namespace BlazorOptions.Services;
 
-public class ExchangeTickerService : IAsyncDisposable
+public class ExchangeTickerService : ITickersService
 {
     private static readonly Uri DefaultBybitWebSocketUrl = new("wss://stream.bybit.com/v5/public/linear");
     private readonly IReadOnlyDictionary<string, IExchangeTickerClient> _clients;
     private readonly ConcurrentDictionary<IExchangeTickerClient, Func<ExchangePriceUpdate, Task>> _handlers = new();
     private readonly object _subscriberLock = new();
     private readonly Dictionary<string, List<Func<ExchangePriceUpdate, Task>>> _subscriberHandlers = new(StringComparer.OrdinalIgnoreCase);
-    private readonly HashSet<string> _legacySubscriptions = new(StringComparer.OrdinalIgnoreCase);
     private IExchangeTickerClient? _activeClient;
     private Uri? _activeWebSocketUrl;
     private readonly IOptions<BybitSettings> _bybitSettingsOptions;
@@ -58,7 +57,7 @@ public class ExchangeTickerService : IAsyncDisposable
             handlers.Add(handler);
         }
 
-        await EnsureConnectedAsync(new ExchangeTickerSubscription("Bybit", normalizedSymbol, ResolveWebSocketUrl(null)), cancellationToken);
+        await EnsureConnectedAsync(cancellationToken);
 
         if (shouldSubscribe)
         {
@@ -68,29 +67,7 @@ public class ExchangeTickerService : IAsyncDisposable
         return new SubscriptionRegistration(() => _ = UnsubscribeAsync(normalizedSymbol, handler));
     }
 
-    public async Task ConnectAsync(ExchangeTickerSubscription subscription, CancellationToken cancellationToken)
-    {
-        if (!_clients.TryGetValue(subscription.Exchange, out var client))
-        {
-            throw new InvalidOperationException($"Exchange '{subscription.Exchange}' is not registered.");
-        }
-
-        if (_activeClient != client || _activeWebSocketUrl != subscription.WebSocketUrl)
-        {
-            await DisconnectAsync();
-            _activeClient = client;
-            _activeWebSocketUrl = subscription.WebSocketUrl;
-        }
-
-        await _activeClient.EnsureConnectedAsync(subscription.WebSocketUrl, cancellationToken);
-        await _activeClient.SubscribeAsync(subscription.Symbol, cancellationToken);
-        lock (_subscriberLock)
-        {
-            _legacySubscriptions.Add(subscription.Symbol);
-        }
-    }
-
-    public Uri ResolveWebSocketUrl(string? url)
+    private Uri ResolveWebSocketUrl(string? url)
     {
         if (Uri.TryCreate(url, UriKind.Absolute, out var parsed))
         {
@@ -101,23 +78,11 @@ public class ExchangeTickerService : IAsyncDisposable
     }
 
  
-    public async Task DisconnectAsync()
+    private async Task DisconnectAsync()
     {
         if (_activeClient is null)
         {
             return;
-        }
-
-        List<string> legacySymbols;
-        lock (_subscriberLock)
-        {
-            legacySymbols = _legacySubscriptions.ToList();
-            _legacySubscriptions.Clear();
-        }
-
-        foreach (var symbol in legacySymbols)
-        {
-            await _activeClient.UnsubscribeAsync(symbol, CancellationToken.None);
         }
 
         await _activeClient.DisconnectAsync();
@@ -137,11 +102,11 @@ public class ExchangeTickerService : IAsyncDisposable
         _handlers.Clear();
     }
 
-    private async Task EnsureConnectedAsync(ExchangeTickerSubscription subscription, CancellationToken cancellationToken)
+    private async Task EnsureConnectedAsync(CancellationToken cancellationToken)
     {
-        if (!_clients.TryGetValue(subscription.Exchange, out var client))
+        if (!_clients.TryGetValue("Bybit", out var client))
         {
-            throw new InvalidOperationException($"Exchange '{subscription.Exchange}' is not registered.");
+            throw new InvalidOperationException("Exchange 'Bybit' is not registered.");
         }
 
         var settings = _bybitSettingsOptions.Value;
@@ -159,7 +124,6 @@ public class ExchangeTickerService : IAsyncDisposable
         lock (_subscriberLock)
         {
             symbols = _subscriberHandlers.Keys
-                .Concat(_legacySubscriptions)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
@@ -228,7 +192,7 @@ public class ExchangeTickerService : IAsyncDisposable
             await _activeClient.UnsubscribeAsync(symbol, CancellationToken.None);
         }
 
-        if (_subscriberHandlers.Count == 0 && _legacySubscriptions.Count == 0)
+        if (_subscriberHandlers.Count == 0)
         {
             await _activeClient.DisconnectAsync();
             _activeClient = null;

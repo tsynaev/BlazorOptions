@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace BlazorOptions.Services;
 
-public sealed class FuturesInstrumentsService
+public sealed class FuturesInstrumentsService : IFuturesInstrumentsService
 {
     private const string BybitInstrumentsInfoUrl = "https://api.bybit.com/v5/market/instruments-info?category=linear";
     private const int PageSize = 500;

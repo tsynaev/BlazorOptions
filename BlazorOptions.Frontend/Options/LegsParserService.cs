@@ -17,12 +17,17 @@ public sealed class LegsParserService : ILegsParserService
     private static readonly Regex QuickAddDayMonthRegex = new(@"\b(?<day>\d{1,2})[./-](?<month>\d{1,2})\b", RegexOptions.Compiled);
     private static readonly string[] PositionExpirationFormats = { "ddMMMyy", "ddMMMyyyy" };
 
-    private readonly OptionsChainService _optionsChainService;
+    private readonly IOptionsChainService _optionsChainService;
     private readonly IExchangeService _exchangeService;
 
     public LegsParserService(
-        OptionsChainService optionsChainService,
         IExchangeService exchangeService)
+    {
+        _optionsChainService = exchangeService.OptionsChain;
+        _exchangeService = exchangeService;
+    }
+
+    public LegsParserService(IOptionsChainService optionsChainService, IExchangeService exchangeService)
     {
         _optionsChainService = optionsChainService;
         _exchangeService = exchangeService;

@@ -1,5 +1,6 @@
 using System.Globalization;
 using BlazorOptions.ViewModels;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace BlazorOptions.Services;
 
@@ -8,11 +9,46 @@ public interface IExchangeService
     string? FormatSymbol(LegModel leg, string? baseAsset = null, string? settleAsset = null);
     bool TryParseSymbol(string symbol, out string baseAsset, out DateTime expiration, out decimal strike, out LegType type);
     bool TryCreateLeg(string symbol, decimal size, out LegModel leg);
+    IOrdersService Orders { get; }
+    IPositionsService Positions { get; }
+    ITickersService Tickers { get; }
+    IOptionsChainService OptionsChain { get; }
+    IFuturesInstrumentsService FuturesInstruments { get; }
 }
 
 public sealed class ExchangeService : IExchangeService
 {
     private static readonly string[] ExpirationFormats = { "dMMMyy", "ddMMMyy", "ddMMMyyyy" };
+    private readonly IServiceProvider? _services;
+    private IOptionsChainService? _optionsChain;
+    private IFuturesInstrumentsService? _futuresInstruments;
+
+    public ExchangeService()
+        : this(new NullOrdersService(), new NullPositionsService(), new NullTickersService(), null)
+    {
+        _optionsChain = new NullOptionsChainService();
+        _futuresInstruments = new NullFuturesInstrumentsService();
+    }
+
+    public ExchangeService(IOrdersService orders, IPositionsService positions, ITickersService tickers, IServiceProvider? services)
+    {
+        Orders = orders;
+        Positions = positions;
+        Tickers = tickers;
+        _services = services;
+    }
+
+    public IOrdersService Orders { get; }
+
+    public IPositionsService Positions { get; }
+
+    public ITickersService Tickers { get; }
+
+    public IOptionsChainService OptionsChain => _optionsChain ??= _services?.GetRequiredService<IOptionsChainService>()
+        ?? new NullOptionsChainService();
+
+    public IFuturesInstrumentsService FuturesInstruments => _futuresInstruments ??= _services?.GetRequiredService<IFuturesInstrumentsService>()
+        ?? new NullFuturesInstrumentsService();
 
     public string? FormatSymbol(LegModel leg, string? baseAsset = null, string? settleAsset = null)
     {
@@ -103,5 +139,80 @@ public sealed class ExchangeService : IExchangeService
 
         var parts = symbol.Split('-', StringSplitOptions.RemoveEmptyEntries);
         return parts.Length > 0 ? parts[0].ToUpperInvariant() : null;
+    }
+
+    private sealed class NullOrdersService : IOrdersService
+    {
+        public Task<IReadOnlyList<ExchangeOrder>> GetOpenOrdersAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<ExchangeOrder>>(Array.Empty<ExchangeOrder>());
+        }
+    }
+
+    private sealed class NullPositionsService : IPositionsService
+    {
+        public Task<IEnumerable<BybitPosition>> GetPositionsAsync()
+        {
+            return Task.FromResult<IEnumerable<BybitPosition>>(Array.Empty<BybitPosition>());
+        }
+
+        public ValueTask<IDisposable> SubscribeAsync(
+            Func<IReadOnlyList<BybitPosition>, Task> handler,
+            CancellationToken cancellationToken = default)
+        {
+            return new ValueTask<IDisposable>(new SubscriptionRegistration(() => { }));
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class NullTickersService : ITickersService
+    {
+        public ValueTask<IDisposable> SubscribeAsync(string symbol, Func<ExchangePriceUpdate, Task> handler, CancellationToken cancellationToken = default)
+        {
+            return new ValueTask<IDisposable>(new SubscriptionRegistration(() => { }));
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class NullOptionsChainService : IOptionsChainService
+    {
+        public DateTime? LastUpdatedUtc => null;
+
+        public bool IsRefreshing => false;
+
+        public List<OptionChainTicker> GetTickersByBaseAsset(string baseAsset, LegType? legType = null)
+        {
+            return new List<OptionChainTicker>();
+        }
+
+        public Task EnsureBaseAssetAsync(string baseAsset) => Task.CompletedTask;
+
+        public Task RefreshAsync(string? baseAsset = null, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public OptionChainTicker? FindTickerForLeg(LegModel leg, string? baseAsset = null) => null;
+
+        public void TrackLegs(IEnumerable<LegModel> legs, string? baseAsset = null)
+        {
+        }
+
+        public ValueTask<IDisposable> SubscribeAsync(string symbol, Func<OptionChainTicker, Task> when)
+        {
+            return new ValueTask<IDisposable>(new SubscriptionRegistration(() => { }));
+        }
+    }
+
+    private sealed class NullFuturesInstrumentsService : IFuturesInstrumentsService
+    {
+        public IReadOnlyList<DateTime?> GetCachedExpirations(string baseAsset, string? quoteAsset)
+        {
+            return Array.Empty<DateTime?>();
+        }
+
+        public Task EnsureExpirationsAsync(string baseAsset, string? quoteAsset, CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
     }
 }

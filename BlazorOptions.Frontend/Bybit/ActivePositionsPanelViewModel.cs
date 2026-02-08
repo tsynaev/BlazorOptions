@@ -8,18 +8,15 @@ namespace BlazorOptions.ViewModels;
 public sealed class ActivePositionsPanelViewModel : IDisposable
 {
     private static readonly string[] _positionExpirationFormats = { "ddMMMyy", "ddMMMyyyy" };
-    private readonly IActivePositionsService _activePositionsService;
     private readonly IExchangeService _exchangeService;
     private readonly HashSet<BybitPosition> _selectedPositions;
     private readonly BybitPositionComparer _comparer = new();
     private readonly List<BybitPosition> _filteredPositions = new();
     private IReadOnlyList<LegModel> _existingLegs = [];
-    private bool _isInitialized;
-    private bool _isSubscribed;
+    private IDisposable? _positionsSubscription;
 
-    public ActivePositionsPanelViewModel(IActivePositionsService activePositionsService, IExchangeService exchangeService)
+    public ActivePositionsPanelViewModel(IExchangeService exchangeService)
     {
-        _activePositionsService = activePositionsService;
         _exchangeService = exchangeService;
         _selectedPositions = new HashSet<BybitPosition>(_comparer);
     }
@@ -50,17 +47,11 @@ public sealed class ActivePositionsPanelViewModel : IDisposable
         QuoteAsset = string.IsNullOrWhiteSpace(initialQuoteAsset) ? "USDT" : initialQuoteAsset.Trim();
         _existingLegs = existingLegs ?? Array.Empty<LegModel>();
 
-        if (!_isSubscribed)
+        if (_positionsSubscription is null)
         {
-            _activePositionsService.PositionsUpdated += HandlePositionsUpdated;
-            _isSubscribed = true;
+            _positionsSubscription = await _exchangeService.Positions.SubscribeAsync(HandlePositionsUpdated);
         }
 
-        if (!_isInitialized)
-        {
-            _isInitialized = true;
-            await _activePositionsService.InitializeAsync();
-        }
         await ApplyFilter();
     }
 
@@ -143,7 +134,7 @@ public sealed class ActivePositionsPanelViewModel : IDisposable
         var baseAsset = string.IsNullOrWhiteSpace(BaseAsset) ? null : BaseAsset.Trim();
         var existingLegs = _existingLegs;
 
-        foreach (var position in await _activePositionsService.GetPositionsAsync())
+        foreach (var position in await _exchangeService.Positions.GetPositionsAsync())
         {
             if (!string.IsNullOrWhiteSpace(baseAsset) &&
                 !position.Symbol.StartsWith(baseAsset, StringComparison.OrdinalIgnoreCase))
@@ -168,7 +159,7 @@ public sealed class ActivePositionsPanelViewModel : IDisposable
         }
         else if (LoadError is null)
         {
-            LoadError = _activePositionsService.LastError ?? "No active positions found for the selected asset.";
+            LoadError = "No active positions found for the selected asset.";
         }
 
         OnChange?.Invoke();
@@ -300,11 +291,8 @@ public sealed class ActivePositionsPanelViewModel : IDisposable
 
     public void Dispose()
     {
-        if (_isSubscribed)
-        {
-            _activePositionsService.PositionsUpdated -= HandlePositionsUpdated;
-            _isSubscribed = false;
-        }
+        _positionsSubscription?.Dispose();
+        _positionsSubscription = null;
     }
 
     private sealed class BybitPositionComparer : IEqualityComparer<BybitPosition>

@@ -15,6 +15,7 @@
 - Prefer MudBlazor components for layout, inputs, and actions instead of raw HTML.
 - Use ECharts for chart rendering.
 - Register new services or view models with dependency injection in `Program.cs`.
+- Exchange integrations must be accessed through `IExchangeService` and its child interfaces (`IOrdersService`, `IPositionsService`, `ITickersService`, `IOptionsChainService`, `IFuturesInstrumentsService`) rather than using Bybit concrete services directly in view models.
 
 ## Coding
 

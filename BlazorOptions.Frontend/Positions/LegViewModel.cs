@@ -14,9 +14,6 @@ public sealed class LegViewModel : IDisposable
 {
     private readonly LegsCollectionViewModel _collectionViewModel;
     private readonly OptionsService _optionsService;
-    private readonly OptionsChainService _optionsChainService;
-    private readonly FuturesInstrumentsService _futuresInstrumentsService;
-    private readonly ExchangeTickerService _exchangeTicker;
     private readonly IExchangeService _exchangeService;
     private readonly BlackScholes _blackScholes;
     private readonly SemaphoreSlim _subscriptionLock = new(1, 1);
@@ -50,17 +47,11 @@ public sealed class LegViewModel : IDisposable
     public LegViewModel(
         LegsCollectionViewModel collectionViewModel,
         OptionsService optionsService,
-        OptionsChainService optionsChainService,
-        FuturesInstrumentsService futuresInstrumentsService,
-        ExchangeTickerService exchangeTicker,
         IExchangeService exchangeService,
         BlackScholes blackScholes)
     {
         _collectionViewModel = collectionViewModel;
         _optionsService = optionsService;
-        _optionsChainService = optionsChainService;
-        _futuresInstrumentsService = futuresInstrumentsService;
-        _exchangeTicker = exchangeTicker;
         _exchangeService = exchangeService;
         _blackScholes = blackScholes;
     }
@@ -490,12 +481,12 @@ public sealed class LegViewModel : IDisposable
 
             if (Leg.Type == LegType.Future)
             {
-                _subscriptionRegistration = await _exchangeTicker.SubscribeAsync(Leg.Symbol, HandleLinearTicker);
+                _subscriptionRegistration = await _exchangeService.Tickers.SubscribeAsync(Leg.Symbol, HandleLinearTicker);
             }
             else
             {
 
-                _subscriptionRegistration = await _optionsChainService.SubscribeAsync(Leg.Symbol, HandleOptionTicker);
+                _subscriptionRegistration = await _exchangeService.OptionsChain.SubscribeAsync(Leg.Symbol, HandleOptionTicker);
             }
         }
         finally
@@ -562,7 +553,7 @@ public sealed class LegViewModel : IDisposable
         {
             var baseAsset = _collectionViewModel.BaseAsset;
             var quoteAsset = _collectionViewModel.Position?.Position.QuoteAsset;
-            var cachedExpirations = _futuresInstrumentsService.GetCachedExpirations(baseAsset, quoteAsset).ToList();
+            var cachedExpirations = _exchangeService.FuturesInstruments.GetCachedExpirations(baseAsset, quoteAsset).ToList();
 
             if (!cachedExpirations.Contains(null))
             {
@@ -574,7 +565,7 @@ public sealed class LegViewModel : IDisposable
             return;
         }
 
-        var tickers = _optionsChainService.GetTickersByBaseAsset(_collectionViewModel.BaseAsset, Leg.Type);
+        var tickers = _exchangeService.OptionsChain.GetTickersByBaseAsset(_collectionViewModel.BaseAsset, Leg.Type);
 
         _cachedExpirations = tickers.Select(ticker => (DateTime?)ticker.ExpirationDate.Date)
             .Distinct()
@@ -600,7 +591,7 @@ public sealed class LegViewModel : IDisposable
             return;
         }
 
-        await _futuresInstrumentsService.EnsureExpirationsAsync(baseAsset, quoteAsset);
+        await _exchangeService.FuturesInstruments.EnsureExpirationsAsync(baseAsset, quoteAsset);
 
         if (Leg.Type == LegType.Future)
         {
@@ -671,7 +662,7 @@ public sealed class LegViewModel : IDisposable
         }
 
         var baseAsset = _collectionViewModel.Position?.Position.BaseAsset;
-        var ticker = _optionsChainService.FindTickerForLeg(Leg, baseAsset);
+        var ticker = _exchangeService.OptionsChain.FindTickerForLeg(Leg, baseAsset);
         if (ticker is null)
         {
             MarkPrice = null;
@@ -857,7 +848,7 @@ public sealed class LegViewModel : IDisposable
         }
 
         var baseAsset = _collectionViewModel.Position?.Position.BaseAsset;
-        var ticker = _optionsChainService.FindTickerForLeg(leg, baseAsset);
+        var ticker = _exchangeService.OptionsChain.FindTickerForLeg(leg, baseAsset);
         if (ticker is null)
         {
             return null;

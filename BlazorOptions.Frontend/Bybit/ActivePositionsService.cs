@@ -22,6 +22,8 @@ public sealed class ActivePositionsService : IActivePositionsService
     private readonly JsonSerializerOptions _serializerOptions = new(JsonSerializerDefaults.Web);
     private readonly SemaphoreSlim _sync = new(1, 1);
     private readonly SemaphoreSlim _snapshotLock = new(1, 1);
+    private readonly object _subscriberLock = new();
+    private readonly List<Func<IReadOnlyList<BybitPosition>, Task>> _subscribers = new();
     private readonly List<BybitPosition> _positions = new();
     private readonly BybitPositionComparer _comparer = new();
     private ClientWebSocket? _socket;
@@ -44,13 +46,7 @@ public sealed class ActivePositionsService : IActivePositionsService
     }
 
 
-    public string? LastError { get; private set; }
-
-    public event Func<IReadOnlyList<BybitPosition>, Task>? PositionsUpdated;
-
-    public event Action<BybitPosition>? PositionUpdated;
-
-    public async Task InitializeAsync()
+    private async Task EnsureInitializedAsync()
     {
         if (_isInitialized)
         {
@@ -95,13 +91,12 @@ public sealed class ActivePositionsService : IActivePositionsService
         }
     }
 
-    public async Task ReloadFromExchangeAsync()
+    private async Task ReloadFromExchangeAsync()
     {
         try
         {
             if (!HasApiCredentials())
             {
-                LastError = "Bybit API credentials are missing.";
                 return;
             }
 
@@ -113,11 +108,10 @@ public sealed class ActivePositionsService : IActivePositionsService
 
   
             await UpdateSnapshotAsync(allPositions);
-            LastError = null;
         }
         catch (Exception ex)
         {
-            LastError = ex.Message;
+            _ = ex;
         }
     }
 
@@ -182,11 +176,7 @@ public sealed class ActivePositionsService : IActivePositionsService
             _sync.Release();
         }
 
-        var handler = PositionsUpdated;
-        if (handler != null)
-        {
-            await handler.Invoke(_positions);
-        }
+        await NotifySubscribersAsync();
     }
 
     private async Task RunSocketLoopAsync(CancellationToken cancellationToken)
@@ -204,7 +194,7 @@ public sealed class ActivePositionsService : IActivePositionsService
             }
             catch (Exception ex)
             {
-                LastError = ex.Message;
+                _ = ex;
             }
             finally
             {
@@ -407,8 +397,7 @@ public sealed class ActivePositionsService : IActivePositionsService
             _sync.Release();
         }
 
-        PositionUpdated?.Invoke(update);
-        PositionsUpdated?.Invoke(_positions);
+        await NotifySubscribersAsync();
     }
 
     private async Task SendHeartbeatLoopAsync(CancellationToken cancellationToken)
@@ -549,6 +538,31 @@ public sealed class ActivePositionsService : IActivePositionsService
         await CloseSocketAsync();
     }
 
+    public async ValueTask<IDisposable> SubscribeAsync(
+        Func<IReadOnlyList<BybitPosition>, Task> handler,
+        CancellationToken cancellationToken = default)
+    {
+        if (handler is null)
+        {
+            return new SubscriptionRegistration(() => { });
+        }
+
+        lock (_subscriberLock)
+        {
+            _subscribers.Add(handler);
+        }
+
+        await EnsureInitializedAsync();
+
+        var snapshot = _positions.ToArray();
+        if (snapshot.Length > 0 && !cancellationToken.IsCancellationRequested)
+        {
+            await handler.Invoke(snapshot);
+        }
+
+        return new SubscriptionRegistration(() => Unsubscribe(handler));
+    }
+
     private sealed class BybitPositionComparer : IEqualityComparer<BybitPosition>
     {
         public bool Equals(BybitPosition? x, BybitPosition? y)
@@ -574,8 +588,37 @@ public sealed class ActivePositionsService : IActivePositionsService
 
     public async Task<IEnumerable<BybitPosition>> GetPositionsAsync()
     {
+        await EnsureInitializedAsync();
         await _snapshotTask;
 
         return _positions;
+    }
+
+    private void Unsubscribe(Func<IReadOnlyList<BybitPosition>, Task> handler)
+    {
+        lock (_subscriberLock)
+        {
+            _subscribers.Remove(handler);
+        }
+    }
+
+    private async Task NotifySubscribersAsync()
+    {
+        Func<IReadOnlyList<BybitPosition>, Task>[] handlers;
+        lock (_subscriberLock)
+        {
+            handlers = _subscribers.ToArray();
+        }
+
+        if (handlers.Length == 0)
+        {
+            return;
+        }
+
+        var snapshot = _positions.ToArray();
+        foreach (var handler in handlers)
+        {
+            await handler.Invoke(snapshot);
+        }
     }
 }

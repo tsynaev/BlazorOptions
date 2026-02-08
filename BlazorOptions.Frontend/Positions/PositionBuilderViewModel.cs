@@ -10,9 +10,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
 {
     private readonly OptionsService _optionsService;
     private readonly IPositionsPort _positionsPort;
-    private readonly ExchangeTickerService _exchangeTickerService;
-    private readonly OptionsChainService _optionsChainService;
-    private readonly IActivePositionsService _activePositionsService;
+    private readonly IExchangeService _exchangeService;
     private readonly LegsCollectionViewModelFactory _collectionFactory;
     private readonly ClosedPositionsViewModelFactory _closedPositionsFactory;
     private readonly INotifyUserService _notifyUserService;
@@ -51,18 +49,14 @@ public class PositionBuilderViewModel : IAsyncDisposable
     public PositionBuilderViewModel(
         OptionsService optionsService,
         IPositionsPort positionsPort,
-        ExchangeTickerService exchangeTickerService,
-        OptionsChainService optionsChainService,
-        IActivePositionsService activePositionsService,
+        IExchangeService exchangeService,
         LegsCollectionViewModelFactory collectionFactory,
         ClosedPositionsViewModelFactory closedPositionsFactory,
         INotifyUserService notifyUserService)
     {
         _optionsService = optionsService;
         _positionsPort = positionsPort;
-        _exchangeTickerService = exchangeTickerService;
-        _optionsChainService = optionsChainService;
-        _activePositionsService = activePositionsService;
+        _exchangeService = exchangeService;
         _collectionFactory = collectionFactory;
         _closedPositionsFactory = closedPositionsFactory;
         _notifyUserService = notifyUserService;
@@ -90,8 +84,6 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
         _isInitialized = true;
         var storedPositions = await _positionsPort.LoadPositionsAsync();
-
-        await _activePositionsService.InitializeAsync();
 
         if (storedPositions.Count == 0)
         {
@@ -474,7 +466,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
     public decimal? GetLegMarkIv(LegModel leg, string? baseAsset = null)
     {
         var resolvedBaseAsset = baseAsset ?? SelectedPosition?.Position?.BaseAsset;
-        var ticker = _optionsChainService.FindTickerForLeg(leg, resolvedBaseAsset);
+        var ticker = _exchangeService.OptionsChain.FindTickerForLeg(leg, resolvedBaseAsset);
         if (ticker is null || ticker.MarkIv <= 0)
         {
             if (ticker is null)
@@ -677,7 +669,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
             return;
         }
 
-        await _optionsChainService.EnsureBaseAssetAsync(position.BaseAsset);
+        await _exchangeService.OptionsChain.EnsureBaseAssetAsync(position.BaseAsset);
 
         SelectedPosition = new PositionViewModel(
                 this,
@@ -685,8 +677,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
                 _collectionFactory,
                 _closedPositionsFactory,
                 _notifyUserService,
-                _exchangeTickerService,
-                _activePositionsService
+                _exchangeService
                 )
             {
                 Position = position
@@ -821,12 +812,12 @@ public class PositionBuilderViewModel : IAsyncDisposable
         }
 
         var baseAsset = SelectedPosition?.Position.BaseAsset;
-        _optionsChainService.TrackLegs(EnumerateAllLegs(), baseAsset);
+        _exchangeService.OptionsChain.TrackLegs(EnumerateAllLegs(), baseAsset);
 
         if (refresh)
         {
-            await _optionsChainService.RefreshAsync(baseAsset);
-            _optionsChainService.TrackLegs(EnumerateAllLegs(), baseAsset);
+            await _exchangeService.OptionsChain.RefreshAsync(baseAsset);
+            _exchangeService.OptionsChain.TrackLegs(EnumerateAllLegs(), baseAsset);
 
             UpdateChart();
             OnChange?.Invoke();

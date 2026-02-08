@@ -6,7 +6,7 @@ namespace BlazorOptions.ViewModels;
 public class OptionChainDialogViewModel : IDisposable
 {
     private const string StrikeWindowKey = "optionChainDialog:strikeWindow";
-    private readonly OptionsChainService _optionsChainService;
+    private readonly IExchangeService _exchangeService;
     private readonly ILocalStorageService _localStorageService;
     private PositionModel? _position;
     private List<OptionChainTicker> _chainTickers = new();
@@ -20,9 +20,9 @@ public class OptionChainDialogViewModel : IDisposable
     private readonly Dictionary<string, IDisposable> _tickerSubscriptions = new(StringComparer.OrdinalIgnoreCase);
     private int _strikeWindowSize = 10;
 
-    public OptionChainDialogViewModel(OptionsChainService optionsChainService, ILocalStorageService localStorageService)
+    public OptionChainDialogViewModel(IExchangeService exchangeService, ILocalStorageService localStorageService)
     {
-        _optionsChainService = optionsChainService;
+        _exchangeService = exchangeService;
         _localStorageService = localStorageService;
     }
 
@@ -128,7 +128,7 @@ public class OptionChainDialogViewModel : IDisposable
 
     public OptionChainTicker? GetTickerForLeg(LegModel leg)
     {
-        return _optionsChainService.FindTickerForLeg(leg, _baseAsset);
+        return _exchangeService.OptionsChain.FindTickerForLeg(leg, _baseAsset);
     }
 
     public bool IsLegIvMode(LegModel leg) => _ivModeLegIds.Contains(leg.Id);
@@ -271,7 +271,7 @@ public class OptionChainDialogViewModel : IDisposable
         IsRefreshing = true;
         OnChange?.Invoke();
 
-        await _optionsChainService.RefreshAsync(_baseAsset);
+        await _exchangeService.OptionsChain.RefreshAsync(_baseAsset);
         _chainTickers = GetBaseAssetTickers();
         UpdateFilteredTickers();
         UpdateExpirations();
@@ -497,7 +497,7 @@ public class OptionChainDialogViewModel : IDisposable
             return new List<OptionChainTicker>();
         }
 
-        return _optionsChainService.GetTickersByBaseAsset(_baseAsset);
+        return _exchangeService.OptionsChain.GetTickersByBaseAsset(_baseAsset);
     }
 
     public void Dispose()
@@ -628,7 +628,7 @@ public class OptionChainDialogViewModel : IDisposable
             {
                 continue;
             }
-            var registration = await _optionsChainService.SubscribeAsync(symbol, HandleTickerUpdated);
+            var registration = await _exchangeService.OptionsChain.SubscribeAsync(symbol, HandleTickerUpdated);
             _tickerSubscriptions[symbol] = registration;
         }
     }

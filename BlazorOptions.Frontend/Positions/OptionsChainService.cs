@@ -10,7 +10,7 @@ using System.Text.RegularExpressions;
 
 namespace BlazorOptions.Services;
 
-public class OptionsChainService
+public class OptionsChainService : IOptionsChainService
 {
     private const string BybitOptionsTickerUrl = "https://api.bybit.com/v5/market/tickers?category=option";
     private static readonly Uri BybitOptionsWebSocketUrl = new("wss://stream.bybit.com/v5/public/option");

@@ -10,7 +10,7 @@ public sealed class PositionCreateDialogViewModel : Bindable
     private const string DefaultsStoragePrefix = "positionCreateDefaults:";
     private const decimal DefaultSizeFallback = 10m;
     private const int DefaultMinDaysOut = 7;
-    private readonly OptionsChainService _optionsChainService;
+    private readonly IExchangeService _exchangeService;
     private readonly ILocalStorageService _localStorageService;
     private readonly ILegsParserService _legsParserService;
     private TaskCompletionSource<PositionCreateRequest?>? _resultTcs;
@@ -25,11 +25,11 @@ public sealed class PositionCreateDialogViewModel : Bindable
     private IReadOnlyList<LegPreviewItem> _legPreviewItems = Array.Empty<LegPreviewItem>();
 
     public PositionCreateDialogViewModel(
-        OptionsChainService optionsChainService,
+        IExchangeService exchangeService,
         ILocalStorageService localStorageService,
         ILegsParserService legsParserService)
     {
-        _optionsChainService = optionsChainService;
+        _exchangeService = exchangeService;
         _localStorageService = localStorageService;
         _legsParserService = legsParserService;
     }
@@ -305,7 +305,7 @@ public sealed class PositionCreateDialogViewModel : Bindable
             return next.Value.Date;
         }
 
-        await _optionsChainService.RefreshAsync(baseAsset);
+        await _exchangeService.OptionsChain.RefreshAsync(baseAsset);
         next = ResolveNextExpirationFromSnapshot(baseAsset);
         return next?.Date ?? DateTime.UtcNow.Date.AddDays(DefaultMinDaysOut);
     }
@@ -313,7 +313,7 @@ public sealed class PositionCreateDialogViewModel : Bindable
     private DateTime? ResolveNextExpirationFromSnapshot(string baseAsset)
     {
         var minDate = DateTime.UtcNow.Date.AddDays(DefaultMinDaysOut);
-        var expirations = _optionsChainService
+        var expirations = _exchangeService.OptionsChain
             .GetTickersByBaseAsset(baseAsset)
             .Select(ticker => ticker.ExpirationDate.Date)
             .Distinct()
