@@ -36,6 +36,7 @@ The Positions feature lets you build, manage, and visualize option strategies an
 
 ## Persistence
 - Positions are stored on the server via the positions API (no browser/local storage).
+- The latest payoff chart axis range is cached per position in browser local storage to restore the view quickly between reloads.
 - Active Bybit positions are still refreshed via REST snapshot on initial connect and reconnect, then kept up to date by websocket updates.
 - Deleting a position removes it from the server store immediately.
 
@@ -54,6 +55,7 @@ See `doc/LegParsing.md` for the full parsing rules, defaults, and UI preview beh
 - Chart recalculation now runs only when a leg field used in charting changes (include/type/strike/expiry/size/price/IV); other leg edits persist without forcing a chart refresh.
 - Chart data is regenerated using the user-adjusted axis range whenever the payoff chart range changes, and the last range is saved per position.
 - Payoff chart styling adapts to the current light/dark theme.
+- When there is no live or selected price, the payoff chart leaves the selected price marker unset (null).
 - Chart recalculation ignores pricing-context updates (live/selected price changes) to keep price selection responsive.
 - Pricing context updates (selected/live price, valuation date) are applied in a single batched pass per collection to keep the UI responsive.
 - Initial payoff chart rendering is deferred until after the first UI paint to keep page load snappy.

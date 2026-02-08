@@ -59,7 +59,8 @@ export function init(element, dotNetRef) {
         currentRangeX: null,
         currentRangeY: null,
         currentRangeTime: null,
-        preserveRange: false
+        preserveRange: false,
+        pinnedRangeY: null
     };
     instance.touchHandler = (evt) => {
         if (!evt.cancelable) {
@@ -112,6 +113,7 @@ export function setOption(instanceId, option) {
     const normalized = normalizeOption(option, instance);
     instance.lastOption = normalized;
     instance.chart.setOption(normalized, { notMerge: true, lazyUpdate: false });
+
     cacheSeries(instance, normalized);
     syncAxisRanges(instance, normalized);
     const hasTimeAxis = Array.isArray(instance.lastOption?.yAxis) && instance.lastOption.yAxis.length > 1;
@@ -147,6 +149,22 @@ export function setSelectedPrice(instanceId, priceOrNull) {
     }
 
     instance.selectedPrice = priceOrNull;
+    if (Number.isFinite(priceOrNull)) {
+        const range = instance.currentRangeX ?? getVisibleRange(instance.chart, 'x', 0);
+        if (range && Number.isFinite(range.min) && Number.isFinite(range.max)) {
+            const span = range.max - range.min;
+            if (span > 0 && (priceOrNull < range.min || priceOrNull > range.max)) {
+                const min = priceOrNull - span / 2;
+                const max = priceOrNull + span / 2;
+                instance.currentRangeX = { min, max };
+                instance.chart.setOption({ xAxis: { min, max } }, { notMerge: false, lazyUpdate: true });
+                const yRange = instance.currentRangeY ?? getVisibleRange(instance.chart, 'y', 0);
+                if (yRange && Number.isFinite(yRange.min) && Number.isFinite(yRange.max)) {
+                    instance.dotNetRef.invokeMethodAsync('OnRangeChanged', min, max, yRange.min, yRange.max);
+                }
+            }
+        }
+    }
     applyMarkers(instance);
 }
 
@@ -343,6 +361,28 @@ export function dispose(instanceId) {
     zr.off('touchend');
     instance.chart.dispose();
     instances.delete(instanceId);
+}
+
+export function resetAutoScale(instanceId, resetXy, resetTime) {
+    const instance = instances.get(instanceId);
+    if (!instance) {
+        return;
+    }
+
+    if (resetXy) {
+        instance.currentRangeX = null;
+        instance.currentRangeY = null;
+    }
+    if (resetTime) {
+        instance.currentRangeTime = null;
+    }
+    if (resetXy || resetTime) {
+        instance.preserveRange = false;
+    }
+
+    if (instance.lastOption) {
+        instance.chart.setOption(instance.lastOption, { notMerge: true, lazyUpdate: true });
+    }
 }
 
 function handleDomClick(instance, evt) {
@@ -627,8 +667,14 @@ function handleAxisDragStart(instance, evt) {
             y: instance.currentRangeY ?? getVisibleRange(instance.chart, 'y', 0),
             time: instance.currentRangeTime ?? getVisibleRange(instance.chart, 'y', 1)
         },
-        rect: getGridRect(instance.chart)
+        rect: getGridRect(instance.chart),
+        fixedYRange: null
     };
+    if (mode === 'y-time') {
+        const fixed = instance.axisDrag.startRange.y ?? getVisibleRange(instance.chart, 'y', 0);
+        instance.axisDrag.fixedYRange = fixed;
+        instance.pinnedRangeY = fixed;
+    }
 }
 
 function handleAxisDragMove(instance, evt) {
@@ -672,7 +718,14 @@ function handleAxisDragMove(instance, evt) {
         const deltaPixels = point[1] - drag.startY;
         const deltaValue = pixelsToValueDelta(drag.startRange.time, deltaPixels, drag.rect.height);
         const zoomed = stretchRangeFromMax(drag.startRange.time, deltaValue);
-        instance.chart.setOption({ yAxis: [{}, { min: zoomed.min, max: zoomed.max }] }, { notMerge: false, lazyUpdate: true });
+        const yRange = drag.fixedYRange ?? instance.pinnedRangeY ?? drag.startRange.y ?? getVisibleRange(instance.chart, 'y', 0);
+        instance.pinnedRangeY = yRange ?? instance.pinnedRangeY;
+        instance.chart.setOption({
+            yAxis: [
+                yRange ? { min: yRange.min, max: yRange.max } : {},
+                { min: zoomed.min, max: zoomed.max }
+            ]
+        }, { notMerge: false, lazyUpdate: true });
         instance.currentRangeTime = zoomed;
         instance.timeRangeOverride = zoomed;
         refreshCandleMeta(instance);
@@ -703,7 +756,11 @@ function handleAxisDragMove(instance, evt) {
 function handleAxisDragEnd(instance) {
     if (instance.axisDrag && (instance.rangeOverride || instance.timeRangeOverride)) {
         instance.currentRangeX = getVisibleRange(instance.chart, 'x', 0);
-        instance.currentRangeY = getVisibleRange(instance.chart, 'y', 0);
+        if (instance.timeRangeOverride && !instance.rangeOverride && instance.axisDrag?.fixedYRange) {
+            instance.currentRangeY = instance.axisDrag.fixedYRange;
+        } else {
+            instance.currentRangeY = getVisibleRange(instance.chart, 'y', 0);
+        }
         instance.currentRangeTime = getVisibleRange(instance.chart, 'y', 1);
         instance.preserveRange = true;
     if (instance.currentRangeX || instance.currentRangeY || instance.currentRangeTime) {
@@ -716,7 +773,8 @@ function handleAxisDragEnd(instance) {
             : { min: instance.currentRangeY?.min, max: instance.currentRangeY?.max };
         instance.chart.setOption({
             xAxis: instance.currentRangeX ? { min: instance.currentRangeX.min, max: instance.currentRangeX.max } : {},
-            yAxis: yAxisOption
+            yAxis: yAxisOption,
+             
         }, { notMerge: false, lazyUpdate: true });
     }
         emitRangeChanged(instance);
@@ -727,6 +785,7 @@ function handleAxisDragEnd(instance) {
     instance.axisDrag = null;
     instance.clickState = null;
     instance.isDragging = false;
+    instance.pinnedRangeY = null;
     instance.chart.getZr().setCursorStyle('default');
 
     if (instance.tooltipHidden) {
@@ -776,7 +835,11 @@ function getAxisDragMode(chart, point) {
 
 function getGridRect(chart) {
     const grid = chart.getModel().getComponent('grid', 0);
-    return grid ? grid.coordinateSystem.getRect() : null;
+    const coord = grid?.coordinateSystem;
+    if (!coord || typeof coord.getRect !== 'function') {
+        return null;
+    }
+    return coord.getRect();
 }
 
 function scaleRange(range, delta, size, strength) {
@@ -972,11 +1035,9 @@ function selectPriceAtPoint(instance, point) {
         xValue = Array.isArray(axisValue) ? axisValue[0] : axisValue;
     }
     if (Number.isFinite(xValue)) {
-        const now = performance.now();
         instance.selectedPrice = xValue;
         applyMarkers(instance);
-        console.log('[PayoffChart] click', { price: xValue, now });
-        instance.dotNetRef.invokeMethodAsync('OnChartClickWithTiming', xValue, now);
+        instance.dotNetRef.invokeMethodAsync('OnChartClick', xValue);
     }
 }
 

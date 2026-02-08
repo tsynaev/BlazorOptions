@@ -6,8 +6,10 @@
 @inject INavigationService NavigationService
 @inject NavigationManager NavigationManager
 @inject ThemeService ThemeService
+@inject IJSRuntime JS
 @using System.Linq
 @using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
 @using BlazorOptions.Shared
 @using BlazorOptions.ViewModels
 @using BlazorChart.Models
@@ -90,6 +92,7 @@ else
                                          ShowCandles="false"
                                          ShowLegends="true"
                                          IsDarkTheme="@ThemeService.IsDarkMode"
+                                         Range="@ViewModel.ChartRange"
                                          RangeChanged="HandleChartRangeChanged" />
 
                                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="chart-controls-row">
@@ -269,11 +272,14 @@ else
 </style>
 
 @code {
+    private const string ChartRangeStoragePrefix = "positions.chartRange.";
     private int _activeTabIndex;
     private bool HasActivePosition => ViewModel.SelectedPosition?.Position is not null;
     private bool _viewModelReady;
     private Guid? _pendingRoutePositionId;
     private string? _routeErrorMessage;
+    private IJSObjectReference? _chartRangeModule;
+    private string? _restoredChartRangeKey;
     [Parameter] public Guid? PositionId { get; set; }
 
     protected override async Task OnInitializedAsync()
@@ -283,12 +289,17 @@ else
         await ViewModel.InitializeAsync(PositionId);
         _viewModelReady = true;
         await ApplyRouteAsync(_pendingRoutePositionId);
+        await RestoreChartRangeIfMissingAsync();
     }
 
     public async ValueTask DisposeAsync()
     {
         ViewModel.OnChange -= HandleViewModelChanged;
         ViewModel.LivePriceChanged -= HandleLivePriceChanged;
+        if (_chartRangeModule is not null)
+        {
+            await _chartRangeModule.DisposeAsync();
+        }
         await ViewModel.DisposeAsync();
     }
 
@@ -321,6 +332,7 @@ else
     private Task HandleChartRangeChanged(ChartRange range)
     {
         ViewModel.UpdateChartRange(range);
+        _ = SaveChartRangeAsync(range);
         return Task.CompletedTask;
     }
 
@@ -476,6 +488,7 @@ else
         {
             _activeTabIndex = index;
             await RefreshChartAsync();
+            await RestoreChartRangeIfMissingAsync();
             _routeErrorMessage = null;
             UpdateUrl(positionId);
             return;
@@ -552,6 +565,104 @@ else
         return InvokeAsync(StateHasChanged);
     }
 
+    private async Task RestoreChartRangeIfMissingAsync()
+    {
+        if (ViewModel.ChartRange is not null)
+        {
+            return;
+        }
+
+        var storageKey = GetChartRangeStorageKey();
+        if (string.IsNullOrWhiteSpace(storageKey))
+        {
+            return;
+        }
+
+        if (string.Equals(_restoredChartRangeKey, storageKey, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var module = await GetChartRangeModuleAsync();
+        if (module is null)
+        {
+            return;
+        }
+
+        ChartRange? stored = null;
+        try
+        {
+            stored = await module.InvokeAsync<ChartRange?>("getRange", storageKey);
+        }
+        catch (JSException)
+        {
+            return;
+        }
+
+        _restoredChartRangeKey = storageKey;
+        if (stored is null)
+        {
+            return;
+        }
+
+        ViewModel.UpdateChartRange(stored);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SaveChartRangeAsync(ChartRange range)
+    {
+        var storageKey = GetChartRangeStorageKey();
+        if (string.IsNullOrWhiteSpace(storageKey))
+        {
+            return;
+        }
+
+        var module = await GetChartRangeModuleAsync();
+        if (module is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await module.InvokeVoidAsync("setRange", storageKey, range);
+        }
+        catch (JSException)
+        {
+            // ignore storage failures
+        }
+    }
+
+    private string? GetChartRangeStorageKey()
+    {
+        var id = ViewModel.SelectedPosition?.Position?.Id;
+        if (!id.HasValue || id.Value == Guid.Empty)
+        {
+            return null;
+        }
+
+        return $"{ChartRangeStoragePrefix}{id.Value}";
+    }
+
+    private async Task<IJSObjectReference?> GetChartRangeModuleAsync()
+    {
+        if (_chartRangeModule is not null)
+        {
+            return _chartRangeModule;
+        }
+
+        try
+        {
+            _chartRangeModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/chartRangeStorage.js");
+        }
+        catch (JSException)
+        {
+            _chartRangeModule = null;
+        }
+
+        return _chartRangeModule;
+    }
+
     private async Task ApplyRouteAsync(Guid? routePositionId)
     {
         _routeErrorMessage = null;
@@ -577,6 +688,7 @@ else
 
         SyncActiveTabIndex();
         await RefreshChartAsync();
+        await RestoreChartRangeIfMissingAsync();
         UpdateUrl(routePositionId.Value);
     }
 

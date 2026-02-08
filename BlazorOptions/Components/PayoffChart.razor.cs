@@ -20,6 +20,8 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
     [Parameter] public bool ShowCandles { get; set; } = true;
     [Parameter] public bool ShowLegends { get; set; } = true;
     [Parameter] public bool IsDarkTheme { get; set; }
+    [Parameter] public ChartRange? Range { get; set; }
+    [Parameter] public TimeRange? TimeRange { get; set; }
     [Parameter] public EventCallback<double?> SelectedPriceChanged { get; set; }
     [Parameter] public EventCallback<ChartRange> RangeChanged { get; set; }
     [Parameter] public EventCallback<TimeRange> TimeRangeChanged { get; set; }
@@ -36,15 +38,11 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
     private bool _lastIsDarkTheme;
     private TimeRange? _lastTimeRangeFromUser;
     private ChartRange? _lastRangeFromUser;
+    private ChartRange? _lastRangeParam;
+    private TimeRange? _lastTimeRangeParam;
     private IReadOnlyList<StrategySeries>? _subscribedStrategies;
     private readonly Dictionary<string, CancellationTokenSource> _debounceTokens = new();
-    // The chart DOM is JS-managed, so avoid re-rendering the container.
     private bool _hasRendered;
-
-    protected override bool ShouldRender()
-    {
-        return !_hasRendered;
-    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -53,6 +51,7 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
             return;
         }
 
+        _hasRendered = true;
         _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/payoffChart.js");
         _dotNetRef = DotNetObjectReference.Create(this);
         _instanceId = await _module.InvokeAsync<string>("init", _chartDiv, _dotNetRef);
@@ -64,6 +63,8 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
         _lastCandles = Candles;
         _lastShowCandles = ShowCandles;
         _lastIsDarkTheme = IsDarkTheme;
+        _lastRangeParam = Range;
+        _lastTimeRangeParam = TimeRange;
         SubscribeStrategies(Strategies);
         SubscribeCollection(Strategies);
         SubscribeMarkers(Markers);
@@ -84,7 +85,12 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
             await _module.InvokeVoidAsync("updateCandles", _instanceId, Candles);
         }
 
-        _hasRendered = true;
+    }
+
+    protected override bool ShouldRender()
+    {
+        // The chart is driven by JS interop; avoid rerendering the Razor subtree.
+        return !_hasRendered;
     }
 
     protected override async Task OnParametersSetAsync()
@@ -137,13 +143,22 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
             _lastIsDarkTheme = IsDarkTheme;
         }
 
+        if (!Equals(_lastRangeParam, Range) || !Equals(_lastTimeRangeParam, TimeRange))
+        {
+            _lastRangeParam = Range;
+            _lastTimeRangeParam = TimeRange;
+            if (_module != null && _instanceId != null)
+            {
+                await _module.InvokeVoidAsync("resetAutoScale", _instanceId, Range == null, TimeRange == null);
+                await ScheduleOptionUpdate();
+            }
+        }
+
     }
 
     [JSInvokable]
     public async Task OnChartClick(double price)
     {
-        Console.WriteLine($"[PayoffChart.OnChartClick] price={price} utc={DateTime.UtcNow:O}");
-
         _lastSelectedPrice = price;
         if (_module != null && _instanceId != null)
         {
@@ -154,14 +169,6 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
         {
             _ = SelectedPriceChanged.InvokeAsync(price);
         }
-    }
-
-    [JSInvokable]
-    public async Task OnChartClickWithTiming(double price, double clientNow)
-    {
-        Console.WriteLine($"[PayoffChart.OnChartClickWithTiming] price={price} clientNow={clientNow} utc={DateTime.UtcNow:O}");
-
-        await OnChartClick(price);
     }
 
     [JSInvokable]
@@ -184,23 +191,31 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
         }
     }
 
+    private async Task ResetAutoScale()
+    {
+        _lastRangeFromUser = null;
+        _lastTimeRangeFromUser = null;
+        if (_module != null && _instanceId != null)
+        {
+            await _module.InvokeVoidAsync("resetAutoScale", _instanceId, true, true);
+            await ScheduleOptionUpdate();
+        }
+    }
+
     private object BuildOption()
     {
         var series = new List<object>();
-        var xRange = GetXRange();
-        var xMin = _lastRangeFromUser?.XMin ?? xRange.min;
-        var xMax = _lastRangeFromUser?.XMax ?? xRange.max;
-        var yMin = _lastRangeFromUser?.YMin;
-        var yMax = _lastRangeFromUser?.YMax;
+        var xMin = Range?.XMin;
+        var xMax = Range?.XMax;
+        var yMin = Range?.YMin;
+        var yMax = Range?.YMax;
         var axisText = IsDarkTheme ? "#cbd5f5" : "#4b5563";
         var axisLine = IsDarkTheme ? "#475569" : "#9ca3af";
         var splitLine = IsDarkTheme ? "rgba(148,163,184,0.25)" : "rgba(148,163,184,0.35)";
         var tooltipBg = IsDarkTheme ? "rgba(15,23,42,0.9)" : "rgba(255,255,255,0.95)";
         var tooltipText = IsDarkTheme ? "#e2e8f0" : "#111827";
-        var timeRange = _lastTimeRangeFromUser;
-        var timeBounds = GetTimeRange();
-        var timeMin = timeRange?.Min ?? timeBounds.min;
-        var timeMax = timeRange?.Max ?? timeBounds.max;
+        var timeMin = TimeRange?.Min;
+        var timeMax = TimeRange?.Max;
         if (ShowCandles)
         {
             var tickerSeries = BuildTickerSeries();
@@ -248,7 +263,7 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
         {
             animation = false,
             backgroundColor = IsDarkTheme ? "#0f172a" : "#ffffff",
-            grid = new { containLabel = true, left = 0, right = ShowCandles ? 60 : 18, top = 20, bottom = 40 },
+            grid = new { left = 50, right = ShowCandles ? 44 : 0, top = 20, bottom = 40, outerBoundsMode = "none" },
             tooltip = new
             {
                 trigger = "axis",
@@ -281,13 +296,13 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
                 type = "value",
                 nameLocation = "middle",
                 nameGap = 30,
-                axisLabel = new { formatter = "{value}", fontSize = 10, color = axisText },
+                axisLabel = new { formatter = "{value}", fontSize = 10, color = axisText, align = "right", margin = 2, width = 50, overflow = "truncate" },
                 nameTextStyle = new { fontSize = 11, color = axisText },
                 axisLine = new { lineStyle = new { color = axisLine } },
                 axisTick = new { lineStyle = new { color = axisLine } },
                 splitLine = new { lineStyle = new { color = splitLine } },
-                min = xRange.min,
-                max = xRange.max
+                min = xMin,
+                max = xMax
             },
             yAxis = ShowCandles
                 ? new object[]
@@ -297,7 +312,7 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
                         type = "value",
                         nameLocation = "middle",
                         nameGap = 45,
-                        axisLabel = new { formatter = "{value}", fontSize = 10, color = axisText },
+                        axisLabel = new { formatter = "{value}", fontSize = 10, color = axisText, align = "right", margin = 2, width = 46, overflow = "truncate" },
                         nameTextStyle = new { fontSize = 11, color = axisText },
                         axisLine = new { lineStyle = new { color = axisLine } },
                         axisTick = new { lineStyle = new { color = axisLine } },
@@ -311,7 +326,7 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
                         position = "right",
                         inverse = true,
                         boundaryGap = false,
-                        axisLabel = new { show = true, fontSize = 9, color = axisText },
+                        axisLabel = new { show = true, fontSize = 9, color = axisText, margin = 2, align = "left", padding = new[] { 0, 0, 0, 2 }, width = 34, overflow = "truncate" },
                         axisLine = new { show = true, lineStyle = new { color = axisLine } },
                         axisTick = new { show = true, lineStyle = new { color = axisLine } },
                         splitLine = new { show = false },
@@ -326,7 +341,7 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
                         type = "value",
                         nameLocation = "middle",
                         nameGap = 45,
-                        axisLabel = new { formatter = "{value}", fontSize = 10, color = axisText },
+                        axisLabel = new { formatter = "{value}", fontSize = 10, color = axisText, align = "right", margin = 2, width = 50, overflow = "truncate" },
                         nameTextStyle = new { fontSize = 11, color = axisText },
                         axisLine = new { lineStyle = new { color = axisLine } },
                         axisTick = new { lineStyle = new { color = axisLine } },
@@ -404,6 +419,8 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
             name = "Ticker Candles",
             type = "custom",
             coordinateSystem = "cartesian2d",
+            dimensions = new[] { "time", "open", "close", "low", "high" },
+            encode = new { x = new[] { 1, 2, 3, 4 }, y = 0 },
             renderKind = "tickerCandles",
             xAxisIndex = 0,
             yAxisIndex = 1,

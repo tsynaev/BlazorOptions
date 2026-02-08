@@ -79,6 +79,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
     public ObservableCollection<PriceMarker> ChartMarkers { get; } = new();
 
     public double? ChartSelectedPrice { get; private set; }
+    public ChartRange? ChartRange => _chartRangeOverride;
 
     public async Task InitializeAsync(Guid? preferredPositionId = null)
     {
@@ -406,7 +407,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
                 collection.IsVisible));
         }
 
-        ChartSelectedPrice = (double)displayPrice;
+        ChartSelectedPrice = displayPrice.HasValue ? (double)displayPrice.Value : null;
     }
 
     private static IReadOnlyList<PayoffPoint> BuildPayoffPoints(IReadOnlyList<decimal> prices, IReadOnlyList<decimal> profits)
@@ -428,7 +429,8 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     private void SyncChartSelectedPrice()
     {
-        ChartSelectedPrice = (double)GetEffectivePrice();
+        var price = GetEffectivePrice();
+        ChartSelectedPrice = price.HasValue ? (double)price.Value : null;
     }
 
   
@@ -489,7 +491,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
             return;
         }
 
-        ChartSelectedPrice = (double)(price ?? 0m);
+        ChartSelectedPrice = price.HasValue ? (double)price.Value : null;
     }
 
     public async Task SetIsLiveAsync(bool isEnabled)
@@ -753,7 +755,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     }
 
-    private decimal GetEffectivePrice()
+    private decimal? GetEffectivePrice()
     {
         if (!IsLive)
         {
@@ -767,7 +769,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
             return LivePrice.Value;
         }
 
-        return 0;
+        return null;
     }
 
     private void UpdateLegTickerSubscription(bool refresh = true)
