@@ -10,6 +10,7 @@ public sealed class LegsCollectionViewModelFactory
     private readonly IExchangeService _exchangeService;
     private readonly ILegsParserService _legsParserService;
     private readonly IActivePositionsService _activePositionsService;
+    private readonly BybitOrderService _bybitOrderService;
 
 
     public LegsCollectionViewModelFactory(
@@ -17,6 +18,7 @@ public sealed class LegsCollectionViewModelFactory
         LegViewModelFactory legViewModelFactory,
         INotifyUserService notifyUserService,
         IActivePositionsService activePositionsService,
+        BybitOrderService bybitOrderService,
         IExchangeService exchangeService,
         ILegsParserService legsParserService)
     {
@@ -24,6 +26,7 @@ public sealed class LegsCollectionViewModelFactory
         _legViewModelFactory = legViewModelFactory;
         _notifyUserService = notifyUserService;
         _activePositionsService = activePositionsService;
+        _bybitOrderService = bybitOrderService;
         _exchangeService = exchangeService;
         _legsParserService = legsParserService;
     }
@@ -35,6 +38,7 @@ public sealed class LegsCollectionViewModelFactory
             _legViewModelFactory,
             _notifyUserService,
             _activePositionsService,
+            _bybitOrderService,
             _exchangeService,
             _legsParserService)
         {

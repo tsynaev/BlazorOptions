@@ -37,6 +37,7 @@ builder.Services.AddScoped<AuthApiService>();
 builder.Services.AddScoped<PositionsPort>();
 builder.Services.AddScoped<IPositionsPort>(sp => sp.GetRequiredService<PositionsPort>());
 builder.Services.AddScoped<BybitPositionService>();
+builder.Services.AddScoped<BybitOrderService>();
 builder.Services.AddScoped<ActivePositionsService>();
 builder.Services.AddScoped<IActivePositionsService>(sp => sp.GetRequiredService<ActivePositionsService>());
 builder.Services.AddScoped<BybitTransactionService>();

@@ -13,6 +13,7 @@ public sealed class LegsCollectionViewModel : IDisposable
     private readonly LegViewModelFactory _legViewModelFactory;
     private readonly INotifyUserService _notifyUserService;
     private readonly IActivePositionsService _activePositionsService;
+    private readonly BybitOrderService _bybitOrderService;
     private string _baseAsset = string.Empty;
     private decimal? _currentPrice;
     private bool _isLive;
@@ -24,6 +25,8 @@ public sealed class LegsCollectionViewModel : IDisposable
     private IExchangeService _exchangeService;
     private int _pricingUpdateVersion;
     private int _pricingUpdateScheduled;
+    private bool _isLoadingAvailableLegs;
+    private IReadOnlyList<AvailableLegCandidate> _availableLegCandidates = Array.Empty<AvailableLegCandidate>();
     private const int PricingYieldBatch = 16;
     private const int PricingSyncThreshold = 12;
 
@@ -35,6 +38,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         LegViewModelFactory legViewModelFactory,
         INotifyUserService notifyUserService,
         IActivePositionsService activePositionsService,
+        BybitOrderService bybitOrderService,
         IExchangeService exchangeService,
         ILegsParserService legsParserService)
     {
@@ -42,6 +46,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         _legViewModelFactory = legViewModelFactory;
         _notifyUserService = notifyUserService;
         _activePositionsService = activePositionsService;
+        _bybitOrderService = bybitOrderService;
         _exchangeService = exchangeService;
 
         QuickAdd = new QuickAddViewModel(_notifyUserService, legsParserService);
@@ -219,6 +224,10 @@ public sealed class LegsCollectionViewModel : IDisposable
 
     public decimal? TotalTempPnl => SumTempPnl();
 
+    public bool IsLoadingAvailableLegs => _isLoadingAvailableLegs;
+
+    public IReadOnlyList<AvailableLegCandidate> AvailableLegCandidates => _availableLegCandidates;
+
     public event Func<LegModel, Task>? LegAdded;
     public event Func<LegModel, Task>? LegRemoved;
     public event Func<LegsCollectionUpdateKind, Task>? Updated;
@@ -338,6 +347,149 @@ public sealed class LegsCollectionViewModel : IDisposable
         await AddBybitPositionsToCollectionAsync(positions);
     }
 
+    public async Task RefreshAvailableLegCandidatesAsync()
+    {
+        if (Position is null)
+        {
+            _availableLegCandidates = Array.Empty<AvailableLegCandidate>();
+            return;
+        }
+
+        var baseAsset = Position.Position.BaseAsset?.Trim();
+        if (string.IsNullOrWhiteSpace(baseAsset))
+        {
+            _availableLegCandidates = Array.Empty<AvailableLegCandidate>();
+            return;
+        }
+
+        _isLoadingAvailableLegs = true;
+        await RaiseUpdatedAsync(LegsCollectionUpdateKind.ViewModelDataUpdated);
+
+        try
+        {
+            var positionsTask = _activePositionsService.GetPositionsAsync();
+            var ordersTask = _bybitOrderService.GetOpenOrdersAsync();
+            await Task.WhenAll(positionsTask, ordersTask);
+
+            var positions = positionsTask.Result;
+            var orders = ordersTask.Result;
+            var candidates = new List<AvailableLegCandidate>();
+            var knownSymbols = new HashSet<string>(
+                Collection.Legs
+                    .Select(leg => leg.Symbol)
+                    .Where(symbol => !string.IsNullOrWhiteSpace(symbol))
+                    .Select(symbol => symbol!.Trim()),
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (var position in positions)
+            {
+                var leg = CreateLegFromBybitPosition(position, baseAsset, position.Category);
+                if (leg is null || string.IsNullOrWhiteSpace(leg.Symbol))
+                {
+                    continue;
+                }
+
+                var symbol = leg.Symbol.Trim();
+                if (!knownSymbols.Add(symbol))
+                {
+                    continue;
+                }
+
+                candidates.Add(new AvailableLegCandidate(
+                    Id: $"position:{symbol}:{Math.Sign(leg.Size)}",
+                    Kind: AvailableLegSourceKind.Position,
+                    Symbol: symbol,
+                    Type: leg.Type,
+                    Size: leg.Size,
+                    Price: leg.Price,
+                    ExpirationDate: leg.ExpirationDate,
+                    Strike: leg.Strike));
+            }
+
+            foreach (var order in orders)
+            {
+                var leg = CreateLegFromBybitOrder(order, baseAsset);
+                if (leg is null || string.IsNullOrWhiteSpace(leg.Symbol))
+                {
+                    continue;
+                }
+
+                var symbol = leg.Symbol.Trim();
+                if (!knownSymbols.Add(symbol))
+                {
+                    continue;
+                }
+
+                candidates.Add(new AvailableLegCandidate(
+                    Id: $"order:{symbol}:{Math.Sign(leg.Size)}",
+                    Kind: AvailableLegSourceKind.Order,
+                    Symbol: symbol,
+                    Type: leg.Type,
+                    Size: leg.Size,
+                    Price: leg.Price,
+                    ExpirationDate: leg.ExpirationDate,
+                    Strike: leg.Strike));
+            }
+
+            _availableLegCandidates = candidates
+                .OrderBy(item => item.Kind)
+                .ThenBy(item => item.Symbol, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _notifyUserService.NotifyUser($"Unable to load exchange positions/orders: {ex.Message}");
+            _availableLegCandidates = Array.Empty<AvailableLegCandidate>();
+        }
+        finally
+        {
+            _isLoadingAvailableLegs = false;
+            await RaiseUpdatedAsync(LegsCollectionUpdateKind.ViewModelDataUpdated);
+        }
+    }
+
+    public async Task AddAvailableCandidateAsLegAsync(AvailableLegCandidate candidate)
+    {
+        if (Position is null)
+        {
+            return;
+        }
+
+        var baseAsset = Position.Position.BaseAsset?.Trim();
+        if (string.IsNullOrWhiteSpace(baseAsset))
+        {
+            return;
+        }
+
+        LegModel leg = new LegModel
+        {
+            IsReadOnly = candidate.Kind == AvailableLegSourceKind.Position || candidate.Kind == AvailableLegSourceKind.Order,
+            IsIncluded = candidate.Kind != AvailableLegSourceKind.Order,
+            Type = candidate.Type,
+            Status = candidate.Kind == AvailableLegSourceKind.Order ? LegStatus.Order : LegStatus.Active,
+            Strike = candidate.Strike,
+            ExpirationDate = candidate.ExpirationDate,
+            Size = candidate.Size,
+            Price = candidate.Price,
+            ImpliedVolatility = null,
+            Symbol = candidate.Symbol
+        };
+
+        EnsureLegSymbol(leg);
+
+        var existing = PositionBuilderViewModel.FindMatchingLeg(Collection.Legs, leg);
+        if (existing is not null)
+        {
+            _notifyUserService.NotifyUser("This position/order is already in the collection.");
+            return;
+        }
+
+        Collection.Legs.Add(leg);
+        SyncLegViewModels();
+        await RaiseUpdatedAsync(LegsCollectionUpdateKind.CollectionChanged);
+        await RefreshAvailableLegCandidatesAsync();
+    }
+
     public async Task AddBybitPositionsToCollectionAsync(IReadOnlyList<BybitPosition> positions)
     {
         if (positions.Count == 0)
@@ -453,6 +605,67 @@ public sealed class LegsCollectionViewModel : IDisposable
         };
     }
 
+    internal LegModel? CreateLegFromBybitOrder(BybitOrder order, string baseAsset)
+    {
+        if (string.IsNullOrWhiteSpace(order.Symbol))
+        {
+            return null;
+        }
+
+        DateTime? expiration = null;
+        decimal? strike = null;
+        var type = LegType.Future;
+
+        if (string.Equals(order.Category, "option", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!_exchangeService.TryParseSymbol(order.Symbol, out var parsedBase, out var parsedExpiration, out var parsedStrike, out var parsedType))
+            {
+                return null;
+            }
+
+            if (!string.Equals(parsedBase, baseAsset, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            expiration = parsedExpiration;
+            strike = parsedStrike;
+            type = parsedType;
+        }
+        else
+        {
+            if (!order.Symbol.StartsWith(baseAsset, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            if (TryParseFutureExpiration(order.Symbol, out var parsedFutureExpiration))
+            {
+                expiration = parsedFutureExpiration;
+            }
+        }
+
+        var size = DetermineSignedSize(order);
+        if (Math.Abs(size) < 0.0001m)
+        {
+            return null;
+        }
+
+        return new LegModel
+        {
+            IsReadOnly = true,
+            IsIncluded = false,
+            Status = LegStatus.Order,
+            Type = type,
+            Strike = strike,
+            ExpirationDate = expiration,
+            Size = size,
+            Price = order.Price,
+            ImpliedVolatility = null,
+            Symbol = order.Symbol
+        };
+    }
+
 
     private static bool TryParseFutureExpiration(string symbol, out DateTime expiration)
     {
@@ -493,6 +706,26 @@ public sealed class LegsCollectionViewModel : IDisposable
             var normalized = position.Side.Trim();
             if (string.Equals(normalized, "Sell", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(normalized, "Short", StringComparison.OrdinalIgnoreCase))
+            {
+                return -magnitude;
+            }
+        }
+
+        return magnitude;
+    }
+
+    private static decimal DetermineSignedSize(BybitOrder order)
+    {
+        var magnitude = Math.Abs(order.Qty);
+        if (magnitude < 0.0001m)
+        {
+            return 0m;
+        }
+
+        if (!string.IsNullOrWhiteSpace(order.Side))
+        {
+            var normalized = order.Side.Trim();
+            if (string.Equals(normalized, "Sell", StringComparison.OrdinalIgnoreCase))
             {
                 return -magnitude;
             }
@@ -743,6 +976,11 @@ public sealed class LegsCollectionViewModel : IDisposable
         foreach (var legViewModel in _legs)
         {
             var leg = legViewModel.Leg;
+            if (leg.Status == LegStatus.Order)
+            {
+                continue;
+            }
+
             if (!leg.IsReadOnly)
             {
                 if (leg.Status != LegStatus.New)

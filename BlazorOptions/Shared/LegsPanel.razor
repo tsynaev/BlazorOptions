@@ -68,12 +68,65 @@
             <MudCardActions>
                 <QuickAddPanel ViewModel="ViewModel.QuickAdd"/>
             </MudCardActions>
+            <MudCardActions>
+                <MudStack Spacing="1" Class="available-legs-row">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                        <MudText Typo="Typo.caption" Class="available-legs-title">Available positions/orders</MudText>
+                        @if (ViewModel.IsLoadingAvailableLegs)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                        }
+                    </MudStack>
+                    @if (ViewModel.AvailableLegCandidates.Count > 0)
+                    {
+                        <MudChipSet T="AvailableLegCandidate">
+                            @foreach (var item in ViewModel.AvailableLegCandidates)
+                            {
+                                <MudChip T="AvailableLegCandidate"
+                                         Variant="Variant.Outlined"
+                                         Color="@(item.Kind == AvailableLegSourceKind.Order ? Color.Warning : Color.Info)"
+                                         OnClick="async () => await AddCandidateAsync(item)"
+                                         @key="item.Id">
+                                    @FormatCandidate(item)
+                                </MudChip>
+                            }
+                        </MudChipSet>
+                    }
+                    else if (!ViewModel.IsLoadingAvailableLegs)
+                    {
+                        <MudText Typo="Typo.caption" Class="available-legs-empty">No available positions/orders.</MudText>
+                    }
+                </MudStack>
+            </MudCardActions>
         </MudCardContent>
     </MudCard>
 }
 
 @code {
     [Parameter, EditorRequired] public LegsCollectionViewModel ViewModel { get; set; }
+    private Guid? _loadedForCollectionId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (ViewModel is null)
+        {
+            return;
+        }
+
+        var collectionId = ViewModel.Collection?.Id;
+        if (!collectionId.HasValue || collectionId == _loadedForCollectionId)
+        {
+            return;
+        }
+
+        _loadedForCollectionId = collectionId;
+        await ViewModel.RefreshAvailableLegCandidatesAsync();
+    }
+
+    private async Task AddCandidateAsync(AvailableLegCandidate candidate)
+    {
+        await ViewModel.AddAvailableCandidateAsLegAsync(candidate);
+    }
 
     private static string FormatExpiration(DateTime? date)
     {
@@ -83,6 +136,13 @@
     private static string FormatGreek(decimal value)
     {
         return value.ToString("0.###", CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatCandidate(AvailableLegCandidate candidate)
+    {
+        var source = candidate.Kind == AvailableLegSourceKind.Order ? "Order" : "Position";
+        var direction = candidate.Size >= 0 ? "Buy" : "Sell";
+        return $"{source}: {candidate.Symbol} ({direction} {Math.Abs(candidate.Size):0.##})";
     }
 }
 
@@ -145,6 +205,15 @@
     }
 
     .leg-greeks-total {
+        opacity: 0.8;
+    }
+
+    .available-legs-row {
+        width: 100%;
+    }
+
+    .available-legs-title,
+    .available-legs-empty {
         opacity: 0.8;
     }
 </style>

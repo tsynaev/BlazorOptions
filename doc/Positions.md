@@ -64,3 +64,5 @@ See `doc/LegParsing.md` for the full parsing rules, defaults, and UI preview beh
 - Position labels in the selector use the `{baseAsset}/{quoteAsset} - {name}` format.
 - Futures legs now use exchange-provided expiration lists (including Perpetual) and no strike/IV inputs.
 - Futures expiration dates are fetched when the leg edit dialog opens, then reused from cache for subsequent edits.
+- Each leg collection shows available exchange positions and open orders as chips; clicking a chip adds it as a leg.
+- Legs created from open orders are added with `IsIncluded = false` and `LegStatus = Order`.

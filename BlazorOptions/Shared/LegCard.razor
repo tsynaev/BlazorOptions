@@ -180,6 +180,7 @@
     {
         return ViewModel.Leg.Status switch
         {
+            LegStatus.Order => "leg-card leg-card-order",
             LegStatus.Active => "leg-card leg-card-active",
             LegStatus.Missing => "leg-card leg-card-missing",
             _ => "leg-card leg-card-new"
@@ -191,6 +192,7 @@
         return status switch
         {
             LegStatus.New => "New",
+            LegStatus.Order => "Order",
             LegStatus.Active => "Active",
             LegStatus.Missing => "Missing",
             _ => "New"
@@ -201,6 +203,7 @@
     {
         return status switch
         {
+            LegStatus.Order => Color.Warning,
             LegStatus.Active => Color.Success,
             LegStatus.Missing => Color.Error,
             _ => Color.Default
@@ -225,6 +228,11 @@
     .leg-card-active {
         background-color: rgba(32, 130, 64, 0.18);
         border-color: rgba(46, 204, 113, 0.35);
+    }
+
+    .leg-card-order {
+        background-color: rgba(184, 134, 11, 0.14);
+        border-color: rgba(255, 193, 7, 0.45);
     }
 
     .leg-card-missing {

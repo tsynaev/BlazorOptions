@@ -11,6 +11,7 @@ public enum LegType
 public enum LegStatus
 {
     New,
+    Order,
     Active,
     Missing
 }
