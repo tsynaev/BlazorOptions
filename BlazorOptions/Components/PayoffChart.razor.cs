@@ -209,11 +209,11 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
         var xMax = Range?.XMax;
         var yMin = Range?.YMin;
         var yMax = Range?.YMax;
-        var axisText = IsDarkTheme ? "#cbd5f5" : "#4b5563";
-        var axisLine = IsDarkTheme ? "#475569" : "#9ca3af";
-        var splitLine = IsDarkTheme ? "rgba(148,163,184,0.25)" : "rgba(148,163,184,0.35)";
-        var tooltipBg = IsDarkTheme ? "rgba(15,23,42,0.9)" : "rgba(255,255,255,0.95)";
-        var tooltipText = IsDarkTheme ? "#e2e8f0" : "#111827";
+        var axisText = IsDarkTheme ? "#c7d0e0" : "#4b5563";
+        var axisLine = IsDarkTheme ? "#2b313c" : "#9ca3af";
+        var splitLine = IsDarkTheme ? "rgba(43,49,60,0.65)" : "rgba(148,163,184,0.35)";
+        var tooltipBg = IsDarkTheme ? "rgba(20,22,28,0.95)" : "rgba(255,255,255,0.95)";
+        var tooltipText = IsDarkTheme ? "#e6e8ee" : "#111827";
         var timeMin = TimeRange?.Min;
         var timeMax = TimeRange?.Max;
         if (ShowCandles)
@@ -255,14 +255,14 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
             {
                 symbol = "none",
                 label = new { show = false },
-                lineStyle = new { color = IsDarkTheme ? "#e2e8f0" : "#111827", width = 1 }
+                lineStyle = new { color = IsDarkTheme ? "#d7dde7" : "#111827", width = 1 }
             }
         });
 
         return new
         {
             animation = false,
-            backgroundColor = IsDarkTheme ? "#0f172a" : "#ffffff",
+            backgroundColor = IsDarkTheme ? "#0e1116" : "#ffffff",
             grid = new { left = 50, right = ShowCandles ? 44 : 0, top = 20, bottom = 40, outerBoundsMode = "none" },
             tooltip = new
             {
