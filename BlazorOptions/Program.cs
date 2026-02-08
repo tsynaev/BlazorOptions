@@ -48,8 +48,6 @@ builder.Services.AddScoped<IExchangeTickerClient, BybitTickerClient>();
 builder.Services.AddScoped<OptionsChainService>();
 builder.Services.AddScoped<ILegsParserService, LegsParserService>();
 builder.Services.AddScoped<IOptions<BybitSettings>, LocalStorageBybitSettingsOptions>();
-builder.Services.AddSingleton<ThemeService>();
-builder.Services.AddSingleton<IThemeService>(sp => sp.GetRequiredService<ThemeService>());
 builder.Services.AddScoped<MainLayoutViewModel>();
 builder.Services.AddTransient<AccountSettingsViewModel>();
 builder.Services.AddTransient<BybitSettingsViewModel>();

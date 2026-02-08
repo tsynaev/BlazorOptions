@@ -4,48 +4,19 @@ namespace BlazorOptions.ViewModels;
 
 public class AccountSettingsViewModel : IDisposable
 {
-    private readonly IThemeService _themeService;
     private readonly AuthApiService _authApiService;
     private readonly AuthSessionService _sessionService;
 
     public AccountSettingsViewModel(
-        IThemeService themeService,
         AuthApiService authApiService,
         AuthSessionService sessionService)
     {
-        _themeService = themeService;
         _authApiService = authApiService;
         _sessionService = sessionService;
-        _themeService.OnChange += HandleThemeChanged;
         _sessionService.OnChange += HandleSessionChanged;
     }
 
     public event Action? OnChange;
-
-    public ThemeMode SelectedTheme
-    {
-        get => _themeService.Mode;
-        set => _themeService.SetMode(value);
-    }
-
-    public string SelectedThemeDescription => SelectedTheme switch
-    {
-        ThemeMode.System => "Follows your device theme automatically.",
-        ThemeMode.Dark => "For low-light environments.",
-        ThemeMode.Light => "For brighter interfaces.",
-        _ => string.Empty
-    };
-
-    public string SystemPreferenceLabel => _themeService.IsSystemDarkMode
-        ? "System preference: Dark"
-        : "System preference: Light";
-
-    public IReadOnlyList<ThemeOption> ThemeOptions { get; } = new[]
-    {
-        new ThemeOption(ThemeMode.System, "System"),
-        new ThemeOption(ThemeMode.Light, "Light"),
-        new ThemeOption(ThemeMode.Dark, "Dark")
-    };
 
     public string UserName { get; set; } = string.Empty;
 
@@ -102,13 +73,7 @@ public class AccountSettingsViewModel : IDisposable
 
     public void Dispose()
     {
-        _themeService.OnChange -= HandleThemeChanged;
         _sessionService.OnChange -= HandleSessionChanged;
-    }
-
-    private void HandleThemeChanged()
-    {
-        OnChange?.Invoke();
     }
 
     private void HandleSessionChanged()
@@ -156,5 +121,3 @@ public class AccountSettingsViewModel : IDisposable
         }
     }
 }
-
-public record ThemeOption(ThemeMode Mode, string Label);

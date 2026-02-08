@@ -1,26 +1,29 @@
-@inject BlazorOptions.Services.ThemeService ThemeService
+@using MudBlazor
 @inject IJSRuntime JsRuntime
 @implements IAsyncDisposable
 
-<MudThemeProvider Theme="@BybitTheme"
-                  IsDarkMode="@ThemeService.IsDarkMode"
-                  IsDarkModeChanged="ThemeService.SetIsDarkMode" />
+<MudThemeProvider @ref="_mudThemeProvider"
+                  Theme="@BybitTheme"
+                  IsDarkMode="@_isDarkMode"
+                  IsDarkModeChanged="HandleIsDarkModeChanged" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
 
-<Router AppAssembly="@typeof(App).Assembly">
-    <Found Context="routeData">
-        <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
-        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
-    </Found>
-    <NotFound>
-        <PageTitle>Not found</PageTitle>
-        <LayoutView Layout="@typeof(MainLayout)">
-            <p role="alert">Sorry, there's nothing at this address.</p>
-        </LayoutView>
-    </NotFound>
-</Router>
+<CascadingValue Value="_isDarkMode">
+    <Router AppAssembly="@typeof(App).Assembly">
+        <Found Context="routeData">
+            <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
+            <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+        </Found>
+        <NotFound>
+            <PageTitle>Not found</PageTitle>
+            <LayoutView Layout="@typeof(MainLayout)">
+                <p role="alert">Sorry, there's nothing at this address.</p>
+            </LayoutView>
+        </NotFound>
+    </Router>
+</CascadingValue>
 
 @code {
     private static readonly MudTheme BybitTheme = new()
@@ -63,14 +66,6 @@
         }
     };
 
-    private IJSObjectReference? _themeModule;
-    private DotNetObjectReference<BlazorOptions.Services.ThemeService>? _themeServiceReference;
-
-    protected override void OnInitialized()
-    {
-        ThemeService.OnChange += HandleThemeChanged;
-    }
-
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender)
@@ -78,25 +73,42 @@
             return;
         }
 
-        _themeModule = await JsRuntime.InvokeAsync<IJSObjectReference>("import", "./js/theme-preference.js");
-        _themeServiceReference = DotNetObjectReference.Create(ThemeService);
-        await _themeModule.InvokeVoidAsync("registerThemePreferenceListener", _themeServiceReference);
+        await Task.CompletedTask;
     }
 
-    private void HandleThemeChanged()
+    private void HandleIsDarkModeChanged(bool isDarkMode)
     {
+        if (_isDarkMode == isDarkMode)
+        {
+            return;
+        }
+
+        _isDarkMode = isDarkMode;
         _ = InvokeAsync(StateHasChanged);
     }
 
     public async ValueTask DisposeAsync()
     {
-        ThemeService.OnChange -= HandleThemeChanged;
-
-        _themeServiceReference?.Dispose();
-
-        if (_themeModule is not null)
+        if (_systemThemeModule is not null)
         {
-            await _themeModule.DisposeAsync();
+            await _systemThemeModule.DisposeAsync();
+        }
+    }
+
+    private MudThemeProvider? _mudThemeProvider;
+    private bool _isDarkMode;
+    private IJSObjectReference? _systemThemeModule;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _systemThemeModule = await JsRuntime.InvokeAsync<IJSObjectReference>("import", "./js/system-theme.js");
+            _isDarkMode = await _systemThemeModule.InvokeAsync<bool>("getSystemDarkMode");
+        }
+        catch (JSException)
+        {
+            _isDarkMode = false;
         }
     }
 }

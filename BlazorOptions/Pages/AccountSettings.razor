@@ -9,20 +9,6 @@
 
     <MudPaper Class="pa-6" Elevation="1">
         <MudStack Spacing="2">
-            <MudText Typo="Typo.h6">Appearance</MudText>
-            <MudSelect T="ThemeMode" Label="Theme" @bind-Value="ViewModel.SelectedTheme">
-                @foreach (var option in ViewModel.ThemeOptions)
-                {
-                    <MudSelectItem Value="option.Mode" @key="option.Mode">@option.Label</MudSelectItem>
-                }
-            </MudSelect>
-            <MudText Typo="Typo.body2" Color="Color.Secondary">@ViewModel.SelectedThemeDescription</MudText>
-            <MudText Typo="Typo.caption">@ViewModel.SystemPreferenceLabel</MudText>
-        </MudStack>
-    </MudPaper>
-
-    <MudPaper Class="pa-6" Elevation="1">
-        <MudStack Spacing="2">
             <MudText Typo="Typo.h6">Sync account</MudText>
 
             @if (ViewModel.IsAuthenticated)

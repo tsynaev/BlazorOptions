@@ -5,7 +5,6 @@
 @inject IDialogService DialogService
 @inject INavigationService NavigationService
 @inject NavigationManager NavigationManager
-@inject ThemeService ThemeService
 @inject IJSRuntime JS
 @using System.Linq
 @using Microsoft.AspNetCore.Components.Web
@@ -85,7 +84,7 @@ else
                                          Markers="@ViewModel.ChartMarkers"
                                          ShowCandles="false"
                                          ShowLegends="true"
-                                         IsDarkTheme="@ThemeService.IsDarkMode"
+                                         IsDarkTheme="@IsDarkMode"
                                          Range="@ViewModel.ChartRange"
                                          RangeChanged="HandleChartRangeChanged" />
 
@@ -250,9 +249,6 @@ else
     .chart-controls-row {
         flex-wrap: wrap;
     }
-    .payoff-chart-container {
-        position: relative;
-    }
     .payoff-chart-reset {
         position: absolute;
         right: 10px;
@@ -287,6 +283,7 @@ else
     private string? _routeErrorMessage;
     private IJSObjectReference? _chartRangeModule;
     private string? _restoredChartRangeKey;
+    [CascadingParameter] public bool IsDarkMode { get; set; }
     [Parameter] public Guid? PositionId { get; set; }
 
     protected override async Task OnInitializedAsync()
