@@ -11,6 +11,7 @@ namespace BlazorOptions.ViewModels;
 
 public sealed class PositionViewModel : IDisposable
 {
+    private static readonly TimeSpan InitialPriceFetchTimeout = TimeSpan.FromSeconds(2);
     private static readonly string[] CollectionPalette =
     {
         "#00A6FB",
@@ -128,6 +129,7 @@ public sealed class PositionViewModel : IDisposable
     {
 
         UpdateDerivedState();
+        _ = TryHydrateSelectedPriceFromExchangeAsync();
 
         _ = EnsureLiveSubscriptionAsync();
         _positionsSubscription = await _exchangeService.Positions.SubscribeAsync(HandleActivePositionsSnapshot);
@@ -507,5 +509,60 @@ public sealed class PositionViewModel : IDisposable
         }
 
         return string.Empty;
+    }
+
+    private async Task TryHydrateSelectedPriceFromExchangeAsync()
+    {
+        if (_isLive || _selectedPrice.HasValue)
+        {
+            return;
+        }
+
+        var symbol = NormalizeSymbol(Position);
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return;
+        }
+
+        IDisposable? registration = null;
+        var priceTcs = new TaskCompletionSource<decimal?>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        try
+        {
+            registration = await _exchangeService.Tickers.SubscribeAsync(symbol, update =>
+            {
+                if (string.Equals(update.Symbol, symbol, StringComparison.OrdinalIgnoreCase))
+                {
+                    priceTcs.TrySetResult(update.Price);
+                }
+
+                return Task.CompletedTask;
+            });
+
+            var completed = await Task.WhenAny(priceTcs.Task, Task.Delay(InitialPriceFetchTimeout));
+            if (completed != priceTcs.Task)
+            {
+                return;
+            }
+
+            var fetchedPrice = await priceTcs.Task;
+            if (!fetchedPrice.HasValue || fetchedPrice.Value <= 0)
+            {
+                return;
+            }
+
+            if (!_isLive && !_selectedPrice.HasValue)
+            {
+                _positionBuilder.UpdateSelectedPrice(fetchedPrice.Value, refresh: false);
+            }
+        }
+        catch
+        {
+            // Ignore fetch failures, the page can still function without a bootstrap price.
+        }
+        finally
+        {
+            registration?.Dispose();
+        }
     }
 }
