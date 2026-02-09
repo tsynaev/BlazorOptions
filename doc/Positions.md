@@ -30,10 +30,11 @@ The Positions feature lets you build, manage, and visualize option strategies an
 - Exchange ticker subscription is per-position and managed by `PositionViewModel`.
 - `ExchangeTickerService` handles Bybit-only subscription, throttles updates internally, and resolves settings from local storage via options.
 - Turning live off disposes the exchange ticker subscription; turning live on re-subscribes.
-- When chart candles are enabled, live ticker updates are aggregated into 1-minute OHLC candles and pushed to the payoff chart.
+- When chart candles are enabled, live ticker updates are aggregated into 1-hour OHLC candles and pushed to the payoff chart.
 - Enabling candles triggers an immediate historical candle load for the current chart time range (default window is 48 hours).
 - Candle timeframe defaults to 1H for both initial history load and ongoing live aggregation.
 - When the chart time range is changed, only missing candle segments are requested and merged into the local candle cache.
+- Live leg/ticker UI updates are debounced to reduce render pressure during rapid market updates.
 - When live is off, option ticker subscriptions are stopped and bid/ask display is hidden.
 - When live is off, mark price is calculated using Black-Scholes with option-chain IV and the latest underlying price.
 - Option chain updates use `OptionsChainService.SubscribeAsync` (no global events); multiple handlers supported.
@@ -44,6 +45,7 @@ The Positions feature lets you build, manage, and visualize option strategies an
 - The last selected chart time interval is cached in browser local storage and restored as a rolling range from the current time when the page is loaded.
 - Active Bybit positions are still refreshed via REST snapshot on initial connect and reconnect, then kept up to date by websocket updates.
 - Deleting a position removes it from the server store immediately.
+- Exchange positions/orders snapshots are reused across collections for a short TTL to avoid repeated parallel HTTP requests during page initialization.
 
 ## Typical workflow
 1) Create a position or duplicate an existing collection.

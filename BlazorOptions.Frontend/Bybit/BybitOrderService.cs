@@ -21,15 +21,12 @@ public sealed class BybitOrderService : BybitApiService, IOrdersService
     public async Task<IReadOnlyList<ExchangeOrder>> GetOpenOrdersAsync(CancellationToken cancellationToken = default)
     {
         var settings = _bybitSettingsOptions.Value;
-        var allOrders = new List<ExchangeOrder>();
+        var batches = await Task.WhenAll(
+            GetOrdersByCategoryAsync(settings, "linear", DefaultSettleCoin, cancellationToken),
+            GetOrdersByCategoryAsync(settings, "inverse", DefaultSettleCoin, cancellationToken),
+            GetOrdersByCategoryAsync(settings, "option", null, cancellationToken));
 
-        foreach (var category in new[] { "linear", "inverse" })
-        {
-            allOrders.AddRange(await GetOrdersByCategoryAsync(settings, category, DefaultSettleCoin, cancellationToken));
-        }
-
-        allOrders.AddRange(await GetOrdersByCategoryAsync(settings, "option", null, cancellationToken));
-        return allOrders;
+        return batches.SelectMany(batch => batch).ToList();
     }
 
     private async Task<IReadOnlyList<ExchangeOrder>> GetOrdersByCategoryAsync(

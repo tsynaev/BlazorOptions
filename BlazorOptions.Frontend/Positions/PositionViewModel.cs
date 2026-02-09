@@ -41,6 +41,13 @@ public sealed class PositionViewModel : IDisposable
     private string? _currentSymbol;
     private PositionModel _position = null!;
     private bool _suppressNotesPersist;
+    private readonly object _uiUpdateLock = new();
+    private CancellationTokenSource? _uiUpdateCts;
+    private static readonly TimeSpan UiUpdateDebounce = TimeSpan.FromMilliseconds(120);
+    private readonly object _exchangeSnapshotLock = new();
+    private Task<(IReadOnlyList<BybitPosition> Positions, IReadOnlyList<ExchangeOrder> Orders)>? _exchangeSnapshotTask;
+    private DateTime _exchangeSnapshotUtc;
+    private static readonly TimeSpan ExchangeSnapshotTtl = TimeSpan.FromSeconds(10);
 
     public PositionViewModel(
         PositionBuilderViewModel positionBuilder,
@@ -259,7 +266,15 @@ public sealed class PositionViewModel : IDisposable
         }
         if (!updateChart)
         {
-            _positionBuilder.NotifyStateChanged();
+            if (updateKind == LegsCollectionUpdateKind.PricingContextUpdated
+                || updateKind == LegsCollectionUpdateKind.ViewModelDataUpdated)
+            {
+                QueueUiStateChanged();
+            }
+            else
+            {
+                _positionBuilder.NotifyStateChanged();
+            }
         }
     }
 
@@ -305,6 +320,7 @@ public sealed class PositionViewModel : IDisposable
 
     public void Dispose()
     {
+        CancelUiDebounce();
         _ = StopTickerAsync();
         _positionsSubscription?.Dispose();
         _positionsSubscription = null;
@@ -354,8 +370,8 @@ public sealed class PositionViewModel : IDisposable
 
     private async Task RefreshExchangeMissingFlagsAsync()
     {
-        var positions = (await _exchangeService.Positions.GetPositionsAsync()).ToList();
-        await UpdateExchangeMissingFlagsAsync(positions);
+        var snapshot = await GetExchangeSnapshotAsync(forceRefresh: true);
+        await UpdateExchangeMissingFlagsAsync(snapshot.Positions);
     }
 
     private async Task UpdateExchangeMissingFlagsAsync(IReadOnlyList<BybitPosition> positions)
@@ -367,6 +383,29 @@ public sealed class PositionViewModel : IDisposable
 
         var tasks = Collections.Select(collection => collection.UpdateExchangeMissingFlagsAsync(positions));
         await Task.WhenAll(tasks);
+    }
+
+    internal Task<(IReadOnlyList<BybitPosition> Positions, IReadOnlyList<ExchangeOrder> Orders)> GetExchangeSnapshotAsync(bool forceRefresh = false)
+    {
+        lock (_exchangeSnapshotLock)
+        {
+            if (!forceRefresh && _exchangeSnapshotTask is not null)
+            {
+                if (!_exchangeSnapshotTask.IsCompleted)
+                {
+                    return _exchangeSnapshotTask;
+                }
+
+                if (_exchangeSnapshotTask.IsCompletedSuccessfully
+                    && DateTime.UtcNow - _exchangeSnapshotUtc <= ExchangeSnapshotTtl)
+                {
+                    return _exchangeSnapshotTask;
+                }
+            }
+
+            _exchangeSnapshotTask = FetchExchangeSnapshotAsync();
+            return _exchangeSnapshotTask;
+        }
     }
 
 
@@ -566,6 +605,70 @@ public sealed class PositionViewModel : IDisposable
         finally
         {
             registration?.Dispose();
+        }
+    }
+
+    private async Task<(IReadOnlyList<BybitPosition> Positions, IReadOnlyList<ExchangeOrder> Orders)> FetchExchangeSnapshotAsync()
+    {
+        var positionsTask = _exchangeService.Positions.GetPositionsAsync();
+        var ordersTask = _exchangeService.Orders.GetOpenOrdersAsync();
+        await Task.WhenAll(positionsTask, ordersTask);
+
+        var positions = positionsTask.Result?.ToList() ?? new List<BybitPosition>();
+        var orders = ordersTask.Result?.ToList() ?? new List<ExchangeOrder>();
+        lock (_exchangeSnapshotLock)
+        {
+            _exchangeSnapshotUtc = DateTime.UtcNow;
+        }
+
+        return (positions, orders);
+    }
+
+    private void QueueUiStateChanged()
+    {
+        CancellationToken token;
+        lock (_uiUpdateLock)
+        {
+            _uiUpdateCts?.Cancel();
+            _uiUpdateCts?.Dispose();
+            _uiUpdateCts = new CancellationTokenSource();
+            token = _uiUpdateCts.Token;
+        }
+
+        _ = RunUiDebounceAsync(token);
+    }
+
+    private async Task RunUiDebounceAsync(CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(UiUpdateDebounce, token);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+
+        if (token.IsCancellationRequested)
+        {
+            return;
+        }
+
+        _positionBuilder.NotifyStateChanged();
+    }
+
+    private void CancelUiDebounce()
+    {
+        lock (_uiUpdateLock)
+        {
+            if (_uiUpdateCts is null)
+            {
+                return;
+            }
+
+            _uiUpdateCts.Cancel();
+            _uiUpdateCts.Dispose();
+            _uiUpdateCts = null;
         }
     }
 }

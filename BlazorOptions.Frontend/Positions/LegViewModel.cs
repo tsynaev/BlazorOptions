@@ -119,8 +119,6 @@ public sealed class LegViewModel : IDisposable
             _currentPrice = value;
 
             CalculateLegTheoreticalProfit();
-
-            Changed?.Invoke(LegsCollectionUpdateKind.PricingContextUpdated);
         }
     }
 
@@ -146,7 +144,6 @@ public sealed class LegViewModel : IDisposable
                 CalculateLegTheoreticalProfit();
                 _ = RefreshSubscriptionAsync();
             }
-            Changed?.Invoke(LegsCollectionUpdateKind.PricingContextUpdated);
         }
     }
 
@@ -163,7 +160,6 @@ public sealed class LegViewModel : IDisposable
             _valuationDate = value;
 
             CalculateLegTheoreticalProfit();
-            Changed?.Invoke(LegsCollectionUpdateKind.PricingContextUpdated);
         }
     }
 
@@ -497,9 +493,13 @@ public sealed class LegViewModel : IDisposable
 
     private Task HandleLinearTicker(ExchangePriceUpdate e)
     {
+        var nextPnl = ResolveFuturesPnl(e.Price);
+        if (TempPnl == nextPnl)
+        {
+            return Task.CompletedTask;
+        }
 
-        TempPnl = ResolveFuturesPnl(e.Price);
-
+        TempPnl = nextPnl;
         Changed?.Invoke(LegsCollectionUpdateKind.ViewModelDataUpdated);
 
         return Task.CompletedTask;
@@ -512,16 +512,61 @@ public sealed class LegViewModel : IDisposable
             return;
         }
 
-        Bid = ticker.BidPrice > 0 ? ticker.BidPrice : null;
-        Ask = ticker.AskPrice > 0 ? ticker.AskPrice : null;
-        MarkPrice = ticker.MarkPrice > 0 ? ticker.MarkPrice : null;
-        Delta = ticker.Delta;
-        Gamma = ticker.Gamma;
-        Vega = ticker.Vega;
-        Theta = ticker.Theta;
-        ChainIv = NormalizeIv(ticker.MarkIv)
+        var changed = false;
+
+        decimal? nextBid = ticker.BidPrice > 0 ? ticker.BidPrice : null;
+        if (Bid != nextBid)
+        {
+            Bid = nextBid;
+            changed = true;
+        }
+
+        decimal? nextAsk = ticker.AskPrice > 0 ? ticker.AskPrice : null;
+        if (Ask != nextAsk)
+        {
+            Ask = nextAsk;
+            changed = true;
+        }
+
+        decimal? nextMark = ticker.MarkPrice > 0 ? ticker.MarkPrice : null;
+        if (MarkPrice != nextMark)
+        {
+            MarkPrice = nextMark;
+            changed = true;
+        }
+
+        if (Delta != ticker.Delta)
+        {
+            Delta = ticker.Delta;
+            changed = true;
+        }
+
+        if (Gamma != ticker.Gamma)
+        {
+            Gamma = ticker.Gamma;
+            changed = true;
+        }
+
+        if (Vega != ticker.Vega)
+        {
+            Vega = ticker.Vega;
+            changed = true;
+        }
+
+        if (Theta != ticker.Theta)
+        {
+            Theta = ticker.Theta;
+            changed = true;
+        }
+
+        var chainIv = NormalizeIv(ticker.MarkIv)
             ?? NormalizeIv(ticker.BidIv)
             ?? NormalizeIv(ticker.AskIv);
+        if (ChainIv != chainIv)
+        {
+            ChainIv = chainIv;
+            changed = true;
+        }
 
         if (!Leg.ImpliedVolatility.HasValue || Leg.ImpliedVolatility.Value <= 0)
         {
@@ -531,9 +576,17 @@ public sealed class LegViewModel : IDisposable
             }
         }
 
-        TempPnl = ResolveOptionTempPnl(ticker.UnderlyingPrice);
+        var nextPnl = ResolveOptionTempPnl(ticker.UnderlyingPrice);
+        if (TempPnl != nextPnl)
+        {
+            TempPnl = nextPnl;
+            changed = true;
+        }
 
-
+        if (!changed)
+        {
+            return;
+        }
         Changed?.Invoke(LegsCollectionUpdateKind.ViewModelDataUpdated);
     }
 
@@ -1028,4 +1081,5 @@ public sealed class LegViewModel : IDisposable
         Vega = null;
         Theta = null;
     }
+
 }

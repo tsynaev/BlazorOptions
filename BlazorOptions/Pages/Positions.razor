@@ -296,6 +296,9 @@ else
     private string? _routeErrorMessage;
     private IJSObjectReference? _chartRangeModule;
     private string? _restoredChartRangeKey;
+    private readonly object _liveRenderLock = new();
+    private CancellationTokenSource? _liveRenderCts;
+    private static readonly TimeSpan LiveRenderDebounce = TimeSpan.FromMilliseconds(120);
     [CascadingParameter] public bool IsDarkMode { get; set; }
     [Parameter] public Guid? PositionId { get; set; }
 
@@ -318,6 +321,7 @@ else
         {
             await _chartRangeModule.DisposeAsync();
         }
+        CancelLiveRenderDebounce();
         await ViewModel.DisposeAsync();
     }
 
@@ -336,12 +340,8 @@ else
     {
         _ = InvokeAsync(async () =>
         {
-            var start = System.Diagnostics.Stopwatch.StartNew();
-            await Task.Yield();
             ViewModel.UpdateSelectedPrice(price.HasValue ? (decimal?)price.Value : null, refresh: false);
             StateHasChanged();
-            start.Stop();
-            Console.WriteLine($"[Positions.HandleChartPriceSelected] price={price} handlerMs={start.ElapsedMilliseconds} utc={DateTime.UtcNow:O}");
         });
 
         return Task.CompletedTask;
@@ -410,11 +410,7 @@ else
 
     private void HandleLivePriceChanged(decimal? price)
     {
-        _ = InvokeAsync(() =>
-        {
-            ViewModel.UpdateChartSelectedPrice(price);
-            StateHasChanged();
-        });
+        _ = DebounceLiveRenderAsync();
     }
 
     private Task OnValuationDateChanged(DateTime? date)
@@ -488,7 +484,7 @@ else
             }
         }
         _activeTabIndex = Math.Max(0, ViewModel.Positions.Count - 1);
-        await RefreshChartAsync();
+        await InvokeAsync(StateHasChanged);
         if (ViewModel.SelectedPosition?.Position?.Id is Guid newId && newId != Guid.Empty)
         {
             UpdateUrl(newId);
@@ -522,7 +518,7 @@ else
         if (await ViewModel.SelectPositionAsync(positionId))
         {
             _activeTabIndex = index;
-            await RefreshChartAsync();
+            await InvokeAsync(StateHasChanged);
             await RestoreChartRangeIfMissingAsync();
             _routeErrorMessage = null;
             UpdateUrl(positionId);
@@ -590,14 +586,8 @@ else
         if (await ViewModel.RemovePositionAsync(position.Position))
         {
             SyncActiveTabIndex();
-            await RefreshChartAsync();
+            await InvokeAsync(StateHasChanged);
         }
-    }
-
-    private Task RefreshChartAsync()
-    {
-        ViewModel.UpdateChart();
-        return InvokeAsync(StateHasChanged);
     }
 
     private async Task RestoreChartRangeIfMissingAsync()
@@ -785,9 +775,52 @@ else
         }
 
         SyncActiveTabIndex();
-        await RefreshChartAsync();
+        await InvokeAsync(StateHasChanged);
         await RestoreChartRangeIfMissingAsync();
         UpdateUrl(routePositionId.Value);
+    }
+
+    private async Task DebounceLiveRenderAsync()
+    {
+        CancellationToken token;
+        lock (_liveRenderLock)
+        {
+            _liveRenderCts?.Cancel();
+            _liveRenderCts?.Dispose();
+            _liveRenderCts = new CancellationTokenSource();
+            token = _liveRenderCts.Token;
+        }
+
+        try
+        {
+            await Task.Delay(LiveRenderDebounce, token);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+
+        if (token.IsCancellationRequested)
+        {
+            return;
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void CancelLiveRenderDebounce()
+    {
+        lock (_liveRenderLock)
+        {
+            if (_liveRenderCts is null)
+            {
+                return;
+            }
+
+            _liveRenderCts.Cancel();
+            _liveRenderCts.Dispose();
+            _liveRenderCts = null;
+        }
     }
 
     private void UpdateUrl(Guid positionId)

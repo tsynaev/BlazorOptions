@@ -27,6 +27,9 @@ public sealed class LegsCollectionViewModel : IDisposable
     private IReadOnlyList<AvailableLegCandidate> _availableLegCandidates = Array.Empty<AvailableLegCandidate>();
     private const int PricingYieldBatch = 16;
     private const int PricingSyncThreshold = 12;
+    private readonly object _dataUpdateLock = new();
+    private CancellationTokenSource? _dataUpdateCts;
+    private static readonly TimeSpan DataUpdateDebounce = TimeSpan.FromMilliseconds(120);
 
 
     private static readonly string[] PositionExpirationFormats = { "ddMMMyy", "ddMMMyyyy" };
@@ -361,12 +364,9 @@ public sealed class LegsCollectionViewModel : IDisposable
 
         try
         {
-            var positionsTask = _exchangeService.Positions.GetPositionsAsync();
-            var ordersTask = _exchangeService.Orders.GetOpenOrdersAsync();
-            await Task.WhenAll(positionsTask, ordersTask);
-
-            var positions = positionsTask.Result;
-            var orders = ordersTask.Result;
+            var snapshot = await Position.GetExchangeSnapshotAsync();
+            var positions = snapshot.Positions;
+            var orders = snapshot.Orders;
             var candidates = new List<AvailableLegCandidate>();
             var knownPositionSymbols = new HashSet<string>(
                 Collection.Legs
@@ -940,6 +940,7 @@ public sealed class LegsCollectionViewModel : IDisposable
 
     public void Dispose()
     {
+        CancelDataUpdateDebounce();
         QuickAdd.LegCreated -= HandleQuickAddLegCreated;
         foreach (var viewModel in _legViewModels.Values)
         {
@@ -1038,12 +1039,67 @@ public sealed class LegsCollectionViewModel : IDisposable
 
     private void HandleLegViewModelChanged(LegsCollectionUpdateKind updateKind)
     {
+        if (updateKind == LegsCollectionUpdateKind.PricingContextUpdated
+            || updateKind == LegsCollectionUpdateKind.ViewModelDataUpdated)
+        {
+            QueueDataUpdate(updateKind);
+            return;
+        }
+
         if (updateKind == LegsCollectionUpdateKind.LegModelChanged || updateKind == LegsCollectionUpdateKind.CollectionChanged)
         {
             RebuildLegGroups();
         }
 
         _ = RaiseUpdatedAsync(updateKind);
+    }
+
+    private void QueueDataUpdate(LegsCollectionUpdateKind updateKind)
+    {
+        CancellationToken token;
+        lock (_dataUpdateLock)
+        {
+            _dataUpdateCts?.Cancel();
+            _dataUpdateCts?.Dispose();
+            _dataUpdateCts = new CancellationTokenSource();
+            token = _dataUpdateCts.Token;
+        }
+
+        _ = RunDataUpdateDebounceAsync(updateKind, token);
+    }
+
+    private async Task RunDataUpdateDebounceAsync(LegsCollectionUpdateKind updateKind, CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(DataUpdateDebounce, token);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+
+        if (token.IsCancellationRequested)
+        {
+            return;
+        }
+
+        await RaiseUpdatedAsync(updateKind);
+    }
+
+    private void CancelDataUpdateDebounce()
+    {
+        lock (_dataUpdateLock)
+        {
+            if (_dataUpdateCts is null)
+            {
+                return;
+            }
+
+            _dataUpdateCts.Cancel();
+            _dataUpdateCts.Dispose();
+            _dataUpdateCts = null;
+        }
     }
 
     private void RebuildLegGroups()

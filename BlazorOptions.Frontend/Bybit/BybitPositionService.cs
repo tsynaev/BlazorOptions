@@ -27,18 +27,18 @@ public class BybitPositionService : BybitApiService
 
     public async Task<IReadOnlyList<BybitPosition>> GetPositionsAsync(CancellationToken cancellationToken = default)
     {
-        var allPositions = new List<BybitPosition>();
+        var requests = new List<Task<IReadOnlyList<BybitPosition>>>();
         foreach (var category in new[] { "linear", "inverse" })
         {
             foreach (var settleCoin in _settleCoins)
             {
-                var positions = await GetPositionsAsync(category, settleCoin, cancellationToken);
-                allPositions.AddRange(positions);
+                requests.Add(GetPositionsAsync(category, settleCoin, cancellationToken));
             }
         }
 
-        allPositions.AddRange(await GetPositionsAsync("option", null, cancellationToken));
-        return allPositions;
+        requests.Add(GetPositionsAsync("option", null, cancellationToken));
+        var batches = await Task.WhenAll(requests);
+        return batches.SelectMany(batch => batch).ToList();
     }
 
     public async Task<IReadOnlyList<BybitPosition>> GetPositionsAsync(string category, string? settleCoin, CancellationToken cancellationToken = default)
