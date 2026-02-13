@@ -1,5 +1,4 @@
 using System.Globalization;
-using BlazorOptions.ViewModels;
 using BlazorChart.Models;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -179,6 +178,16 @@ public sealed class ExchangeService : IExchangeService
             return Task.FromResult<IReadOnlyList<CandlePoint>>(Array.Empty<CandlePoint>());
         }
 
+        public Task<IReadOnlyList<CandleVolumePoint>> GetCandlesWithVolumeAsync(
+            string symbol,
+            DateTime fromUtc,
+            DateTime toUtc,
+            int intervalMinutes = 60,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<CandleVolumePoint>>(Array.Empty<CandleVolumePoint>());
+        }
+
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
@@ -219,6 +228,11 @@ public sealed class ExchangeService : IExchangeService
         public Task EnsureExpirationsAsync(string baseAsset, string? quoteAsset, CancellationToken cancellationToken = default)
         {
             return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<ExchangeTradingPair>> GetTradingPairsAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<ExchangeTradingPair>>(Array.Empty<ExchangeTradingPair>());
         }
     }
 }

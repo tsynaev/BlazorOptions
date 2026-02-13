@@ -12,6 +12,7 @@ public sealed class FuturesInstrumentsService : IFuturesInstrumentsService
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private readonly object _cacheLock = new();
     private readonly Dictionary<string, List<DateTime?>> _cachedExpirations = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<ExchangeTradingPair>? _cachedTradingPairs;
 
     public FuturesInstrumentsService(HttpClient httpClient)
     {
@@ -64,6 +65,39 @@ public sealed class FuturesInstrumentsService : IFuturesInstrumentsService
             lock (_cacheLock)
             {
                 _cachedExpirations[key] = expirations;
+            }
+        }
+        finally
+        {
+            _refreshLock.Release();
+        }
+    }
+
+    public async Task<IReadOnlyList<ExchangeTradingPair>> GetTradingPairsAsync(CancellationToken cancellationToken = default)
+    {
+        lock (_cacheLock)
+        {
+            if (_cachedTradingPairs is not null)
+            {
+                return _cachedTradingPairs;
+            }
+        }
+
+        if (!await _refreshLock.WaitAsync(0, cancellationToken))
+        {
+            lock (_cacheLock)
+            {
+                return _cachedTradingPairs ?? Array.Empty<ExchangeTradingPair>();
+            }
+        }
+
+        try
+        {
+            var pairs = await FetchTradingPairsAsync(cancellationToken);
+            lock (_cacheLock)
+            {
+                _cachedTradingPairs = pairs;
+                return _cachedTradingPairs;
             }
         }
         finally
@@ -157,14 +191,79 @@ public sealed class FuturesInstrumentsService : IFuturesInstrumentsService
             .ToList();
     }
 
-    private static string BuildInstrumentsUrl(string baseAsset, string? cursor)
+    private async Task<IReadOnlyList<ExchangeTradingPair>> FetchTradingPairsAsync(CancellationToken cancellationToken)
+    {
+        var pairs = new HashSet<ExchangeTradingPair>();
+        string? cursor = null;
+
+        do
+        {
+            var url = BuildInstrumentsUrl(baseAsset: string.Empty, cursor: cursor, includeBase: false);
+            using var response = await _httpClient.GetAsync(url, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new InvalidOperationException($"Bybit instruments request failed ({(int)response.StatusCode}).");
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+            var root = document.RootElement;
+            ThrowIfRetCodeError(root);
+
+            if (!root.TryGetProperty("result", out var resultElement))
+            {
+                break;
+            }
+
+            if (resultElement.TryGetProperty("list", out var listElement) && listElement.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var entry in listElement.EnumerateArray())
+                {
+                    if (!TryReadString(entry, "baseCoin", out var baseCoin) || string.IsNullOrWhiteSpace(baseCoin))
+                    {
+                        continue;
+                    }
+
+                    if (!TryReadString(entry, "settleCoin", out var settleCoin) || string.IsNullOrWhiteSpace(settleCoin))
+                    {
+                        continue;
+                    }
+
+                    if (!TryReadString(entry, "status", out var status)
+                        || !string.Equals(status, "Trading", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    pairs.Add(new ExchangeTradingPair(
+                        baseCoin.Trim().ToUpperInvariant(),
+                        settleCoin.Trim().ToUpperInvariant()));
+                }
+            }
+
+            cursor = TryReadString(resultElement, "nextPageCursor", out var nextCursor) && !string.IsNullOrWhiteSpace(nextCursor)
+                ? nextCursor
+                : null;
+        } while (!string.IsNullOrWhiteSpace(cursor));
+
+        return pairs
+            .OrderBy(p => p.BaseAsset, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(p => p.QuoteAsset, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static string BuildInstrumentsUrl(string baseAsset, string? cursor, bool includeBase = true)
     {
         var builder = new List<string>
         {
             BybitInstrumentsInfoUrl,
-            $"baseCoin={Uri.EscapeDataString(baseAsset)}",
             $"limit={PageSize.ToString(CultureInfo.InvariantCulture)}"
         };
+
+        if (includeBase && !string.IsNullOrWhiteSpace(baseAsset))
+        {
+            builder.Add($"baseCoin={Uri.EscapeDataString(baseAsset)}");
+        }
 
         if (!string.IsNullOrWhiteSpace(cursor))
         {

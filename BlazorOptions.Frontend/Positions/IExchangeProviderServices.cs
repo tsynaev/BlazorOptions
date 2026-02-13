@@ -35,6 +35,8 @@ public interface IFuturesInstrumentsService
     IReadOnlyList<DateTime?> GetCachedExpirations(string baseAsset, string? quoteAsset);
 
     Task EnsureExpirationsAsync(string baseAsset, string? quoteAsset, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ExchangeTradingPair>> GetTradingPairsAsync(CancellationToken cancellationToken = default);
 }
 
 public interface IPositionsService : IAsyncDisposable
@@ -58,4 +60,13 @@ public interface ITickersService : IAsyncDisposable
         DateTime fromUtc,
         DateTime toUtc,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<CandleVolumePoint>> GetCandlesWithVolumeAsync(
+        string symbol,
+        DateTime fromUtc,
+        DateTime toUtc,
+        int intervalMinutes = 60,
+        CancellationToken cancellationToken = default);
 }
+
+public sealed record ExchangeTradingPair(string BaseAsset, string QuoteAsset);

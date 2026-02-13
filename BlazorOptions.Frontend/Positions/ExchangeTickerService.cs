@@ -11,6 +11,7 @@ public class ExchangeTickerService : ITickersService
 {
     private static readonly Uri DefaultBybitWebSocketUrl = new("wss://stream.bybit.com/v5/public/linear");
     private const string BybitKlineUrl = "https://api.bybit.com/v5/market/kline";
+    private const int MaxKlineRequestLimit = 1000;
     private readonly IReadOnlyDictionary<string, IExchangeTickerClient> _clients;
     private readonly ConcurrentDictionary<IExchangeTickerClient, Func<ExchangePriceUpdate, Task>> _handlers = new();
     private readonly object _subscriberLock = new();
@@ -46,23 +47,81 @@ public class ExchangeTickerService : ITickersService
         DateTime toUtc,
         CancellationToken cancellationToken = default)
     {
+        var withVolume = await GetCandlesWithVolumeAsync(symbol, fromUtc, toUtc, 60, cancellationToken);
+        return withVolume
+            .OrderBy(c => c.Time)
+            .Select(c => new CandlePoint(c.Time, c.Open, c.High, c.Low, c.Close))
+            .ToArray();
+    }
+
+    public async Task<IReadOnlyList<CandleVolumePoint>> GetCandlesWithVolumeAsync(
+        string symbol,
+        DateTime fromUtc,
+        DateTime toUtc,
+        int intervalMinutes = 60,
+        CancellationToken cancellationToken = default)
+    {
         if (string.IsNullOrWhiteSpace(symbol))
         {
-            return Array.Empty<CandlePoint>();
+            return Array.Empty<CandleVolumePoint>();
         }
 
         var from = NormalizeUtc(fromUtc);
         var to = NormalizeUtc(toUtc);
         if (to <= from)
         {
-            to = from.AddMinutes(1);
+            to = from.AddMinutes(Math.Max(intervalMinutes, 1));
         }
 
-        var query = $"category=linear&symbol={Uri.EscapeDataString(symbol.Trim().ToUpperInvariant())}&interval=60&start={new DateTimeOffset(from).ToUnixTimeMilliseconds()}&end={new DateTimeOffset(to).ToUnixTimeMilliseconds()}&limit=1000";
+        var normalizedSymbol = symbol.Trim().ToUpperInvariant();
+        var normalizedInterval = Math.Max(intervalMinutes, 1);
+        var intervalMs = normalizedInterval * 60L * 1000L;
+        var maxWindowMs = intervalMs * (MaxKlineRequestLimit - 1L);
+        var currentFrom = from;
+        var byTime = new Dictionary<long, CandleVolumePoint>();
+
+        while (currentFrom < to)
+        {
+            var maxToTicks = currentFrom.Ticks + TimeSpan.FromMilliseconds(maxWindowMs).Ticks;
+            var windowTo = maxToTicks >= to.Ticks ? to : new DateTime(maxToTicks, DateTimeKind.Utc);
+
+            var windowCandles = await FetchCandlesWindowAsync(
+                normalizedSymbol,
+                currentFrom,
+                windowTo,
+                normalizedInterval,
+                cancellationToken);
+
+            foreach (var candle in windowCandles)
+            {
+                byTime[candle.Time] = candle;
+            }
+
+            if (windowTo >= to)
+            {
+                break;
+            }
+
+            currentFrom = windowTo.AddMilliseconds(intervalMs);
+        }
+
+        return byTime.Values
+            .OrderBy(c => c.Time)
+            .ToArray();
+    }
+
+    private async Task<IReadOnlyList<CandleVolumePoint>> FetchCandlesWindowAsync(
+        string symbol,
+        DateTime fromUtc,
+        DateTime toUtc,
+        int intervalMinutes,
+        CancellationToken cancellationToken)
+    {
+        var query = $"category=linear&symbol={Uri.EscapeDataString(symbol)}&interval={intervalMinutes}&start={new DateTimeOffset(fromUtc).ToUnixTimeMilliseconds()}&end={new DateTimeOffset(toUtc).ToUnixTimeMilliseconds()}&limit={MaxKlineRequestLimit}";
         using var response = await _httpClient.GetAsync($"{BybitKlineUrl}?{query}", cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            return Array.Empty<CandlePoint>();
+            return Array.Empty<CandleVolumePoint>();
         }
 
         var payload = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -72,20 +131,20 @@ public class ExchangeTickerService : ITickersService
             || !retCodeElement.TryGetInt32(out var retCode)
             || retCode != 0)
         {
-            return Array.Empty<CandlePoint>();
+            return Array.Empty<CandleVolumePoint>();
         }
 
         if (!root.TryGetProperty("result", out var resultElement)
             || !resultElement.TryGetProperty("list", out var listElement)
             || listElement.ValueKind != JsonValueKind.Array)
         {
-            return Array.Empty<CandlePoint>();
+            return Array.Empty<CandleVolumePoint>();
         }
 
-        var candles = new List<CandlePoint>();
+        var candles = new List<CandleVolumePoint>();
         foreach (var item in listElement.EnumerateArray())
         {
-            if (item.ValueKind != JsonValueKind.Array || item.GetArrayLength() < 5)
+            if (item.ValueKind != JsonValueKind.Array || item.GetArrayLength() < 6)
             {
                 continue;
             }
@@ -95,17 +154,16 @@ public class ExchangeTickerService : ITickersService
                 || !TryParseDouble(values[1], out var open)
                 || !TryParseDouble(values[2], out var high)
                 || !TryParseDouble(values[3], out var low)
-                || !TryParseDouble(values[4], out var close))
+                || !TryParseDouble(values[4], out var close)
+                || !TryParseDouble(values[5], out var volume))
             {
                 continue;
             }
 
-            candles.Add(new CandlePoint(timeMs, open, high, low, close));
+            candles.Add(new CandleVolumePoint(timeMs, open, high, low, close, volume));
         }
 
-        return candles
-            .OrderBy(c => c.Time)
-            .ToArray();
+        return candles;
     }
 
   

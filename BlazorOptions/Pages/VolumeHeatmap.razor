@@ -1,0 +1,261 @@
+@page "/volume-heatmap"
+@implements IDisposable
+@inject VolumeHeatmapViewModel ViewModel
+
+<PageTitle>Volume Heatmap</PageTitle>
+
+<MudStack Spacing="3">
+    <MudText Typo="Typo.h4">Volume Heatmap</MudText>
+    <MudText Typo="Typo.body2">
+        1H heatmap grouped by weekday and hour.
+    </MudText>
+
+    <MudPaper Class="pa-4">
+        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2" AlignItems="AlignItems.End">
+            <MudAutocomplete T="string"
+                             Label="Base asset"
+                             Value="@ViewModel.BaseAsset"
+                             ValueChanged="OnBaseAssetChanged"
+                             SearchFunc="SearchBaseAssets"
+                             Dense="true"
+                             CoerceText="true"
+                             ResetValueOnEmptyText="false"
+                             SelectValueOnTab="true"
+                             Immediate="true"
+                             MinCharacters="0"
+                             MaxItems="100" />
+
+            <MudAutocomplete T="string"
+                             Label="Quote asset"
+                             Value="@ViewModel.QuoteAsset"
+                             ValueChanged="OnQuoteAssetChanged"
+                             SearchFunc="SearchQuoteAssets"
+                             Dense="true"
+                             CoerceText="true"
+                             ResetValueOnEmptyText="false"
+                             SelectValueOnTab="true"
+                             Immediate="true"
+                             MinCharacters="0"
+                             MaxItems="100" />
+
+            <MudSelect T="TimeSpan"
+                       Label="Range"
+                       Value="ViewModel.SelectedInterval"
+                       ValueChanged="OnIntervalChanged"
+                       Dense="true">
+                @foreach (var interval in ViewModel.AvailableIntervals)
+                {
+                    <MudSelectItem T="TimeSpan" Value="@interval.Duration" @key="interval.Label">@interval.Label</MudSelectItem>
+                }
+            </MudSelect>
+
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       Disabled="ViewModel.IsLoading"
+                       OnClick="ReloadAsync">
+                @(ViewModel.IsLoading ? "Loading..." : "Reload")
+            </MudButton>
+        </MudStack>
+
+        <MudStack Spacing="1" Class="mt-3">
+            <MudRadioGroup T="VolumeHeatmapMetric"
+                           Value="ViewModel.SelectedMetric"
+                           ValueChanged="OnMetricChanged"
+                           Class="mt-1">
+                @foreach (var metric in ViewModel.AvailableMetrics)
+                {
+                    <MudRadio T="VolumeHeatmapMetric" Value="@metric.Value" Dense="true">@metric.Label</MudRadio>
+                }
+            </MudRadioGroup>
+            <MudText Typo="Typo.body2">Symbol: @ViewModel.Symbol</MudText>
+            @if (ViewModel.LoadedAtUtc.HasValue)
+            {
+                <MudText Typo="Typo.caption">Loaded @ViewModel.LoadedAtUtc.Value.ToLocalTime().ToString("g"), klines: @ViewModel.KlinesCount</MudText>
+            }
+            @if (!string.IsNullOrWhiteSpace(ViewModel.ErrorMessage))
+            {
+                <MudAlert Severity="Severity.Warning">@ViewModel.ErrorMessage</MudAlert>
+            }
+        </MudStack>
+    </MudPaper>
+
+    @if (ViewModel.Chart is not null)
+    {
+        <MudPaper Class="pa-2 volume-heatmap-chart">
+            <MudChart ChartType="ChartType.HeatMap"
+                      @key="_chartVersion"
+                      ChartSeries="@_heatmapSeries"
+                      XAxisLabels="@_xAxisLabels"
+                      ChartOptions="@_heatmapOptions"
+                      LegendPosition="@_legendPosition"
+                      Width="100%"
+                      Height="560px">
+                <ChildContent>
+                    <MudHeatMapCell Row="0" Column="0" MinValue="@_minHeatmapValue" MaxValue="@_maxHeatmapValue" />
+                </ChildContent>
+            </MudChart>
+            @if (_maxCellSummary is not null)
+            {
+                <MudText Typo="Typo.caption" Class="px-2 pb-2">@_maxCellSummary</MudText>
+            }
+        </MudPaper>
+    }
+</MudStack>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        ViewModel.PropertyChanged += HandleViewModelChanged;
+        await ViewModel.InitializeAsync();
+        RebuildChartData();
+    }
+
+    public void Dispose()
+    {
+        ViewModel.PropertyChanged -= HandleViewModelChanged;
+    }
+
+    private Task OnBaseAssetChanged(string value)
+    {
+        return ViewModel.SetBaseAssetAsync(value);
+    }
+
+    private Task OnQuoteAssetChanged(string value)
+    {
+        return ViewModel.SetQuoteAssetAsync(value);
+    }
+
+    private Task ReloadAsync()
+    {
+        _chartVersion++;
+        return ViewModel.LoadHeatmapAsync();
+    }
+
+    private Task OnIntervalChanged(TimeSpan interval)
+    {
+        return ViewModel.SetIntervalAsync(interval);
+    }
+
+    private Task OnMetricChanged(VolumeHeatmapMetric metric)
+    {
+        return ViewModel.SetMetricAsync(metric);
+    }
+
+    private void HandleViewModelChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(VolumeHeatmapViewModel.Chart))
+        {
+            RebuildChartData();
+        }
+
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void RebuildChartData()
+    {
+        _heatmapSeries = new List<ChartSeries>();
+        _xAxisLabels = Array.Empty<string>();
+        _maxCellSummary = null;
+        _minHeatmapValue = 0;
+        _maxHeatmapValue = 0;
+
+        var chart = ViewModel.Chart;
+        if (chart is null)
+        {
+            return;
+        }
+
+        _xAxisLabels = chart.Hours;
+
+        var valuesByDay = new double[7][];
+        for (var day = 0; day < 7; day++)
+        {
+            valuesByDay[day] = new double[24];
+        }
+
+        foreach (var cell in chart.Cells)
+        {
+            if (cell.WeekdayIndex < 0 || cell.WeekdayIndex >= 7 || cell.HourIndex < 0 || cell.HourIndex >= 24)
+            {
+                continue;
+            }
+
+            valuesByDay[cell.WeekdayIndex][cell.HourIndex] = cell.Volume;
+        }
+
+        for (var day = 0; day < chart.Weekdays.Length; day++)
+        {
+            _heatmapSeries.Add(new ChartSeries
+            {
+                Name = chart.Weekdays[day],
+                Data = valuesByDay[day]
+            });
+        }
+
+        _minHeatmapValue = chart.MinVolume;
+        _maxHeatmapValue = chart.MaxVolume;
+
+        if (chart.MaxCell is not null
+            && chart.MaxCell.WeekdayIndex >= 0
+            && chart.MaxCell.WeekdayIndex < chart.Weekdays.Length
+            && chart.MaxCell.HourIndex >= 0
+            && chart.MaxCell.HourIndex < chart.Hours.Length)
+        {
+            var label = chart.Metric == VolumeHeatmapMetric.AvgOpenCloseDiffPerHour
+                ? "Max avg open-close diff"
+                : "Max avg volume";
+            _maxCellSummary = $"{label}: {chart.Weekdays[chart.MaxCell.WeekdayIndex]} {chart.Hours[chart.MaxCell.HourIndex]}:00 (UTC), {chart.MaxCell.Volume:N2}";
+        }
+    }
+
+    private string[] _xAxisLabels = Array.Empty<string>();
+    private List<ChartSeries> _heatmapSeries = new();
+    private string? _maxCellSummary;
+    private double _minHeatmapValue;
+    private double _maxHeatmapValue;
+    private int _chartVersion;
+    private readonly Position _legendPosition = Position.Bottom;
+    private readonly ChartOptions _heatmapOptions = new()
+    {
+        // Static visual config (no runtime controls).
+        ChartPalette = ["#5bbcff", "#2dd4bf", "#22c55e", "#facc15", "#fb923c", "#ef4444"],
+        ShowLegend = true,
+        ShowLegendLabels = true,
+        ShowLabels = false,
+        ShowToolTips = true,
+        ValueFormatString = "N2",
+        EnableSmoothGradient = false,
+        YAxisLabelPosition = YAxisLabelPosition.Left,
+        XAxisLabelPosition = XAxisLabelPosition.Bottom
+    };
+
+    private Task<IEnumerable<string>> SearchBaseAssets(string? value, CancellationToken cancellationToken)
+    {
+        return Task.FromResult(FilterAssets(ViewModel.BaseAssets, value));
+    }
+
+    private Task<IEnumerable<string>> SearchQuoteAssets(string? value, CancellationToken cancellationToken)
+    {
+        return Task.FromResult(FilterAssets(ViewModel.QuoteAssets, value));
+    }
+
+    private static IEnumerable<string> FilterAssets(IReadOnlyList<string> source, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return source;
+        }
+
+        return source.Where(asset => asset.Contains(value, StringComparison.OrdinalIgnoreCase));
+    }
+}
+
+<style>
+    .volume-heatmap-chart .mud-chart svg text {
+        font-size: 7px !important;
+    }
+
+    .volume-heatmap-chart .mud-chart .mud-charts-legend text {
+        font-size: 8px !important;
+    }
+</style>
