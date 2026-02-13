@@ -1,20 +1,6 @@
-using System;
-namespace BlazorOptions.ViewModels;
+using BlazorOptions.API.Common;
 
-public enum LegType
-{
-    Call,
-    Put,
-    Future
-}
-
-public enum LegStatus
-{
-    New,
-    Order,
-    Active,
-    Missing
-}
+namespace BlazorOptions.API.Positions;
 
 public class LegModel : Bindable
 {
@@ -29,6 +15,7 @@ public class LegModel : Bindable
     private decimal? _price;
     private decimal? _impliedVolatility;
     private string? _symbol;
+    private string? _referenceId;
 
     public string Id
     {
@@ -96,6 +83,12 @@ public class LegModel : Bindable
         set => SetField(ref _symbol, value);
     }
 
+    public string? ReferenceId
+    {
+        get => _referenceId;
+        set => SetField(ref _referenceId, value);
+    }
+
     public LegModel Clone()
     {
         return new LegModel
@@ -110,7 +103,9 @@ public class LegModel : Bindable
             Size = Size,
             Price = Price,
             ImpliedVolatility = ImpliedVolatility,
-            Symbol = Symbol
+            Symbol = Symbol,
+            ReferenceId = ReferenceId
         };
     }
+
 }

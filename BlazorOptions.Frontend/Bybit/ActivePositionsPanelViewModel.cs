@@ -9,16 +9,16 @@ public sealed class ActivePositionsPanelViewModel : IDisposable
 {
     private static readonly string[] _positionExpirationFormats = { "ddMMMyy", "ddMMMyyyy" };
     private readonly IExchangeService _exchangeService;
-    private readonly HashSet<BybitPosition> _selectedPositions;
+    private readonly HashSet<ExchangePosition> _selectedPositions;
     private readonly BybitPositionComparer _comparer = new();
-    private readonly List<BybitPosition> _filteredPositions = new();
+    private readonly List<ExchangePosition> _filteredPositions = new();
     private IReadOnlyList<LegModel> _existingLegs = [];
     private IDisposable? _positionsSubscription;
 
     public ActivePositionsPanelViewModel(IExchangeService exchangeService)
     {
         _exchangeService = exchangeService;
-        _selectedPositions = new HashSet<BybitPosition>(_comparer);
+        _selectedPositions = new HashSet<ExchangePosition>(_comparer);
     }
 
     public string BaseAsset { get; private set; } = "ETH";
@@ -31,9 +31,9 @@ public sealed class ActivePositionsPanelViewModel : IDisposable
 
     public int ExcludedCount { get; private set; }
 
-    public IReadOnlyList<BybitPosition> Positions => _filteredPositions;
+    public IReadOnlyList<ExchangePosition> Positions => _filteredPositions;
 
-    public IReadOnlyCollection<BybitPosition> SelectedPositions => _selectedPositions;
+    public IReadOnlyCollection<ExchangePosition> SelectedPositions => _selectedPositions;
 
     public string SelectedCountLabel => _selectedPositions.Count == 0
         ? "No positions selected"
@@ -70,12 +70,12 @@ public sealed class ActivePositionsPanelViewModel : IDisposable
     }
 
 
-    public bool GetSelection(BybitPosition position)
+    public bool GetSelection(ExchangePosition position)
     {
         return _selectedPositions.Contains(position);
     }
 
-    public void SetSelection(BybitPosition position, bool isSelected)
+    public void SetSelection(ExchangePosition position, bool isSelected)
     {
         if (isSelected)
         {
@@ -105,7 +105,7 @@ public sealed class ActivePositionsPanelViewModel : IDisposable
         OnChange?.Invoke();
     }
 
-    public static string FormatSignedSize(BybitPosition position)
+    public static string FormatSignedSize(ExchangePosition position)
     {
         var magnitude = Math.Abs(position.Size);
         if (magnitude < 0.0001m)
@@ -121,7 +121,7 @@ public sealed class ActivePositionsPanelViewModel : IDisposable
         return $"{sign}{magnitude:0.####}";
     }
 
-    private async Task HandlePositionsUpdated(IReadOnlyList<BybitPosition> positions)
+    private async Task HandlePositionsUpdated(IReadOnlyList<ExchangePosition> positions)
     {
         await ApplyFilter();
     }
@@ -175,7 +175,7 @@ public sealed class ActivePositionsPanelViewModel : IDisposable
         _selectedPositions.RemoveWhere(position => !_filteredPositions.Contains(position, _comparer));
     }
 
-    private bool TryBuildLegFromBybitPosition(BybitPosition position, string baseAsset, string category, out LegModel leg)
+    private bool TryBuildLegFromBybitPosition(ExchangePosition position, string baseAsset, string category, out LegModel leg)
     {
         leg = new LegModel();
         if (string.IsNullOrWhiteSpace(position.Symbol))
@@ -295,9 +295,9 @@ public sealed class ActivePositionsPanelViewModel : IDisposable
         _positionsSubscription = null;
     }
 
-    private sealed class BybitPositionComparer : IEqualityComparer<BybitPosition>
+    private sealed class BybitPositionComparer : IEqualityComparer<ExchangePosition>
     {
-        public bool Equals(BybitPosition? x, BybitPosition? y)
+        public bool Equals(ExchangePosition? x, ExchangePosition? y)
         {
             if (x is null || y is null)
             {
@@ -309,7 +309,7 @@ public sealed class ActivePositionsPanelViewModel : IDisposable
                    && string.Equals(x.Side, y.Side, StringComparison.OrdinalIgnoreCase);
         }
 
-        public int GetHashCode(BybitPosition obj)
+        public int GetHashCode(ExchangePosition obj)
         {
             return HashCode.Combine(
                 obj.Symbol?.ToUpperInvariant(),

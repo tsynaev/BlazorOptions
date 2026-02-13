@@ -29,6 +29,14 @@ public sealed class BybitOrderService : BybitApiService, IOrdersService
         return batches.SelectMany(batch => batch).ToList();
     }
 
+    public ValueTask<IDisposable> SubscribeAsync(
+        Func<IReadOnlyList<ExchangeOrder>, Task> handler,
+        CancellationToken cancellationToken = default)
+    {
+        // Snapshot-only service; realtime updates are provided by ActiveOrdersService.
+        return new ValueTask<IDisposable>(new SubscriptionRegistration(() => { }));
+    }
+
     private async Task<IReadOnlyList<ExchangeOrder>> GetOrdersByCategoryAsync(
         BybitSettings settings,
         string category,

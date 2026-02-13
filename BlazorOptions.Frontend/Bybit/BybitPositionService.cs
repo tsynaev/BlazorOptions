@@ -25,9 +25,9 @@ public class BybitPositionService : BybitApiService
         _bybitSettingsOptions = bybitSettingsOptions;
     }
 
-    public async Task<IReadOnlyList<BybitPosition>> GetPositionsAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ExchangePosition>> GetPositionsAsync(CancellationToken cancellationToken = default)
     {
-        var requests = new List<Task<IReadOnlyList<BybitPosition>>>();
+        var requests = new List<Task<IReadOnlyList<ExchangePosition>>>();
         foreach (var category in new[] { "linear", "inverse" })
         {
             foreach (var settleCoin in _settleCoins)
@@ -41,10 +41,10 @@ public class BybitPositionService : BybitApiService
         return batches.SelectMany(batch => batch).ToList();
     }
 
-    public async Task<IReadOnlyList<BybitPosition>> GetPositionsAsync(string category, string? settleCoin, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ExchangePosition>> GetPositionsAsync(string category, string? settleCoin, CancellationToken cancellationToken = default)
     {
         var settings = _bybitSettingsOptions.Value;
-        var positions = new List<BybitPosition>();
+        var positions = new List<ExchangePosition>();
         string? cursor = null;
 
         while (true)
@@ -79,7 +79,7 @@ public class BybitPositionService : BybitApiService
                     var size = ReadDecimal(entry, "size");
                     var avgPrice = ReadDecimal(entry, "avgPrice");
 
-                    positions.Add(new BybitPosition(symbol, side, category, size, avgPrice));
+                    positions.Add(new ExchangePosition(symbol, side, category, size, avgPrice));
                 }
             }
 
@@ -177,7 +177,7 @@ public class BybitPositionService : BybitApiService
 
 }
 
-public sealed record BybitPosition(
+public sealed record ExchangePosition(
     string Symbol,
     string Side,
     string Category,

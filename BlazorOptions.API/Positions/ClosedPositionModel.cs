@@ -1,7 +1,6 @@
-using System;
-using System.Reflection;
+using BlazorOptions.API.Common;
 
-namespace BlazorOptions.ViewModels;
+namespace BlazorOptions.API.Positions;
 
 public class ClosedPositionModel : Bindable
 {
@@ -103,7 +102,6 @@ public class ClosedPositionModel : Bindable
         get => _feeTotal;
         set => SetField(ref _feeTotal, value);
     }
-
 
     public decimal AvgEntryPrice => EntryQty > 0m ? EntryValue / EntryQty : 0m;
 

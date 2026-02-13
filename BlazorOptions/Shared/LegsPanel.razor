@@ -74,7 +74,7 @@
                                              Color="@(item.Kind == AvailableLegSourceKind.Order ? Color.Warning : Color.Info)"
                                              OnClick="async () => await AddCandidateAsync(item)"
                                              @key="item.Id">
-                                        @FormatCandidate(item)
+                                        @ViewModel.FormatAvailableCandidate(item)
                                     </MudChip>
                                 }
                             </MudChipSet>
@@ -153,12 +153,6 @@
         return value.ToString("0.###", CultureInfo.InvariantCulture);
     }
 
-    private static string FormatCandidate(AvailableLegCandidate candidate)
-    {
-        var source = candidate.Kind == AvailableLegSourceKind.Order ? "Order" : "Position";
-        var direction = candidate.Size >= 0 ? "Buy" : "Sell";
-        return $"{source}: {candidate.Symbol} ({direction} {Math.Abs(candidate.Size):0.##})";
-    }
 }
 
 <style>

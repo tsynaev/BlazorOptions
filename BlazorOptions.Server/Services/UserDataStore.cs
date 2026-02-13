@@ -4,7 +4,7 @@ using BlazorOptions.Sync;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
 using BlazorOptions.Server.Options;
-using BlazorOptions.ViewModels;
+using BlazorOptions.API.Positions;
 
 namespace BlazorOptions.Server.Services;
 

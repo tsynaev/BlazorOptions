@@ -43,7 +43,7 @@ public sealed class LegsCollectionDialogService : ILegsCollectionDialogService
         return legs.ToList();
     }
 
-    public async Task<IReadOnlyList<BybitPosition>?> ShowBybitPositionsDialogAsync(
+    public async Task<IReadOnlyList<ExchangePosition>?> ShowBybitPositionsDialogAsync(
         string? baseAsset,
         string? quoteAsset,
         IReadOnlyList<LegModel> existingLegs)
@@ -65,7 +65,7 @@ public sealed class LegsCollectionDialogService : ILegsCollectionDialogService
         var dialog = await _dialogService.ShowAsync<BybitPositionsDialog>("Add Bybit positions", parameters, options);
         var result = await dialog.Result;
 
-        if (result is null || result.Canceled || result.Data is not IReadOnlyList<BybitPosition> positions)
+        if (result is null || result.Canceled || result.Data is not IReadOnlyList<ExchangePosition> positions)
         {
             return null;
         }

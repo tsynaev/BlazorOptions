@@ -11,7 +11,8 @@
             <MudStack Spacing="1" Class="flex-grow-1">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
                     <MudCheckBox T="bool"
-                                 @bind-Value="@ViewModel.Model.Include"
+                                 Value="@ViewModel.Model.Include"
+                                 ValueChanged="async value => await ViewModel.SetIncludeAsync(value)"
                                  />
                     <MudText Typo="Typo.h6">Closed positions</MudText>
                     <MudText Typo="Typo.caption" Class="closed-positions-summary">

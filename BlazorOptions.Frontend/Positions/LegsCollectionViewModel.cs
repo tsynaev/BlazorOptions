@@ -365,74 +365,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         try
         {
             var snapshot = await Position.GetExchangeSnapshotAsync();
-            var positions = snapshot.Positions;
-            var orders = snapshot.Orders;
-            var candidates = new List<AvailableLegCandidate>();
-            var knownPositionSymbols = new HashSet<string>(
-                Collection.Legs
-                    .Where(leg => leg.Status != LegStatus.Order)
-                    .Select(leg => leg.Symbol)
-                    .Where(symbol => !string.IsNullOrWhiteSpace(symbol))
-                    .Select(symbol => symbol!.Trim()),
-                StringComparer.OrdinalIgnoreCase);
-
-            foreach (var position in positions)
-            {
-                var leg = CreateLegFromBybitPosition(position, baseAsset, position.Category);
-                if (leg is null || string.IsNullOrWhiteSpace(leg.Symbol))
-                {
-                    continue;
-                }
-
-                var symbol = leg.Symbol.Trim();
-                if (!knownPositionSymbols.Add(symbol))
-                {
-                    continue;
-                }
-
-                candidates.Add(new AvailableLegCandidate(
-                    Id: $"position:{symbol}:{Math.Sign(leg.Size)}",
-                    Kind: AvailableLegSourceKind.Position,
-                    Symbol: symbol,
-                    Type: leg.Type,
-                    Size: leg.Size,
-                    Price: leg.Price,
-                    ExpirationDate: leg.ExpirationDate,
-                    Strike: leg.Strike));
-            }
-
-            foreach (var order in orders)
-            {
-                var leg = CreateLegFromExchangeOrder(order, baseAsset);
-                if (leg is null || string.IsNullOrWhiteSpace(leg.Symbol))
-                {
-                    continue;
-                }
-
-                if (IsLegAlreadyInCollection(leg))
-                {
-                    continue;
-                }
-
-                var symbol = leg.Symbol.Trim();
-                var orderId = string.IsNullOrWhiteSpace(order.OrderId)
-                    ? $"{symbol}:{Math.Sign(leg.Size)}:{Math.Abs(leg.Size):0.########}:{(leg.Price.HasValue ? leg.Price.Value.ToString("0.########", CultureInfo.InvariantCulture) : "mkt")}"
-                    : order.OrderId.Trim();
-                candidates.Add(new AvailableLegCandidate(
-                    Id: $"order:{orderId}",
-                    Kind: AvailableLegSourceKind.Order,
-                    Symbol: symbol,
-                    Type: leg.Type,
-                    Size: leg.Size,
-                    Price: leg.Price,
-                    ExpirationDate: leg.ExpirationDate,
-                    Strike: leg.Strike));
-            }
-
-            _availableLegCandidates = candidates
-                .OrderBy(item => item.Kind)
-                .ThenBy(item => item.Symbol, StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            await ApplyExchangeSnapshotsAsync(snapshot.Positions, snapshot.Orders);
         }
         catch (Exception ex)
         {
@@ -442,6 +375,47 @@ public sealed class LegsCollectionViewModel : IDisposable
         finally
         {
             _isLoadingAvailableLegs = false;
+            await RaiseUpdatedAsync(LegsCollectionUpdateKind.ViewModelDataUpdated);
+        }
+    }
+
+    public async Task ApplyExchangeSnapshotsAsync(
+        IReadOnlyList<ExchangePosition> positions,
+        IReadOnlyList<ExchangeOrder> orders)
+    {
+        if (Position is null)
+        {
+            return;
+        }
+
+        var baseAsset = Position.Position.BaseAsset?.Trim();
+        if (string.IsNullOrWhiteSpace(baseAsset))
+        {
+            if (_availableLegCandidates.Count > 0)
+            {
+                _availableLegCandidates = Array.Empty<AvailableLegCandidate>();
+                await RaiseUpdatedAsync(LegsCollectionUpdateKind.ViewModelDataUpdated);
+            }
+
+            return;
+        }
+
+        var orderLegsChanged = SyncOrderLegsWithSnapshot(orders, positions, baseAsset);
+        var candidates = BuildAvailableCandidates(positions, orders, baseAsset);
+        var candidatesChanged = !AreSameCandidates(_availableLegCandidates, candidates);
+        if (candidatesChanged)
+        {
+            _availableLegCandidates = candidates;
+        }
+
+        if (orderLegsChanged)
+        {
+            SyncLegViewModels();
+            await RaiseUpdatedAsync(LegsCollectionUpdateKind.CollectionChanged);
+        }
+
+        if (candidatesChanged)
+        {
             await RaiseUpdatedAsync(LegsCollectionUpdateKind.ViewModelDataUpdated);
         }
     }
@@ -463,6 +437,10 @@ public sealed class LegsCollectionViewModel : IDisposable
         {
             IsReadOnly = candidate.Kind == AvailableLegSourceKind.Position || candidate.Kind == AvailableLegSourceKind.Order,
             IsIncluded = candidate.Kind != AvailableLegSourceKind.Order,
+            Id = candidate.Kind == AvailableLegSourceKind.Order ? candidate.Id : Guid.NewGuid().ToString("N"),
+            ReferenceId = candidate.Kind == AvailableLegSourceKind.Order
+                ? ExtractReferenceIdFromCandidateId(candidate.Id)
+                : BuildPositionReferenceId(candidate.Symbol, candidate.Size),
             Type = candidate.Type,
             Status = candidate.Kind == AvailableLegSourceKind.Order ? LegStatus.Order : LegStatus.Active,
             Strike = candidate.Strike,
@@ -488,8 +466,48 @@ public sealed class LegsCollectionViewModel : IDisposable
         await RaiseUpdatedAsync(LegsCollectionUpdateKind.ViewModelDataUpdated);
     }
 
+    public string FormatAvailableCandidate(AvailableLegCandidate candidate)
+    {
+        var direction = candidate.Size >= 0 ? "Buy" : "Sell";
+        var absSize = Math.Abs(candidate.Size);
+        var typeLabel = candidate.Type switch
+        {
+            LegType.Call => "CALL",
+            LegType.Put => "PUT",
+            _ => "FUT"
+        };
+
+        if (candidate.Type == LegType.Future)
+        {
+            return $"{direction} {absSize:0.##} {typeLabel} @ {FormatChipPrice(candidate.Price)}";
+        }
+
+        return $"{direction} {absSize:0.##} {typeLabel} {FormatChipStrike(candidate.Strike)} @ {FormatChipPrice(candidate.Price)}";
+    }
+
+    private static string FormatChipStrike(decimal? strike)
+    {
+        return strike.HasValue
+            ? strike.Value.ToString("0.##", CultureInfo.InvariantCulture)
+            : "-";
+    }
+
+    private static string FormatChipPrice(decimal? price)
+    {
+        return price.HasValue
+            ? price.Value.ToString("0.####", CultureInfo.InvariantCulture)
+            : "mkt";
+    }
+
     private bool IsLegAlreadyInCollection(LegModel candidate)
     {
+        if (candidate.Status == LegStatus.Order && !string.IsNullOrWhiteSpace(candidate.Id))
+        {
+            return Collection.Legs.Any(leg =>
+                leg.Status == LegStatus.Order
+                && string.Equals(leg.Id, candidate.Id, StringComparison.OrdinalIgnoreCase));
+        }
+
         foreach (var leg in Collection.Legs)
         {
             if (BuildLegIdentity(leg) == BuildLegIdentity(candidate))
@@ -546,6 +564,17 @@ public sealed class LegsCollectionViewModel : IDisposable
 
         var symbol = leg.Symbol.Trim();
         var kind = leg.Status == LegStatus.Order ? AvailableLegSourceKind.Order : AvailableLegSourceKind.Position;
+        var cachedSnapshot = Position?.GetCachedExchangeSnapshot();
+
+        if (kind == AvailableLegSourceKind.Position && !IsPositionStillActiveInCache(leg, cachedSnapshot?.Positions))
+        {
+            return;
+        }
+
+        if (kind == AvailableLegSourceKind.Order && !IsOrderStillOpenInCache(leg, cachedSnapshot?.Orders))
+        {
+            return;
+        }
 
         if (kind == AvailableLegSourceKind.Position)
         {
@@ -585,11 +614,15 @@ public sealed class LegsCollectionViewModel : IDisposable
         }
 
         var orderId = string.IsNullOrWhiteSpace(leg.Id)
-            ? $"order:{symbol}:{Math.Sign(leg.Size)}:{Math.Abs(leg.Size):0.########}:{(leg.Price.HasValue ? leg.Price.Value.ToString("0.########", CultureInfo.InvariantCulture) : "mkt")}"
-            : leg.Id;
+            ? BuildFallbackOrderReference(symbol, leg.Size, leg.Price)
+            : leg.ReferenceId ?? ExtractReferenceIdFromCandidateId(leg.Id) ?? BuildFallbackOrderReference(symbol, leg.Size, leg.Price);
+        if (!orderId.StartsWith("order:", StringComparison.OrdinalIgnoreCase))
+        {
+            orderId = $"order:{orderId}";
+        }
 
         var orderCandidate = new AvailableLegCandidate(
-            Id: $"order:{orderId}",
+            Id: orderId,
             Kind: AvailableLegSourceKind.Order,
             Symbol: symbol,
             Type: leg.Type,
@@ -610,7 +643,79 @@ public sealed class LegsCollectionViewModel : IDisposable
             .ToList();
     }
 
-    public async Task AddBybitPositionsToCollectionAsync(IReadOnlyList<BybitPosition> positions)
+    private static bool IsPositionStillActiveInCache(LegModel leg, IReadOnlyList<ExchangePosition>? positions)
+    {
+        if (positions is null || positions.Count == 0 || string.IsNullOrWhiteSpace(leg.Symbol))
+        {
+            return false;
+        }
+
+        var symbol = leg.Symbol.Trim();
+        var legSide = Math.Sign(leg.Size);
+
+        foreach (var position in positions)
+        {
+            if (string.IsNullOrWhiteSpace(position.Symbol))
+            {
+                continue;
+            }
+
+            if (!string.Equals(position.Symbol.Trim(), symbol, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var positionSide = Math.Sign(DetermineSignedSize(position));
+            if (legSide == 0 || positionSide == 0 || positionSide == legSide)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsOrderStillOpenInCache(LegModel leg, IReadOnlyList<ExchangeOrder>? orders)
+    {
+        if (orders is null || orders.Count == 0 || string.IsNullOrWhiteSpace(leg.Symbol))
+        {
+            return false;
+        }
+
+        var legReferenceId = ExtractReferenceIdFromCandidateId(leg.ReferenceId)
+            ?? ExtractReferenceIdFromCandidateId(leg.Id);
+
+        foreach (var order in orders)
+        {
+            var orderReferenceId = BuildOrderReferenceId(order);
+            if (!string.IsNullOrWhiteSpace(legReferenceId)
+                && string.Equals(orderReferenceId, legReferenceId, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (!string.Equals(order.Symbol?.Trim(), leg.Symbol.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (Math.Sign(DetermineSignedSize(order)) != Math.Sign(leg.Size))
+            {
+                continue;
+            }
+
+            if (order.Qty != 0 && Math.Abs(Math.Abs(order.Qty) - Math.Abs(leg.Size)) > 0.0001m)
+            {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    public async Task AddBybitPositionsToCollectionAsync(IReadOnlyList<ExchangePosition> positions)
     {
         if (positions.Count == 0)
         {
@@ -663,7 +768,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         await UpdateExchangeMissingFlagsAsync(positions);
     }
 
-    internal LegModel? CreateLegFromBybitPosition(BybitPosition position, string baseAsset, string category)
+    internal LegModel? CreateLegFromBybitPosition(ExchangePosition position, string baseAsset, string category)
     {
         if (string.IsNullOrWhiteSpace(position.Symbol))
         {
@@ -714,6 +819,7 @@ public sealed class LegsCollectionViewModel : IDisposable
 
         return new LegModel
         {
+            ReferenceId = BuildPositionReferenceId(position.Symbol, size),
             IsReadOnly = true,
             Type = type,
             Strike = strike,
@@ -773,6 +879,8 @@ public sealed class LegsCollectionViewModel : IDisposable
 
         return new LegModel
         {
+            Id = BuildOrderCandidateId(order),
+            ReferenceId = BuildOrderReferenceId(order),
             IsReadOnly = true,
             IsIncluded = false,
             Status = LegStatus.Order,
@@ -784,6 +892,330 @@ public sealed class LegsCollectionViewModel : IDisposable
             ImpliedVolatility = null,
             Symbol = order.Symbol
         };
+    }
+
+    private bool SyncOrderLegsWithSnapshot(
+        IReadOnlyList<ExchangeOrder> orders,
+        IReadOnlyList<ExchangePosition> positions,
+        string baseAsset)
+    {
+        var changed = false;
+        var openOrderLegs = new Dictionary<string, LegModel>(StringComparer.OrdinalIgnoreCase);
+        foreach (var order in orders)
+        {
+            var orderLeg = CreateLegFromExchangeOrder(order, baseAsset);
+            if (orderLeg is null)
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(orderLeg.ReferenceId))
+            {
+                openOrderLegs[orderLeg.ReferenceId!] = orderLeg;
+            }
+        }
+
+        var openPositionLegs = new List<LegModel>();
+        foreach (var position in positions)
+        {
+            var positionLeg = CreateLegFromBybitPosition(position, baseAsset, position.Category);
+            if (positionLeg is not null)
+            {
+                openPositionLegs.Add(positionLeg);
+            }
+        }
+
+        var existingOrderLegs = Collection.Legs
+            .Where(leg => leg.Status == LegStatus.Order)
+            .ToList();
+
+        foreach (var existing in existingOrderLegs)
+        {
+            var referenceId = existing.ReferenceId
+                ?? ExtractReferenceIdFromCandidateId(existing.Id)
+                ?? BuildFallbackOrderReference(existing.Symbol, existing.Size, existing.Price);
+            existing.ReferenceId = referenceId;
+
+            if (!openOrderLegs.TryGetValue(referenceId, out var snapshotLeg))
+            {
+                if (TryConvertExecutedOrderToActive(existing, openPositionLegs))
+                {
+                    changed = true;
+                }
+                else
+                {
+                    Collection.Legs.Remove(existing);
+                    RemoveLegViewModel(existing);
+                    changed = true;
+                }
+
+                continue;
+            }
+
+            changed |= ApplyOrderLegSnapshot(existing, snapshotLeg);
+            openOrderLegs.Remove(referenceId);
+        }
+
+        return changed;
+    }
+
+    private static bool ApplyOrderLegSnapshot(LegModel target, LegModel snapshot)
+    {
+        var changed = false;
+        if (target.Type != snapshot.Type)
+        {
+            target.Type = snapshot.Type;
+            changed = true;
+        }
+
+        if (target.Strike != snapshot.Strike)
+        {
+            target.Strike = snapshot.Strike;
+            changed = true;
+        }
+
+        if (target.ExpirationDate != snapshot.ExpirationDate)
+        {
+            target.ExpirationDate = snapshot.ExpirationDate;
+            changed = true;
+        }
+
+        if (target.Size != snapshot.Size)
+        {
+            target.Size = snapshot.Size;
+            changed = true;
+        }
+
+        if (target.Price != snapshot.Price)
+        {
+            target.Price = snapshot.Price;
+            changed = true;
+        }
+
+        if (!string.Equals(target.Symbol, snapshot.Symbol, StringComparison.OrdinalIgnoreCase))
+        {
+            target.Symbol = snapshot.Symbol;
+            changed = true;
+        }
+
+        if (!target.IsReadOnly)
+        {
+            target.IsReadOnly = true;
+            changed = true;
+        }
+
+        if (target.IsIncluded)
+        {
+            target.IsIncluded = false;
+            changed = true;
+        }
+
+        if (target.Status != LegStatus.Order)
+        {
+            target.Status = LegStatus.Order;
+            changed = true;
+        }
+
+        if (!string.Equals(target.ReferenceId, snapshot.ReferenceId, StringComparison.OrdinalIgnoreCase))
+        {
+            target.ReferenceId = snapshot.ReferenceId;
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private bool TryConvertExecutedOrderToActive(LegModel orderLeg, IReadOnlyList<LegModel> openPositionLegs)
+    {
+        var matchedPositionLeg = openPositionLegs.FirstOrDefault(positionLeg =>
+            string.Equals(positionLeg.Symbol, orderLeg.Symbol, StringComparison.OrdinalIgnoreCase)
+            && Math.Sign(positionLeg.Size) == Math.Sign(orderLeg.Size)
+            && positionLeg.Type == orderLeg.Type
+            && positionLeg.ExpirationDate?.Date == orderLeg.ExpirationDate?.Date
+            && positionLeg.Strike == orderLeg.Strike);
+
+        if (matchedPositionLeg is null)
+        {
+            return false;
+        }
+
+        if (Collection.Legs.Any(existing =>
+                !ReferenceEquals(existing, orderLeg)
+                && existing.IsReadOnly
+                && existing.Status != LegStatus.Order
+                && string.Equals(existing.Symbol, matchedPositionLeg.Symbol, StringComparison.OrdinalIgnoreCase)
+                && Math.Sign(existing.Size) == Math.Sign(matchedPositionLeg.Size)))
+        {
+            Collection.Legs.Remove(orderLeg);
+            RemoveLegViewModel(orderLeg);
+            return true;
+        }
+
+        ApplyActiveLegSnapshot(orderLeg, matchedPositionLeg);
+        return true;
+    }
+
+    private static void ApplyActiveLegSnapshot(LegModel target, LegModel snapshot)
+    {
+        target.Status = LegStatus.Active;
+        target.IsReadOnly = true;
+        target.IsIncluded = true;
+        target.Type = snapshot.Type;
+        target.Strike = snapshot.Strike;
+        target.ExpirationDate = snapshot.ExpirationDate;
+        target.Size = snapshot.Size;
+        target.Price = snapshot.Price;
+        target.Symbol = snapshot.Symbol;
+        target.ReferenceId = snapshot.ReferenceId;
+
+        if (target.Id.StartsWith("order:", StringComparison.OrdinalIgnoreCase))
+        {
+            target.Id = Guid.NewGuid().ToString("N");
+        }
+    }
+
+    private List<AvailableLegCandidate> BuildAvailableCandidates(
+        IReadOnlyList<ExchangePosition> positions,
+        IReadOnlyList<ExchangeOrder> orders,
+        string baseAsset)
+    {
+        var candidates = new List<AvailableLegCandidate>();
+        var knownPositionSymbols = new HashSet<string>(
+            Collection.Legs
+                .Where(leg => leg.Status != LegStatus.Order)
+                .Select(leg => leg.Symbol)
+                .Where(symbol => !string.IsNullOrWhiteSpace(symbol))
+                .Select(symbol => symbol!.Trim()),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var position in positions)
+        {
+            var leg = CreateLegFromBybitPosition(position, baseAsset, position.Category);
+            if (leg is null || string.IsNullOrWhiteSpace(leg.Symbol))
+            {
+                continue;
+            }
+
+            var symbol = leg.Symbol.Trim();
+            if (!knownPositionSymbols.Add(symbol))
+            {
+                continue;
+            }
+
+            candidates.Add(new AvailableLegCandidate(
+                Id: $"position:{symbol}:{Math.Sign(leg.Size)}",
+                Kind: AvailableLegSourceKind.Position,
+                Symbol: symbol,
+                Type: leg.Type,
+                Size: leg.Size,
+                Price: leg.Price,
+                ExpirationDate: leg.ExpirationDate,
+                Strike: leg.Strike));
+        }
+
+        foreach (var order in orders)
+        {
+            var leg = CreateLegFromExchangeOrder(order, baseAsset);
+            if (leg is null || string.IsNullOrWhiteSpace(leg.Symbol))
+            {
+                continue;
+            }
+
+            if (Collection.Legs.Any(item => item.Status == LegStatus.Order && string.Equals(item.Id, leg.Id, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            candidates.Add(new AvailableLegCandidate(
+                Id: leg.Id,
+                Kind: AvailableLegSourceKind.Order,
+                Symbol: leg.Symbol.Trim(),
+                Type: leg.Type,
+                Size: leg.Size,
+                Price: leg.Price,
+                ExpirationDate: leg.ExpirationDate,
+                Strike: leg.Strike));
+        }
+
+        return candidates
+            .OrderBy(item => item.Kind)
+            .ThenBy(item => item.Symbol, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static bool AreSameCandidates(IReadOnlyList<AvailableLegCandidate> left, IReadOnlyList<AvailableLegCandidate> right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return true;
+        }
+
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < left.Count; i++)
+        {
+            var l = left[i];
+            var r = right[i];
+            if (!string.Equals(l.Id, r.Id, StringComparison.Ordinal)
+                || l.Kind != r.Kind
+                || !string.Equals(l.Symbol, r.Symbol, StringComparison.OrdinalIgnoreCase)
+                || l.Type != r.Type
+                || l.Size != r.Size
+                || l.Price != r.Price
+                || l.ExpirationDate != r.ExpirationDate
+                || l.Strike != r.Strike)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static string BuildOrderCandidateId(ExchangeOrder order)
+    {
+        return $"order:{BuildOrderReferenceId(order)}";
+    }
+
+    private static string BuildOrderReferenceId(ExchangeOrder order)
+    {
+        if (!string.IsNullOrWhiteSpace(order.OrderId))
+        {
+            return order.OrderId.Trim();
+        }
+
+        return BuildFallbackOrderReference(order.Symbol, DetermineSignedSize(order), order.Price);
+    }
+
+    private static string BuildPositionReferenceId(string? symbol, decimal size)
+    {
+        var normalizedSymbol = string.IsNullOrWhiteSpace(symbol) ? string.Empty : symbol.Trim().ToUpperInvariant();
+        return $"position:{normalizedSymbol}:{Math.Sign(size)}";
+    }
+
+    private static string BuildFallbackOrderReference(string? symbol, decimal size, decimal? price)
+    {
+        var normalizedSymbol = string.IsNullOrWhiteSpace(symbol) ? string.Empty : symbol.Trim().ToUpperInvariant();
+        var side = Math.Sign(size).ToString(CultureInfo.InvariantCulture);
+        var qty = Math.Abs(size).ToString("0.########", CultureInfo.InvariantCulture);
+        var normalizedPrice = price.HasValue ? price.Value.ToString("0.########", CultureInfo.InvariantCulture) : "mkt";
+        return $"{normalizedSymbol}:{side}:{qty}:{normalizedPrice}";
+    }
+
+    private static string? ExtractReferenceIdFromCandidateId(string? id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return null;
+        }
+
+        var value = id.Trim();
+        return value.StartsWith("order:", StringComparison.OrdinalIgnoreCase)
+            ? value.Substring("order:".Length)
+            : value;
     }
 
 
@@ -813,7 +1245,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         return DateTime.TryParseExact(match.Groups[1].Value, format, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out expiration);
     }
 
-    private static decimal DetermineSignedSize(BybitPosition position)
+    private static decimal DetermineSignedSize(ExchangePosition position)
     {
         var magnitude = Math.Abs(position.Size);
         if (magnitude < 0.0001m)
@@ -897,6 +1329,7 @@ public sealed class LegsCollectionViewModel : IDisposable
             return;
         }
 
+        await AddMissingLegToClosedPositionsIfNeededAsync(leg);
         Collection.Legs.Remove(leg);
         RemoveLegViewModel(leg);
         AddAvailableCandidateFromRemovedLeg(leg);
@@ -904,6 +1337,31 @@ public sealed class LegsCollectionViewModel : IDisposable
         await RaiseUpdatedAsync(LegsCollectionUpdateKind.CollectionChanged);
         await RaiseLegRemovedAsync(leg);
         await RaiseUpdatedAsync(LegsCollectionUpdateKind.ViewModelDataUpdated);
+    }
+
+    private async Task AddMissingLegToClosedPositionsIfNeededAsync(LegModel leg)
+    {
+        if (Position?.ClosedPositions is null
+            || leg.Status != LegStatus.Missing
+            || string.IsNullOrWhiteSpace(leg.Symbol))
+        {
+            return;
+        }
+
+        var symbol = leg.Symbol.Trim();
+        var alreadyTracked = Position.ClosedPositions.ClosedPositions.Any(item =>
+            string.Equals(item.Model.Symbol, symbol, StringComparison.OrdinalIgnoreCase));
+        if (alreadyTracked)
+        {
+            return;
+        }
+
+        Position.ClosedPositions.SetAddSymbolInput(new[] { symbol });
+        await Position.ClosedPositions.AddSymbolAsync();
+
+        _notifyUserService.NotifyUser(
+            $"Added {symbol.ToUpperInvariant()} to closed positions because the removed leg was missing on exchange.",
+            visibleMilliseconds: 3000);
     }
 
 
@@ -1143,7 +1601,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         await UpdateExchangeMissingFlagsAsync(positions);
     }
 
-    public async Task UpdateExchangeMissingFlagsAsync(IReadOnlyList<BybitPosition> positions)
+    public async Task UpdateExchangeMissingFlagsAsync(IReadOnlyList<ExchangePosition> positions)
     {
         var hasChanges = false;
         var lookup = positions

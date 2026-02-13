@@ -14,11 +14,20 @@ public sealed class NotifyUserService : INotifyUserService
 
     public void NotifyUser(string message)
     {
+        NotifyUser(message, visibleMilliseconds: 5000);
+    }
+
+    public void NotifyUser(string message, int visibleMilliseconds)
+    {
         if (string.IsNullOrWhiteSpace(message))
         {
             return;
         }
 
-        _snackbar.Add(message, Severity.Warning);
+        var duration = visibleMilliseconds > 0 ? visibleMilliseconds : 5000;
+        _snackbar.Add(
+            message,
+            Severity.Warning,
+            configure => configure.VisibleStateDuration = duration);
     }
 }

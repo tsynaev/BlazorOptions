@@ -1,6 +1,6 @@
 using System.Collections.ObjectModel;
 
-namespace BlazorOptions.ViewModels;
+namespace BlazorOptions.API.Positions;
 
 public class LegsCollectionModel
 {

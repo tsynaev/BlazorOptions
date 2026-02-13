@@ -8,24 +8,20 @@ using Microsoft.Extensions.Options;
 
 namespace BlazorOptions.Services;
 
-public sealed class ActivePositionsService : IActivePositionsService
+public sealed class ActiveOrdersService : IOrdersService, IAsyncDisposable
 {
-    private const string StorageKey = "blazor-options-bybit-active-positions";
     private static readonly Uri BybitPrivateWebSocketUrl = new("wss://stream.bybit.com/v5/private");
-
     private static readonly TimeSpan ReconnectDelay = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(20);
 
-    private readonly ILocalStorageService _localStorageService;
-    private readonly BybitPositionService _bybitPositionService;
+    private readonly BybitOrderService _bybitOrderService;
     private readonly IOptions<BybitSettings> _bybitSettingsOptions;
     private readonly JsonSerializerOptions _serializerOptions = new(JsonSerializerDefaults.Web);
     private readonly SemaphoreSlim _sync = new(1, 1);
     private readonly SemaphoreSlim _snapshotLock = new(1, 1);
     private readonly object _subscriberLock = new();
-    private readonly List<Func<IReadOnlyList<ExchangePosition>, Task>> _subscribers = new();
-    private readonly List<ExchangePosition> _positions = new();
-    private readonly BybitPositionComparer _comparer = new();
+    private readonly List<Func<IReadOnlyList<ExchangeOrder>, Task>> _subscribers = new();
+    private readonly List<ExchangeOrder> _orders = new();
     private ClientWebSocket? _socket;
     private CancellationTokenSource? _socketCts;
     private Task? _socketTask;
@@ -33,18 +29,65 @@ public sealed class ActivePositionsService : IActivePositionsService
     private bool _isInitialized;
     private Task _snapshotTask = Task.CompletedTask;
 
- 
-
-    public ActivePositionsService(
-        ILocalStorageService localStorageService,
-        BybitPositionService bybitPositionService,
+    public ActiveOrdersService(
+        BybitOrderService bybitOrderService,
         IOptions<BybitSettings> bybitSettingsOptions)
     {
-        _localStorageService = localStorageService;
-        _bybitPositionService = bybitPositionService;
+        _bybitOrderService = bybitOrderService;
         _bybitSettingsOptions = bybitSettingsOptions;
     }
 
+    public async Task<IReadOnlyList<ExchangeOrder>> GetOpenOrdersAsync(CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync();
+        await _snapshotTask;
+
+        await _sync.WaitAsync(cancellationToken);
+        try
+        {
+            return _orders.ToArray();
+        }
+        finally
+        {
+            _sync.Release();
+        }
+    }
+
+    public async ValueTask<IDisposable> SubscribeAsync(
+        Func<IReadOnlyList<ExchangeOrder>, Task> handler,
+        CancellationToken cancellationToken = default)
+    {
+        if (handler is null)
+        {
+            return new SubscriptionRegistration(() => { });
+        }
+
+        lock (_subscriberLock)
+        {
+            _subscribers.Add(handler);
+        }
+
+        await EnsureInitializedAsync();
+        await _snapshotTask;
+
+        ExchangeOrder[] snapshot;
+        await _sync.WaitAsync(cancellationToken);
+        try
+        {
+            snapshot = _orders.ToArray();
+        }
+        finally
+        {
+            _sync.Release();
+        }
+
+        if (snapshot.Length > 0 && !cancellationToken.IsCancellationRequested)
+        {
+            await handler.Invoke(snapshot);
+        }
+
+        return new SubscriptionRegistration(() => Unsubscribe(handler));
+    }
 
     private async Task EnsureInitializedAsync()
     {
@@ -54,28 +97,15 @@ public sealed class ActivePositionsService : IActivePositionsService
         }
 
         _isInitialized = true;
-        await LoadFromStorageAsync();
-
         if (!HasApiCredentials())
         {
             _snapshotTask = Task.CompletedTask;
             return;
         }
 
+        _snapshotTask = LoadSnapshotOnceAsync();
         _socketCts = new CancellationTokenSource();
         _socketTask = RunSocketLoopAsync(_socketCts.Token);
-    }
-
- 
-    private Task EnsureSnapshotAsync()
-    {
-        if (!_snapshotTask.IsCompleted)
-        {
-            return _snapshotTask;
-        }
-
-        _snapshotTask = LoadSnapshotOnceAsync();
-        return _snapshotTask;
     }
 
     private async Task LoadSnapshotOnceAsync()
@@ -83,7 +113,13 @@ public sealed class ActivePositionsService : IActivePositionsService
         await _snapshotLock.WaitAsync();
         try
         {
-            await ReloadFromExchangeAsync();
+            if (!HasApiCredentials())
+            {
+                return;
+            }
+
+            var orders = await _bybitOrderService.GetOpenOrdersAsync();
+            await UpdateSnapshotAsync(orders);
         }
         finally
         {
@@ -91,85 +127,13 @@ public sealed class ActivePositionsService : IActivePositionsService
         }
     }
 
-    private async Task ReloadFromExchangeAsync()
-    {
-        try
-        {
-            if (!HasApiCredentials())
-            {
-                return;
-            }
-
-            var allPositions = new List<ExchangePosition>();
-
-
-            var positions = await _bybitPositionService.GetPositionsAsync();
-            allPositions.AddRange(positions);
-
-  
-            await UpdateSnapshotAsync(allPositions);
-        }
-        catch (Exception ex)
-        {
-            _ = ex;
-        }
-    }
-
-    private async Task LoadFromStorageAsync()
-    {
-        try
-        {
-            var stored = await _localStorageService.GetItemAsync(StorageKey);
-            if (string.IsNullOrWhiteSpace(stored))
-            {
-                return;
-            }
-
-            var positions = JsonSerializer.Deserialize<List<ExchangePosition>>(stored, _serializerOptions);
-            if (positions is null)
-            {
-                return;
-            }
-
-            await UpdateSnapshotAsync(positions);
-        }
-        catch
-        {
-        }
-    }
-
-    private async Task PersistAsync()
-    {
-        var payload = JsonSerializer.Serialize(_positions, _serializerOptions);
-        await _localStorageService.SetItemAsync(StorageKey, payload);
-    }
-
-    private async Task UpdateSnapshotAsync(IReadOnlyList<ExchangePosition> positions)
+    private async Task UpdateSnapshotAsync(IReadOnlyList<ExchangeOrder> orders)
     {
         await _sync.WaitAsync();
         try
         {
-            var incoming = positions.Where(position => Math.Abs(position.Size) >= 0.0001m).ToList();
-            var incomingSet = new HashSet<ExchangePosition>(incoming, _comparer);
-
-            _positions.RemoveAll(existing => !incomingSet.Contains(existing));
-
-            foreach (var position in incoming)
-            {
-                var index = _positions.FindIndex(existing => _comparer.Equals(existing, position));
-                if (index >= 0)
-                {
-                    _positions[index] = position;
-                }
-                else
-                {
-                    _positions.Add(position);
-                }
-            }
-
-
-            await PersistAsync();
-
+            _orders.Clear();
+            _orders.AddRange(orders.Where(IsOpenOrderStatus));
         }
         finally
         {
@@ -192,9 +156,9 @@ public sealed class ActivePositionsService : IActivePositionsService
             {
                 return;
             }
-            catch (Exception ex)
+            catch
             {
-                _ = ex;
+                // ignore and reconnect
             }
             finally
             {
@@ -225,8 +189,7 @@ public sealed class ActivePositionsService : IActivePositionsService
         _socket = new ClientWebSocket();
         await _socket.ConnectAsync(BybitPrivateWebSocketUrl, cancellationToken);
         await AuthenticateAsync(settings, cancellationToken);
-        await SubscribePositionsAsync(cancellationToken);
-        await EnsureSnapshotAsync();
+        await SubscribeOrdersAsync(cancellationToken);
         _heartbeatTask = SendHeartbeatLoopAsync(cancellationToken);
     }
 
@@ -243,12 +206,12 @@ public sealed class ActivePositionsService : IActivePositionsService
         await SendAsync(payload, cancellationToken);
     }
 
-    private async Task SubscribePositionsAsync(CancellationToken cancellationToken)
+    private async Task SubscribeOrdersAsync(CancellationToken cancellationToken)
     {
         var payload = new
         {
             op = "subscribe",
-            args = new[] { "position" }
+            args = new[] { "order" }
         };
 
         await SendAsync(payload, cancellationToken);
@@ -328,7 +291,7 @@ public sealed class ActivePositionsService : IActivePositionsService
             }
 
             var topic = topicElement.GetString();
-            if (!string.Equals(topic, "position", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(topic, "order", StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }
@@ -340,57 +303,68 @@ public sealed class ActivePositionsService : IActivePositionsService
 
             foreach (var entry in dataElement.EnumerateArray())
             {
-                if (!TryReadString(entry, "symbol", out var symbol))
+                var update = ReadOrder(entry);
+                if (update is null)
                 {
                     continue;
                 }
 
-                TryReadString(entry, "side", out var side);
-                TryReadString(entry, "category", out var category);
-                var size = ReadDecimal(entry, "size");
-                var avgPrice = ReadDecimal(entry, "avgPrice");
-                if (avgPrice <= 0)
-                {
-                    avgPrice = ReadDecimal(entry, "entryPrice");
-                }
-
-                if (string.IsNullOrWhiteSpace(category))
-                {
-                    category = "linear";
-                }
-
-                var update = new ExchangePosition(symbol, side, category, size, avgPrice);
                 _ = ApplyUpdateAsync(update);
             }
         }
         catch
         {
+            // ignore malformed payloads
         }
     }
 
-    private async Task ApplyUpdateAsync(ExchangePosition update)
+    private static ExchangeOrder? ReadOrder(JsonElement entry)
+    {
+        if (!TryReadString(entry, "symbol", out var symbol))
+        {
+            return null;
+        }
+
+        TryReadString(entry, "orderId", out var orderId);
+        TryReadString(entry, "side", out var side);
+        TryReadString(entry, "category", out var category);
+        TryReadString(entry, "orderType", out var orderType);
+        TryReadString(entry, "orderStatus", out var orderStatus);
+
+        var qty = ReadDecimal(entry, "qty");
+        if (qty == 0)
+        {
+            qty = ReadDecimal(entry, "leavesQty");
+        }
+
+        var price = ReadNullableDecimal(entry, "price")
+            ?? ReadNullableDecimal(entry, "avgPrice")
+            ?? ReadNullableDecimal(entry, "triggerPrice");
+
+        return new ExchangeOrder(orderId, symbol, side, category, orderType, orderStatus, qty, price);
+    }
+
+    private async Task ApplyUpdateAsync(ExchangeOrder update)
     {
         await _sync.WaitAsync();
         try
         {
-            var index = _positions.FindIndex(existing => _comparer.Equals(existing, update));
-            if (Math.Abs(update.Size) < 0.0001m)
+            var index = _orders.FindIndex(order => string.Equals(order.OrderId, update.OrderId, StringComparison.OrdinalIgnoreCase));
+            if (!IsOpenOrderStatus(update))
             {
                 if (index >= 0)
                 {
-                    _positions.RemoveAt(index);
+                    _orders.RemoveAt(index);
                 }
             }
             else if (index >= 0)
             {
-                _positions[index] = update;
+                _orders[index] = update;
             }
             else
             {
-                _positions.Add(update);
+                _orders.Add(update);
             }
-
-            await PersistAsync();
         }
         finally
         {
@@ -412,8 +386,7 @@ public sealed class ActivePositionsService : IActivePositionsService
                     return;
                 }
 
-                var payload = new { op = "ping" };
-                await SendAsync(payload, cancellationToken);
+                await SendAsync(new { op = "ping" }, cancellationToken);
             }
             catch (OperationCanceledException)
             {
@@ -438,6 +411,7 @@ public sealed class ActivePositionsService : IActivePositionsService
         }
         catch
         {
+            // ignore socket close failures
         }
         finally
         {
@@ -467,10 +441,21 @@ public sealed class ActivePositionsService : IActivePositionsService
         return !string.IsNullOrWhiteSpace(settings.ApiKey) && !string.IsNullOrWhiteSpace(settings.ApiSecret);
     }
 
+    private static bool IsOpenOrderStatus(ExchangeOrder order)
+    {
+        return IsOpenOrderStatus(order.OrderStatus);
+    }
+
+    private static bool IsOpenOrderStatus(string status)
+    {
+        return status.Equals("New", StringComparison.OrdinalIgnoreCase)
+            || status.Equals("PartiallyFilled", StringComparison.OrdinalIgnoreCase)
+            || status.Equals("Untriggered", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool TryReadString(JsonElement element, string propertyName, out string value)
     {
         value = string.Empty;
-
         if (!element.TryGetProperty(propertyName, out var property))
         {
             return false;
@@ -489,32 +474,85 @@ public sealed class ActivePositionsService : IActivePositionsService
     {
         if (!element.TryGetProperty(propertyName, out var property))
         {
-            return 0;
+            return 0m;
         }
 
-        switch (property.ValueKind)
+        if (property.ValueKind == JsonValueKind.Number && property.TryGetDecimal(out var numeric))
         {
-            case JsonValueKind.Number when property.TryGetDecimal(out var value):
-                return value;
-            case JsonValueKind.String:
-                var raw = property.GetString();
-                if (decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
-                {
-                    return parsed;
-                }
+            return numeric;
+        }
 
-                break;
+        var raw = property.ValueKind == JsonValueKind.String
+            ? property.GetString()
+            : property.GetRawText();
+
+        return decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : 0m;
+    }
+
+    private static decimal? ReadNullableDecimal(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var property))
+        {
+            return null;
         }
 
         if (property.ValueKind == JsonValueKind.Null)
         {
-            return 0;
+            return null;
         }
 
-        var trimmed = property.GetRawText();
-        return decimal.TryParse(trimmed, NumberStyles.Any, CultureInfo.InvariantCulture, out var fallback)
-            ? fallback
-            : 0;
+        if (property.ValueKind == JsonValueKind.Number && property.TryGetDecimal(out var numeric))
+        {
+            return numeric;
+        }
+
+        var raw = property.ValueKind == JsonValueKind.String
+            ? property.GetString()
+            : property.GetRawText();
+
+        return decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
+    }
+
+    private void Unsubscribe(Func<IReadOnlyList<ExchangeOrder>, Task> handler)
+    {
+        lock (_subscriberLock)
+        {
+            _subscribers.Remove(handler);
+        }
+    }
+
+    private async Task NotifySubscribersAsync()
+    {
+        Func<IReadOnlyList<ExchangeOrder>, Task>[] handlers;
+        lock (_subscriberLock)
+        {
+            handlers = _subscribers.ToArray();
+        }
+
+        if (handlers.Length == 0)
+        {
+            return;
+        }
+
+        ExchangeOrder[] snapshot;
+        await _sync.WaitAsync();
+        try
+        {
+            snapshot = _orders.ToArray();
+        }
+        finally
+        {
+            _sync.Release();
+        }
+
+        foreach (var handler in handlers)
+        {
+            await handler.Invoke(snapshot);
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -528,6 +566,7 @@ public sealed class ActivePositionsService : IActivePositionsService
             }
             catch
             {
+                // ignore
             }
         }
 
@@ -536,89 +575,5 @@ public sealed class ActivePositionsService : IActivePositionsService
         _socketTask = null;
         _heartbeatTask = null;
         await CloseSocketAsync();
-    }
-
-    public async ValueTask<IDisposable> SubscribeAsync(
-        Func<IReadOnlyList<ExchangePosition>, Task> handler,
-        CancellationToken cancellationToken = default)
-    {
-        if (handler is null)
-        {
-            return new SubscriptionRegistration(() => { });
-        }
-
-        lock (_subscriberLock)
-        {
-            _subscribers.Add(handler);
-        }
-
-        await EnsureInitializedAsync();
-
-        var snapshot = _positions.ToArray();
-        if (snapshot.Length > 0 && !cancellationToken.IsCancellationRequested)
-        {
-            await handler.Invoke(snapshot);
-        }
-
-        return new SubscriptionRegistration(() => Unsubscribe(handler));
-    }
-
-    private sealed class BybitPositionComparer : IEqualityComparer<ExchangePosition>
-    {
-        public bool Equals(ExchangePosition? x, ExchangePosition? y)
-        {
-            if (x is null || y is null)
-            {
-                return false;
-            }
-
-            return string.Equals(x.Symbol, y.Symbol, StringComparison.OrdinalIgnoreCase)
-                   && string.Equals(x.Category, y.Category, StringComparison.OrdinalIgnoreCase)
-                   && string.Equals(x.Side, y.Side, StringComparison.OrdinalIgnoreCase);
-        }
-
-        public int GetHashCode(ExchangePosition obj)
-        {
-            return HashCode.Combine(
-                obj.Symbol?.ToUpperInvariant(),
-                obj.Category?.ToUpperInvariant(),
-                obj.Side?.ToUpperInvariant());
-        }
-    }
-
-    public async Task<IEnumerable<ExchangePosition>> GetPositionsAsync()
-    {
-        await EnsureInitializedAsync();
-        await _snapshotTask;
-
-        return _positions;
-    }
-
-    private void Unsubscribe(Func<IReadOnlyList<ExchangePosition>, Task> handler)
-    {
-        lock (_subscriberLock)
-        {
-            _subscribers.Remove(handler);
-        }
-    }
-
-    private async Task NotifySubscribersAsync()
-    {
-        Func<IReadOnlyList<ExchangePosition>, Task>[] handlers;
-        lock (_subscriberLock)
-        {
-            handlers = _subscribers.ToArray();
-        }
-
-        if (handlers.Length == 0)
-        {
-            return;
-        }
-
-        var snapshot = _positions.ToArray();
-        foreach (var handler in handlers)
-        {
-            await handler.Invoke(snapshot);
-        }
     }
 }

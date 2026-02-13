@@ -109,7 +109,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
             return;
         }
 
-        foreach (var position in storedPositions.Select(PositionDtoMapper.ToModel))
+        foreach (var position in storedPositions)
         {
             NormalizeCollections(position);
             Positions.Add(position);
@@ -481,7 +481,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
                 continue;
             }
 
-            foreach (var orderLeg in collection.Legs.Where(item => item.Leg.Status == LegStatus.Order || (item.Leg.IsReadOnly && !item.Leg.IsIncluded)))
+            foreach (var orderLeg in collection.Legs.Where(item => item.Leg.Status == LegStatus.Order))
             {
                 if (!TryCreateOrderMarker(orderLeg, collection.Color, out var marker))
                 {
@@ -670,8 +670,7 @@ public class PositionBuilderViewModel : IAsyncDisposable
 
     private Task PersistPositionAsync(PositionModel position)
     {
-        var dto = PositionDtoMapper.ToDto(position);
-        return _positionsPort.SavePositionAsync(dto);
+        return _positionsPort.SavePositionAsync(position);
     }
 
     private PositionModel CreateDefaultPosition(string? name = null, string? baseAsset = null, string? quoteAsset = null, bool includeSampleLegs = true, IReadOnlyList<LegModel>? initialLegs = null)

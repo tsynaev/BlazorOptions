@@ -304,14 +304,15 @@ public sealed class LegViewModel : IDisposable
         return true;
     }
 
-    public bool Update(BybitPosition position)
+    public bool Update(ExchangePosition position)
     {
         if (position is null || string.IsNullOrWhiteSpace(position.Symbol))
         {
             return false;
         }
 
-        if (!Leg.IsReadOnly)
+        // Position stream must not mutate order legs.
+        if (!Leg.IsReadOnly || Leg.Status == LegStatus.Order)
         {
             return false;
         }
@@ -1053,7 +1054,7 @@ public sealed class LegViewModel : IDisposable
 
 
 
-    private static decimal DetermineSignedSize(BybitPosition position)
+    private static decimal DetermineSignedSize(ExchangePosition position)
     {
         var magnitude = Math.Abs(position.Size);
         if (magnitude < 0.0001m)

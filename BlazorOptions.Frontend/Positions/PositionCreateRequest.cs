@@ -6,5 +6,5 @@ public sealed record PositionCreateRequest(
     string Name,
     string BaseAsset,
     string QuoteAsset,
-    IReadOnlyList<BybitPosition> SelectedBybitPositions,
+    IReadOnlyList<ExchangePosition> SelectedBybitPositions,
     IReadOnlyList<LegModel> InitialLegs);

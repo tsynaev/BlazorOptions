@@ -150,6 +150,12 @@ export function setSelectedPrice(instanceId, priceOrNull) {
 
     instance.selectedPrice = priceOrNull;
     if (Number.isFinite(priceOrNull)) {
+        // Skip auto-centering until payoff series exists; otherwise ECharts can report a tiny default span.
+        if (!hasPayoffSeriesData(instance)) {
+            applyMarkers(instance);
+            return;
+        }
+
         const range = instance.currentRangeX ?? getVisibleRange(instance.chart, 'x', 0);
         if (range && Number.isFinite(range.min) && Number.isFinite(range.max)) {
             const span = range.max - range.min;
@@ -158,14 +164,33 @@ export function setSelectedPrice(instanceId, priceOrNull) {
                 const max = priceOrNull + span / 2;
                 instance.currentRangeX = { min, max };
                 instance.chart.setOption({ xAxis: { min, max } }, { notMerge: false, lazyUpdate: true });
-                const yRange = instance.currentRangeY ?? getVisibleRange(instance.chart, 'y', 0);
-                if (yRange && Number.isFinite(yRange.min) && Number.isFinite(yRange.max)) {
-                    instance.dotNetRef.invokeMethodAsync('OnRangeChanged', min, max, yRange.min, yRange.max);
-                }
             }
         }
     }
     applyMarkers(instance);
+}
+
+function hasPayoffSeriesData(instance) {
+    const series = instance?.lastOption?.series;
+    if (!Array.isArray(series)) {
+        return false;
+    }
+
+    for (const item of series) {
+        if (!item || typeof item.id !== 'string') {
+            continue;
+        }
+
+        if (!item.id.endsWith('-temp') && !item.id.endsWith('-expired')) {
+            continue;
+        }
+
+        if (Array.isArray(item.data) && item.data.length > 1) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 export function setMarkers(instanceId, markers) {

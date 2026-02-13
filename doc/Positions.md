@@ -17,6 +17,7 @@ The Positions feature lets you build, manage, and visualize option strategies an
 - Payoff chart updates for visible collections and selected valuation date.
 - Closed positions panel with per-symbol summaries (size, avg entry/close, close P&L, fee) and a "since" date filter (date + time).
 - Closed positions totals (P&L + fee) can be included in charts when enabled.
+- Toggling the closed-positions include checkbox immediately shifts chart strategies by closed `Net` P&L (`TotalClosePnl - TotalFee`) and persists the updated state.
 - Trades dialog for a symbol shows cumulative P&L starting from the chosen "since" date.
 
 ## View-model structure
@@ -38,6 +39,13 @@ The Positions feature lets you build, manage, and visualize option strategies an
 - When live is off, option ticker subscriptions are stopped and bid/ask display is hidden.
 - When live is off, mark price is calculated using Black-Scholes with option-chain IV and the latest underlying price.
 - Option chain updates use `OptionsChainService.SubscribeAsync` (no global events); multiple handlers supported.
+- Positions page subscribes to both active positions and open orders snapshots while open.
+- Open-order snapshots update order chips and existing order legs in-place; closed orders are removed from chips and order legs.
+- Each exchange-sourced leg stores a stable `ReferenceId` (order ID for orders, symbol+side key for positions) so realtime updates target the correct leg.
+- When an open order disappears and a matching exchange position appears, the leg is converted from `LegStatus.Order` to `LegStatus.Active` instead of being removed.
+- Active-position snapshots update position legs; when an active exchange position is fully closed, the leg is copied to closed positions and the existing read-only leg is kept, marked `Missing`, and excluded from payoff (`IsIncluded = false`).
+- Position legs and order legs are synchronized separately so active position legs do not get converted to `LegStatus.Order`.
+- Persisted legs are treated as orders only when their IDs use the `order:` prefix, which prevents legacy active legs from being misclassified after reload.
 
 ## Persistence
 - Positions are stored on the server via the positions API (no browser/local storage).
@@ -61,6 +69,7 @@ See `doc/LegParsing.md` for the full parsing rules, defaults, and UI preview beh
 - Switching positions now updates the route, preserves the previously opened chart after a refresh, and shows an error alert with recovery actions when someone navigates to a nonexistent position ID.
 - Chart recalculation now runs only when a leg field used in charting changes (include/type/strike/expiry/size/price/IV); other leg edits persist without forcing a chart refresh.
 - Chart data is regenerated using the user-adjusted axis range whenever the payoff chart range changes, and the last range is saved per position.
+- Auto-centering caused by selected-price updates is no longer persisted as user chart range, which prevents accidental tiny range saves during page initialization.
 - Payoff chart styling adapts to the current light/dark theme.
 - When there is no live or selected price, the payoff chart leaves the selected price marker unset (null).
 - Chart recalculation ignores pricing-context updates (live/selected price changes) to keep price selection responsive.
@@ -72,6 +81,8 @@ See `doc/LegParsing.md` for the full parsing rules, defaults, and UI preview beh
 - Futures legs now use exchange-provided expiration lists (including Perpetual) and no strike/IV inputs.
 - Futures expiration dates are fetched when the leg edit dialog opens, then reused from cache for subsequent edits.
 - Each leg collection shows available exchange positions and open orders as chips; clicking a chip adds it as a leg.
+- Removing a read-only leg adds it back to chips only if it is still present in cached subscription snapshots (no extra exchange request on remove).
+- Removing a leg with `LegStatus.Missing` automatically adds its symbol to closed positions if not already tracked, and shows a 3-second user notification.
 - Order chips are shown per exchange order (not collapsed by symbol), so multiple orders on one symbol remain selectable.
 - Legs created from open orders are added with `IsIncluded = false` and `LegStatus = Order`.
 - Order legs are rendered on the payoff chart as vertical markers for quick placement context.

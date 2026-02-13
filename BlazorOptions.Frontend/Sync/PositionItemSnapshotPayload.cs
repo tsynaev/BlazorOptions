@@ -1,4 +1,4 @@
-using BlazorOptions.ViewModels;
+using BlazorOptions.API.Positions;
 
 namespace BlazorOptions.Sync;
 

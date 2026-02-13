@@ -1,8 +1,8 @@
-using System;
 using System.Collections.ObjectModel;
+using BlazorOptions.API.Common;
 using BlazorChart.Models;
 
-namespace BlazorOptions.ViewModels;
+namespace BlazorOptions.API.Positions;
 
 public class PositionModel : Bindable
 {
@@ -64,7 +64,7 @@ public class PositionModel : Bindable
     }
 }
 
-public class ClosedModel: Bindable
+public class ClosedModel : Bindable
 {
     private bool _include;
     private ObservableCollection<ClosedPositionModel> _positions = new();
@@ -74,7 +74,7 @@ public class ClosedModel: Bindable
     public ObservableCollection<ClosedPositionModel> Positions
     {
         get => _positions;
-        init
+        set
         {
             SetField(ref _positions, value);
         }

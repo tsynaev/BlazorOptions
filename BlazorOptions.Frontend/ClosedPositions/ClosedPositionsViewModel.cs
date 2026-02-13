@@ -179,6 +179,19 @@ public sealed class ClosedPositionsViewModel: Bindable
         await RaiseUpdateCompleted();
     }
 
+    public async Task SetIncludeAsync(bool include)
+    {
+        if (Model.Include == include)
+        {
+            return;
+        }
+
+        Model.Include = include;
+        // Force immediate payoff refresh so chart offset follows closed net PnL toggle.
+        _positionBuilder.QueueChartUpdate();
+        await RaiseUpdateCompleted();
+    }
+
     internal ClosedPositionViewModel CreatePositionViewModel(ClosedPositionModel model)
     {
         var closedPosition =

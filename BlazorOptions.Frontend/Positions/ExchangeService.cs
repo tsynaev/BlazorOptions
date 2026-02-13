@@ -137,17 +137,24 @@ public sealed class ExchangeService : IExchangeService
         {
             return Task.FromResult<IReadOnlyList<ExchangeOrder>>(Array.Empty<ExchangeOrder>());
         }
+
+        public ValueTask<IDisposable> SubscribeAsync(
+            Func<IReadOnlyList<ExchangeOrder>, Task> handler,
+            CancellationToken cancellationToken = default)
+        {
+            return new ValueTask<IDisposable>(new SubscriptionRegistration(() => { }));
+        }
     }
 
     private sealed class NullPositionsService : IPositionsService
     {
-        public Task<IEnumerable<BybitPosition>> GetPositionsAsync()
+        public Task<IEnumerable<ExchangePosition>> GetPositionsAsync()
         {
-            return Task.FromResult<IEnumerable<BybitPosition>>(Array.Empty<BybitPosition>());
+            return Task.FromResult<IEnumerable<ExchangePosition>>(Array.Empty<ExchangePosition>());
         }
 
         public ValueTask<IDisposable> SubscribeAsync(
-            Func<IReadOnlyList<BybitPosition>, Task> handler,
+            Func<IReadOnlyList<ExchangePosition>, Task> handler,
             CancellationToken cancellationToken = default)
         {
             return new ValueTask<IDisposable>(new SubscriptionRegistration(() => { }));

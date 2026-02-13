@@ -38,6 +38,7 @@ public sealed class PositionViewModel : IDisposable
     private bool _isLive = false;
     private IDisposable? _tickerSubscription;
     private IDisposable? _positionsSubscription;
+    private IDisposable? _ordersSubscription;
     private string? _currentSymbol;
     private PositionModel _position = null!;
     private bool _suppressNotesPersist;
@@ -45,9 +46,11 @@ public sealed class PositionViewModel : IDisposable
     private CancellationTokenSource? _uiUpdateCts;
     private static readonly TimeSpan UiUpdateDebounce = TimeSpan.FromMilliseconds(120);
     private readonly object _exchangeSnapshotLock = new();
-    private Task<(IReadOnlyList<BybitPosition> Positions, IReadOnlyList<ExchangeOrder> Orders)>? _exchangeSnapshotTask;
+    private Task<(IReadOnlyList<ExchangePosition> Positions, IReadOnlyList<ExchangeOrder> Orders)>? _exchangeSnapshotTask;
     private DateTime _exchangeSnapshotUtc;
     private static readonly TimeSpan ExchangeSnapshotTtl = TimeSpan.FromSeconds(10);
+    private IReadOnlyList<ExchangePosition> _lastPositionsSnapshot = Array.Empty<ExchangePosition>();
+    private IReadOnlyList<ExchangeOrder> _lastOrdersSnapshot = Array.Empty<ExchangeOrder>();
 
     public PositionViewModel(
         PositionBuilderViewModel positionBuilder,
@@ -140,6 +143,7 @@ public sealed class PositionViewModel : IDisposable
 
         _ = EnsureLiveSubscriptionAsync();
         _positionsSubscription = await _exchangeService.Positions.SubscribeAsync(HandleActivePositionsSnapshot);
+        _ordersSubscription = await _exchangeService.Orders.SubscribeAsync(HandleOpenOrdersSnapshot);
 
         await ClosedPositions.InitializeAsync();
         await RefreshExchangeMissingFlagsAsync();
@@ -283,8 +287,7 @@ public sealed class PositionViewModel : IDisposable
         using var activity =
             ActivitySources.Telemetry.StartActivity($"{nameof(PositionViewModel)}.{nameof(PersistPositionAsync)}");
 
-        var dto = PositionDtoMapper.ToDto(Position);
-        await _positionsPort.SavePositionAsync(dto);
+        await _positionsPort.SavePositionAsync(Position);
     }
 
     private void HandlePositionPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -324,6 +327,8 @@ public sealed class PositionViewModel : IDisposable
         _ = StopTickerAsync();
         _positionsSubscription?.Dispose();
         _positionsSubscription = null;
+        _ordersSubscription?.Dispose();
+        _ordersSubscription = null;
         foreach (var collection in Collections)
         {
             if (collection is null)
@@ -336,17 +341,29 @@ public sealed class PositionViewModel : IDisposable
         }
     }
 
-    private async Task HandleActivePositionsSnapshot(IReadOnlyList<BybitPosition> positions)
+    private async Task HandleActivePositionsSnapshot(IReadOnlyList<ExchangePosition> positions)
     {
-        foreach (var position in positions)
+        _lastPositionsSnapshot = positions?.ToArray() ?? Array.Empty<ExchangePosition>();
+        UpdateCachedExchangeSnapshot(_lastPositionsSnapshot, _lastOrdersSnapshot);
+
+        foreach (var position in _lastPositionsSnapshot)
         {
             ApplyActivePositionUpdate(position);
         }
 
-        await UpdateExchangeMissingFlagsAsync(positions);
+        await MoveClosedExchangePositionsToClosedAsync(_lastPositionsSnapshot);
+        await ApplyExchangeSnapshotsToCollectionsAsync();
+        await UpdateExchangeMissingFlagsAsync(_lastPositionsSnapshot);
     }
 
-    private void ApplyActivePositionUpdate(BybitPosition position)
+    private async Task HandleOpenOrdersSnapshot(IReadOnlyList<ExchangeOrder> orders)
+    {
+        _lastOrdersSnapshot = orders?.ToArray() ?? Array.Empty<ExchangeOrder>();
+        UpdateCachedExchangeSnapshot(_lastPositionsSnapshot, _lastOrdersSnapshot);
+        await ApplyExchangeSnapshotsToCollectionsAsync();
+    }
+
+    private void ApplyActivePositionUpdate(ExchangePosition position)
     {
         if (position is null || string.IsNullOrWhiteSpace(position.Symbol))
         {
@@ -371,10 +388,14 @@ public sealed class PositionViewModel : IDisposable
     private async Task RefreshExchangeMissingFlagsAsync()
     {
         var snapshot = await GetExchangeSnapshotAsync(forceRefresh: true);
+        _lastPositionsSnapshot = snapshot.Positions.ToArray();
+        _lastOrdersSnapshot = snapshot.Orders.ToArray();
+        UpdateCachedExchangeSnapshot(_lastPositionsSnapshot, _lastOrdersSnapshot);
+        await ApplyExchangeSnapshotsToCollectionsAsync();
         await UpdateExchangeMissingFlagsAsync(snapshot.Positions);
     }
 
-    private async Task UpdateExchangeMissingFlagsAsync(IReadOnlyList<BybitPosition> positions)
+    private async Task UpdateExchangeMissingFlagsAsync(IReadOnlyList<ExchangePosition> positions)
     {
         if (Collections.Count == 0)
         {
@@ -385,7 +406,76 @@ public sealed class PositionViewModel : IDisposable
         await Task.WhenAll(tasks);
     }
 
-    internal Task<(IReadOnlyList<BybitPosition> Positions, IReadOnlyList<ExchangeOrder> Orders)> GetExchangeSnapshotAsync(bool forceRefresh = false)
+    private async Task ApplyExchangeSnapshotsToCollectionsAsync()
+    {
+        if (Collections.Count == 0)
+        {
+            return;
+        }
+
+        var positions = _lastPositionsSnapshot;
+        var orders = _lastOrdersSnapshot;
+        var tasks = Collections.Select(collection => collection.ApplyExchangeSnapshotsAsync(positions, orders));
+        await Task.WhenAll(tasks);
+    }
+
+    private async Task MoveClosedExchangePositionsToClosedAsync(IReadOnlyList<ExchangePosition> positions)
+    {
+        if (Collections.Count == 0 || ClosedPositions is null)
+        {
+            return;
+        }
+
+        var openKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var position in positions)
+        {
+            if (string.IsNullOrWhiteSpace(position.Symbol) || Math.Abs(position.Size) < 0.0001m)
+            {
+                continue;
+            }
+
+            openKeys.Add(BuildPositionKey(position.Symbol, DetermineSignedSize(position)));
+        }
+
+        var copiedSymbols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var collection in Collections)
+        {
+            var staleLegs = collection.Legs
+                .Where(leg =>
+                    leg.Leg.IsReadOnly
+                    && leg.Leg.Status != LegStatus.Order
+                    && !string.IsNullOrWhiteSpace(leg.Leg.Symbol)
+                    && !openKeys.Contains(BuildPositionKey(leg.Leg.Symbol!, leg.Leg.Size)))
+                .ToList();
+
+            foreach (var legViewModel in staleLegs)
+            {
+                var leg = legViewModel.Leg;
+                var alreadyArchived = leg.Status == LegStatus.Missing && !leg.IsIncluded;
+                if (!alreadyArchived && !string.IsNullOrWhiteSpace(leg.Symbol))
+                {
+                    copiedSymbols.Add(leg.Symbol.Trim());
+                }
+
+                if (leg.IsIncluded)
+                {
+                    leg.IsIncluded = false;
+                }
+
+                legViewModel.SetLegStatus(LegStatus.Missing, "Exchange position not found for this leg.");
+            }
+        }
+
+        if (copiedSymbols.Count == 0)
+        {
+            return;
+        }
+
+        ClosedPositions.SetAddSymbolInput(copiedSymbols);
+        await ClosedPositions.AddSymbolAsync();
+    }
+
+    internal Task<(IReadOnlyList<ExchangePosition> Positions, IReadOnlyList<ExchangeOrder> Orders)> GetExchangeSnapshotAsync(bool forceRefresh = false)
     {
         lock (_exchangeSnapshotLock)
         {
@@ -406,6 +496,11 @@ public sealed class PositionViewModel : IDisposable
             _exchangeSnapshotTask = FetchExchangeSnapshotAsync();
             return _exchangeSnapshotTask;
         }
+    }
+
+    internal (IReadOnlyList<ExchangePosition> Positions, IReadOnlyList<ExchangeOrder> Orders) GetCachedExchangeSnapshot()
+    {
+        return (_lastPositionsSnapshot, _lastOrdersSnapshot);
     }
 
 
@@ -608,20 +703,28 @@ public sealed class PositionViewModel : IDisposable
         }
     }
 
-    private async Task<(IReadOnlyList<BybitPosition> Positions, IReadOnlyList<ExchangeOrder> Orders)> FetchExchangeSnapshotAsync()
+    private async Task<(IReadOnlyList<ExchangePosition> Positions, IReadOnlyList<ExchangeOrder> Orders)> FetchExchangeSnapshotAsync()
     {
         var positionsTask = _exchangeService.Positions.GetPositionsAsync();
         var ordersTask = _exchangeService.Orders.GetOpenOrdersAsync();
         await Task.WhenAll(positionsTask, ordersTask);
 
-        var positions = positionsTask.Result?.ToList() ?? new List<BybitPosition>();
+        var positions = positionsTask.Result?.ToList() ?? new List<ExchangePosition>();
         var orders = ordersTask.Result?.ToList() ?? new List<ExchangeOrder>();
+        UpdateCachedExchangeSnapshot(positions, orders);
+
+        return (positions, orders);
+    }
+
+    private void UpdateCachedExchangeSnapshot(
+        IReadOnlyList<ExchangePosition> positions,
+        IReadOnlyList<ExchangeOrder> orders)
+    {
         lock (_exchangeSnapshotLock)
         {
             _exchangeSnapshotUtc = DateTime.UtcNow;
+            _exchangeSnapshotTask = Task.FromResult((positions, orders));
         }
-
-        return (positions, orders);
     }
 
     private void QueueUiStateChanged()
@@ -670,5 +773,32 @@ public sealed class PositionViewModel : IDisposable
             _uiUpdateCts.Dispose();
             _uiUpdateCts = null;
         }
+    }
+
+    private static string BuildPositionKey(string symbol, decimal size)
+    {
+        var side = Math.Sign(size);
+        return $"{symbol.Trim().ToUpperInvariant()}|{side}";
+    }
+
+    private static decimal DetermineSignedSize(ExchangePosition position)
+    {
+        var magnitude = Math.Abs(position.Size);
+        if (magnitude < 0.0001m)
+        {
+            return 0m;
+        }
+
+        if (!string.IsNullOrWhiteSpace(position.Side))
+        {
+            var normalized = position.Side.Trim();
+            if (string.Equals(normalized, "Sell", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(normalized, "Short", StringComparison.OrdinalIgnoreCase))
+            {
+                return -magnitude;
+            }
+        }
+
+        return magnitude;
     }
 }

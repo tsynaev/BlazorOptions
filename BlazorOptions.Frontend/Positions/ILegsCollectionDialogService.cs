@@ -9,7 +9,7 @@ public interface ILegsCollectionDialogService
         LegsCollectionModel collection,
         decimal? underlyingPrice);
 
-    Task<IReadOnlyList<BybitPosition>?> ShowBybitPositionsDialogAsync(
+    Task<IReadOnlyList<ExchangePosition>?> ShowBybitPositionsDialogAsync(
         string? baseAsset,
         string? quoteAsset,
         IReadOnlyList<LegModel> existingLegs);

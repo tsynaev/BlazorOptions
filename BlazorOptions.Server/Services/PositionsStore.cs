@@ -23,7 +23,7 @@ public sealed class PositionsStore
         Directory.CreateDirectory(_userRoot);
     }
 
-    public async Task<IReadOnlyList<PositionDto>> LoadPositionsAsync(string userId)
+    public async Task<IReadOnlyList<PositionModel>> LoadPositionsAsync(string userId)
     {
         await AcquireReadAsync();
         try
@@ -36,14 +36,14 @@ public sealed class PositionsStore
                 ORDER BY SortIndex ASC, UpdatedUtc ASC
                 """;
 
-            var items = new List<PositionDto>();
+            var items = new List<PositionModel>();
             await using var reader = await command.ExecuteReaderAsync();
             while (await reader.ReadAsync())
             {
                 var payload = reader.GetString(0);
                 try
                 {
-                    var item = JsonSerializer.Deserialize<PositionDto>(payload, _serializerOptions);
+                    var item = JsonSerializer.Deserialize<PositionModel>(payload, _serializerOptions);
                     if (item is not null)
                     {
                         items.Add(item);
@@ -62,7 +62,7 @@ public sealed class PositionsStore
         }
     }
 
-    public async Task SavePositionsAsync(string userId, IReadOnlyList<PositionDto> positions)
+    public async Task SavePositionsAsync(string userId, IReadOnlyList<PositionModel> positions)
     {
         await AcquireWriteAsync();
         try
@@ -119,7 +119,7 @@ public sealed class PositionsStore
         }
     }
 
-    public async Task SavePositionAsync(string userId, PositionDto position)
+    public async Task SavePositionAsync(string userId, PositionModel position)
     {
         await AcquireWriteAsync();
         try

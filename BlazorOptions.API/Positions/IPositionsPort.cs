@@ -2,8 +2,8 @@ namespace BlazorOptions.API.Positions;
 
 public interface IPositionsPort
 {
-    Task<IReadOnlyList<PositionDto>> LoadPositionsAsync();
-    Task SavePositionsAsync(IReadOnlyList<PositionDto> positions);
-    Task SavePositionAsync(PositionDto position);
+    Task<IReadOnlyList<PositionModel>> LoadPositionsAsync();
+    Task SavePositionsAsync(IReadOnlyList<PositionModel> positions);
+    Task SavePositionAsync(PositionModel position);
     Task DeletePositionAsync(Guid positionId);
 }

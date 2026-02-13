@@ -33,7 +33,7 @@ public sealed class PositionsController : ControllerBase, IPositionsPort
     }
 
     [HttpPost]
-    public async Task<IActionResult> SavePositionsAsync([FromBody] List<PositionDto> positions)
+    public async Task<IActionResult> SavePositionsAsync([FromBody] List<PositionModel> positions)
     {
         var userId = ResolveUserId();
         if (string.IsNullOrWhiteSpace(userId))
@@ -46,7 +46,7 @@ public sealed class PositionsController : ControllerBase, IPositionsPort
     }
 
     [HttpPut("{positionId:guid}")]
-    public async Task<IActionResult> SavePositionAsync([FromRoute] Guid positionId, [FromBody] PositionDto position)
+    public async Task<IActionResult> SavePositionAsync([FromRoute] Guid positionId, [FromBody] PositionModel position)
     {
         var userId = ResolveUserId();
         if (string.IsNullOrWhiteSpace(userId))
@@ -82,19 +82,19 @@ public sealed class PositionsController : ControllerBase, IPositionsPort
         return Ok();
     }
 
-    async Task<IReadOnlyList<PositionDto>> IPositionsPort.LoadPositionsAsync()
+    async Task<IReadOnlyList<PositionModel>> IPositionsPort.LoadPositionsAsync()
     {
         var userId = ResolveUserIdOrThrow();
         return await _store.LoadPositionsAsync(userId);
     }
 
-    async Task IPositionsPort.SavePositionsAsync(IReadOnlyList<PositionDto> positions)
+    async Task IPositionsPort.SavePositionsAsync(IReadOnlyList<PositionModel> positions)
     {
         var userId = ResolveUserIdOrThrow();
         await _store.SavePositionsAsync(userId, positions);
     }
 
-    async Task IPositionsPort.SavePositionAsync(PositionDto position)
+    async Task IPositionsPort.SavePositionAsync(PositionModel position)
     {
         var userId = ResolveUserIdOrThrow();
         await _store.SavePositionAsync(userId, position);

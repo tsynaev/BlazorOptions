@@ -5,6 +5,10 @@ namespace BlazorOptions.Services;
 public interface IOrdersService
 {
     Task<IReadOnlyList<ExchangeOrder>> GetOpenOrdersAsync(CancellationToken cancellationToken = default);
+
+    ValueTask<IDisposable> SubscribeAsync(
+        Func<IReadOnlyList<ExchangeOrder>, Task> handler,
+        CancellationToken cancellationToken = default);
 }
 
 public interface IOptionsChainService
@@ -35,10 +39,10 @@ public interface IFuturesInstrumentsService
 
 public interface IPositionsService : IAsyncDisposable
 {
-    Task<IEnumerable<BybitPosition>> GetPositionsAsync();
+    Task<IEnumerable<ExchangePosition>> GetPositionsAsync();
 
     ValueTask<IDisposable> SubscribeAsync(
-        Func<IReadOnlyList<BybitPosition>, Task> handler,
+        Func<IReadOnlyList<ExchangePosition>, Task> handler,
         CancellationToken cancellationToken = default);
 }
 
