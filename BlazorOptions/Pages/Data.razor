@@ -1,0 +1,36 @@
+@page "/data"
+
+<PageTitle>Data</PageTitle>
+
+<MudStack Spacing="2">
+    <MudText Typo="Typo.h4">Data</MudText>
+    <MudGrid Spacing="2">
+        <MudItem xs="12" sm="6" md="4">
+            <MudPaper Class="pa-4">
+                <MudStack Spacing="1">
+                    <MudText Typo="Typo.h6">Volume Heatmap</MudText>
+                    <MudText Typo="Typo.body2">Hourly volume by weekday/hour.</MudText>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Href="/volume-heatmap">Open</MudButton>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="4">
+            <MudPaper Class="pa-4">
+                <MudStack Spacing="1">
+                    <MudText Typo="Typo.h6">Volatility Skew</MudText>
+                    <MudText Typo="Typo.body2">Volatility skew analytics page.</MudText>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Href="/volatility-skew">Open</MudButton>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="4">
+            <MudPaper Class="pa-4">
+                <MudStack Spacing="1">
+                    <MudText Typo="Typo.h6">Open Interest 3D</MudText>
+                    <MudText Typo="Typo.body2">3D chart by strike and expiration.</MudText>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Href="/open-interest">Open</MudButton>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+</MudStack>

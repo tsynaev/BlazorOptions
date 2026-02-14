@@ -687,6 +687,7 @@ public class OptionsChainService : IOptionsChainService
         var gamma = ReadNullableDecimal(entry, "gamma");
         var vega = ReadNullableDecimal(entry, "vega");
         var theta = ReadNullableDecimal(entry, "theta");
+        var openInterest = ReadNullableDecimal(entry, "openInterest");
 
 
         var created = new OptionChainTicker(
@@ -706,7 +707,8 @@ public class OptionsChainService : IOptionsChainService
             delta,
             gamma,
             vega,
-            theta);
+            theta,
+            openInterest);
 
 
         return created;

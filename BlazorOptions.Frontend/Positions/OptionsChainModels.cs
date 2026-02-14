@@ -21,7 +21,8 @@ public class OptionChainTicker
         decimal? delta,
         decimal? gamma,
         decimal? vega,
-        decimal? theta)
+        decimal? theta,
+        decimal? openInterest = null)
     {
         Symbol = symbol;
         BaseAsset = baseAsset;
@@ -40,6 +41,7 @@ public class OptionChainTicker
         Gamma = gamma;
         Vega = vega;
         Theta = theta;
+        OpenInterest = openInterest;
     }
 
     public string Symbol { get; }
@@ -74,6 +76,8 @@ public class OptionChainTicker
     public decimal? Vega { get; }
 
     public decimal? Theta { get; }
+
+    public decimal? OpenInterest { get; }
   
 }
 

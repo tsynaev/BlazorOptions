@@ -235,4 +235,5 @@ public sealed class ExchangeService : IExchangeService
             return Task.FromResult<IReadOnlyList<ExchangeTradingPair>>(Array.Empty<ExchangeTradingPair>());
         }
     }
+
 }

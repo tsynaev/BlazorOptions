@@ -71,6 +71,7 @@ builder.Services.AddTransient<OptionChainDialogViewModel>();
 builder.Services.AddTransient<PortfolioSettingsDialogViewModel>();
 builder.Services.AddScoped<TradingHistoryViewModel>();
 builder.Services.AddScoped<VolumeHeatmapViewModel>();
+builder.Services.AddScoped<OpenInterestViewModel>();
 builder.Services.AddDialog<PositionCreateDialog, PositionCreateDialogViewModel>();
 builder.Services.AddDialog<TradingSymbolDialog, TradingSymbolDialogViewModel>();
 builder.Services.AddDialog<TradingHistorySelectionDialog, TradingHistorySelectionDialogViewModel>();

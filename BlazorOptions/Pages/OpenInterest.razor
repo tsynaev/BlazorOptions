@@ -1,0 +1,114 @@
+@page "/open-interest"
+@implements IDisposable
+@inject OpenInterestViewModel ViewModel
+
+<PageTitle>Open Interest</PageTitle>
+
+<MudStack Spacing="3">
+    <MudText Typo="Typo.h4">Open Interest</MudText>
+    <MudText Typo="Typo.body2">3D chart by strike and expiration.</MudText>
+
+    <MudPaper Class="pa-4">
+        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2" AlignItems="AlignItems.End">
+            <MudAutocomplete T="string"
+                             Label="Base asset"
+                             Value="@ViewModel.BaseAsset"
+                             ValueChanged="OnBaseAssetChanged"
+                             SearchFunc="SearchBaseAssets"
+                             Dense="true"
+                             CoerceText="true"
+                             ResetValueOnEmptyText="false"
+                             SelectValueOnTab="true"
+                             Immediate="true"
+                             MinCharacters="0"
+                             MaxItems="100" />
+
+            <MudAutocomplete T="string"
+                             Label="Quote asset"
+                             Value="@ViewModel.QuoteAsset"
+                             ValueChanged="OnQuoteAssetChanged"
+                             SearchFunc="SearchQuoteAssets"
+                             Dense="true"
+                             CoerceText="true"
+                             ResetValueOnEmptyText="false"
+                             SelectValueOnTab="true"
+                             Immediate="true"
+                             MinCharacters="0"
+                             MaxItems="100" />
+
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       Disabled="ViewModel.IsLoading"
+                       OnClick="LoadAsync">
+                @(ViewModel.IsLoading ? "Loading..." : "Load")
+            </MudButton>
+        </MudStack>
+
+        <MudText Typo="Typo.body2" Class="mt-2">Pair: @ViewModel.BaseAsset/@ViewModel.QuoteAsset</MudText>
+
+        @if (!string.IsNullOrWhiteSpace(ViewModel.ErrorMessage))
+        {
+            <MudAlert Severity="Severity.Warning" Class="mt-2">@ViewModel.ErrorMessage</MudAlert>
+        }
+    </MudPaper>
+
+    @if (ViewModel.CallChart is not null)
+    {
+        <MudPaper Class="pa-2">
+            <MudText Typo="Typo.h6" Class="px-2 pt-2">Calls</MudText>
+            <OpenInterestChart Config="ViewModel.CallChart" Height="460px" />
+        </MudPaper>
+    }
+
+    @if (ViewModel.PutChart is not null)
+    {
+        <MudPaper Class="pa-2">
+            <MudText Typo="Typo.h6" Class="px-2 pt-2">Puts</MudText>
+            <OpenInterestChart Config="ViewModel.PutChart" Height="460px" />
+        </MudPaper>
+    }
+</MudStack>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        ViewModel.PropertyChanged += HandleViewModelChanged;
+        await ViewModel.InitializeAsync();
+    }
+
+    public void Dispose()
+    {
+        ViewModel.PropertyChanged -= HandleViewModelChanged;
+    }
+
+    private Task OnBaseAssetChanged(string value) => ViewModel.SetBaseAssetAsync(value);
+
+    private Task OnQuoteAssetChanged(string value) => ViewModel.SetQuoteAssetAsync(value);
+
+    private Task LoadAsync() => ViewModel.LoadAsync();
+
+    private Task<IEnumerable<string>> SearchBaseAssets(string? value, CancellationToken cancellationToken)
+    {
+        return Task.FromResult(FilterAssets(ViewModel.BaseAssets, value));
+    }
+
+    private Task<IEnumerable<string>> SearchQuoteAssets(string? value, CancellationToken cancellationToken)
+    {
+        return Task.FromResult(FilterAssets(ViewModel.QuoteAssets, value));
+    }
+
+    private void HandleViewModelChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private static IEnumerable<string> FilterAssets(IReadOnlyList<string> source, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return source;
+        }
+
+        return source.Where(asset => asset.Contains(value, StringComparison.OrdinalIgnoreCase));
+    }
+}
