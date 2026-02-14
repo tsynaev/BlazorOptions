@@ -7,7 +7,7 @@ namespace BlazorOptions.ViewModels;
 public sealed class ClosedPositionsViewModel: Bindable
 {
 
-    private readonly PositionBuilderViewModel _positionBuilder;
+    private readonly PositionViewModel _positionViewModel;
     private readonly ITradingHistoryPort _tradingHistoryPort;
     private readonly IExchangeService _exchangeService;
     private bool _isInitialized;
@@ -16,11 +16,11 @@ public sealed class ClosedPositionsViewModel: Bindable
     private string? _baseAsset;
 
     public ClosedPositionsViewModel(
-        PositionBuilderViewModel positionBuilder,
+        PositionViewModel positionViewModel,
         ITradingHistoryPort tradingHistoryPort,
         IExchangeService exchangeService)
     {
-        _positionBuilder = positionBuilder;
+        _positionViewModel = positionViewModel;
         _tradingHistoryPort = tradingHistoryPort;
         _exchangeService = exchangeService;
         _closedPositions = new ObservableCollection<ClosedPositionViewModel>();
@@ -84,7 +84,7 @@ public sealed class ClosedPositionsViewModel: Bindable
             ? string.Empty
             : string.Join(Environment.NewLine, combined);
 
-        _positionBuilder.NotifyStateChanged();
+        _positionViewModel.NotifyStateChanged();
     }
 
  
@@ -188,7 +188,7 @@ public sealed class ClosedPositionsViewModel: Bindable
 
         Model.Include = include;
         // Force immediate payoff refresh so chart offset follows closed net PnL toggle.
-        _positionBuilder.QueueChartUpdate();
+        _positionViewModel.QueueChartUpdate();
         await RaiseUpdateCompleted();
     }
 

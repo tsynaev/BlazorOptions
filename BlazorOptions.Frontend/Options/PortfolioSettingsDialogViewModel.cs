@@ -2,11 +2,11 @@ namespace BlazorOptions.ViewModels;
 
 public sealed class PortfolioSettingsDialogViewModel
 {
-    private readonly PositionBuilderViewModel _positionBuilder;
+    private readonly PositionViewModel _positionViewModel;
 
-    public PortfolioSettingsDialogViewModel(PositionBuilderViewModel positionBuilder)
+    public PortfolioSettingsDialogViewModel(PositionViewModel positionViewModel)
     {
-        _positionBuilder = positionBuilder;
+        _positionViewModel = positionViewModel;
     }
 
     public Guid CollectionId { get; private set; }
@@ -15,7 +15,7 @@ public sealed class PortfolioSettingsDialogViewModel
 
     public string Color { get; private set; } = "#1976D2";
 
-    public bool CanRemove => _positionBuilder.SelectedPosition?.Collections?.Count > 1;
+    public bool CanRemove => _positionViewModel.Collections?.Count > 1;
 
     public void Load(Guid collectionId)
     {
@@ -25,7 +25,7 @@ public sealed class PortfolioSettingsDialogViewModel
         }
 
         CollectionId = collectionId;
-        var collection = _positionBuilder.SelectedPosition?.Collections
+        var collection = _positionViewModel.Collections
             .FirstOrDefault(item => item.Collection.Id == collectionId);
         if (collection is null)
         {
@@ -49,7 +49,7 @@ public sealed class PortfolioSettingsDialogViewModel
 
     public async Task SaveAsync()
     {
-        var collection = _positionBuilder.SelectedPosition?.Collections
+        var collection = _positionViewModel.Collections
             .FirstOrDefault(item => item.Collection.Id == CollectionId);
         if (collection is null)
         {
@@ -66,24 +66,20 @@ public sealed class PortfolioSettingsDialogViewModel
             collection.Collection.Color = Color;
         }
 
-        if (_positionBuilder.SelectedPosition is not null)
-        {
-            await _positionBuilder.SelectedPosition.PersistPositionAsync();
-        }
-        _positionBuilder.UpdateChart();
-        _positionBuilder.NotifyStateChanged();
+        await _positionViewModel.PersistPositionAsync();
+        _positionViewModel.UpdateChart();
+        _positionViewModel.NotifyStateChanged();
     }
 
     public Task<bool> RemoveAsync()
     {
-        var collection = _positionBuilder.SelectedPosition?.Collections
+        var collection = _positionViewModel.Collections
             .FirstOrDefault(item => item.Collection.Id == CollectionId);
         if (collection is null)
         {
             return Task.FromResult(false);
         }
 
-        return _positionBuilder.SelectedPosition?.RemoveCollectionAsync(collection.Collection)
-               ?? Task.FromResult(false);
+        return _positionViewModel.RemoveCollectionAsync(collection.Collection);
     }
 }

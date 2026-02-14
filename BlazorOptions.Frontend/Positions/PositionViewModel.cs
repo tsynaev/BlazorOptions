@@ -1,6 +1,7 @@
 using BlazorOptions.API.Positions;
 using BlazorOptions.Diagnostics;
 using BlazorOptions.Services;
+using BlazorChart.Models;
 using System;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
@@ -12,6 +13,9 @@ namespace BlazorOptions.ViewModels;
 public sealed class PositionViewModel : IDisposable
 {
     private static readonly TimeSpan InitialPriceFetchTimeout = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan CandleBucket = TimeSpan.FromHours(1);
+    private static readonly TimeSpan DefaultCandlesWindow = TimeSpan.FromHours(48);
+    private const int MaxChartCandles = 5000;
     private static readonly string[] CollectionPalette =
     {
         "#00A6FB",
@@ -25,7 +29,7 @@ public sealed class PositionViewModel : IDisposable
         "#B5179E"
     };
 
-    private readonly PositionBuilderViewModel _positionBuilder;
+    private readonly OptionsService _optionsService;
     private readonly IPositionsPort _positionsPort;
     private readonly LegsCollectionViewModelFactory _collectionFactory;
     private readonly ClosedPositionsViewModelFactory _closedPositionsFactory;
@@ -51,16 +55,32 @@ public sealed class PositionViewModel : IDisposable
     private static readonly TimeSpan ExchangeSnapshotTtl = TimeSpan.FromSeconds(10);
     private IReadOnlyList<ExchangePosition> _lastPositionsSnapshot = Array.Empty<ExchangePosition>();
     private IReadOnlyList<ExchangeOrder> _lastOrdersSnapshot = Array.Empty<ExchangeOrder>();
+    private readonly object _persistQueueLock = new();
+    private CancellationTokenSource? _persistQueueCts;
+    private PositionModel? _queuedPersistPosition;
+    private static readonly TimeSpan PersistQueueDelay = TimeSpan.FromMilliseconds(250);
+    private readonly object _chartUpdateLock = new();
+    private CancellationTokenSource? _chartUpdateCts;
+    private static readonly TimeSpan ChartUpdateDelay = TimeSpan.FromMilliseconds(75);
+    private ChartRange? _chartRangeOverride;
+    private TimeRange? _chartTimeRange;
+    private bool _initialChartScheduled;
+    private long? _lastCandleBucketTime;
+    private readonly object _candlesLoadLock = new();
+    private CancellationTokenSource? _candlesLoadCts;
+    private readonly SemaphoreSlim _initializeLock = new(1, 1);
+    private bool _isInitialized;
+    private bool _isDisposed;
 
     public PositionViewModel(
-        PositionBuilderViewModel positionBuilder,
+        OptionsService optionsService,
         IPositionsPort positionsPort,
         LegsCollectionViewModelFactory collectionFactory,
         ClosedPositionsViewModelFactory closedPositionsFactory,
         INotifyUserService notifyUserService,
         IExchangeService exchangeService)
     {
-        _positionBuilder = positionBuilder;
+        _optionsService = optionsService;
         _positionsPort = positionsPort;
         _collectionFactory = collectionFactory;
         _closedPositionsFactory = closedPositionsFactory;
@@ -96,7 +116,7 @@ public sealed class PositionViewModel : IDisposable
                 Collections.Add(CreateCollectionViewModel(collection));
             }
 
-            ClosedPositions = _closedPositionsFactory.Create(_positionBuilder, _position);
+            ClosedPositions = _closedPositionsFactory.Create(this, _position);
 
             ClosedPositions.Model.PropertyChanged += OnClosedPositionsChanged;
             ClosedPositions.UpdatedCompleted += OnClosedPositionsUpdated;
@@ -107,8 +127,8 @@ public sealed class PositionViewModel : IDisposable
 
     private async Task OnClosedPositionsUpdated()
     {
-        await PersistPositionAsync();
-        _positionBuilder.QueueChartUpdate();
+        await QueuePersistPositionsAsync(Position);
+        QueueChartUpdate();
     }
 
 
@@ -118,7 +138,7 @@ public sealed class PositionViewModel : IDisposable
         {
             case nameof(ClosedModel.TotalNet):
             case nameof(ClosedModel.Include):
-                _positionBuilder.QueueChartUpdate();
+                QueueChartUpdate();
                 break;
         }
     }
@@ -134,10 +154,76 @@ public sealed class PositionViewModel : IDisposable
     public bool IsLive => _isLive;
 
     public DateTime ValuationDate => _valuationDate;
+    public ObservableCollection<StrategySeries> ChartStrategies { get; } = new();
+    public ObservableCollection<PriceMarker> ChartMarkers { get; } = new();
+    public ObservableCollection<CandlePoint> ChartCandles { get; } = new();
+    public double? ChartSelectedPrice { get; private set; }
+    public ChartRange? ChartRange => _chartRangeOverride;
+    public TimeRange? ChartTimeRange => _chartTimeRange;
+    public bool ShowCandles { get; private set; }
+    public DateTime MaxExpiryDate { get; private set; } = DateTime.UtcNow.Date;
+    public int MaxExpiryDays { get; private set; }
+    public int SelectedDayOffset { get; private set; }
+    public string DaysToExpiryLabel => $"{SelectedDayOffset} days";
 
-    public async Task InitializeAsync()
+    public event Action? OnChange;
+    public event Action<decimal?>? LivePriceChanged;
+
+    public async Task InitializeAsync(Guid? positionId = null)
     {
+        await _initializeLock.WaitAsync();
+        try
+        {
+            if (_position is not null)
+            {
+                if (positionId.HasValue && _position.Id != positionId.Value)
+                {
+                    await LoadPositionAsync(positionId.Value);
+                }
 
+                if (!_isInitialized)
+                {
+                    await InitializeRuntimeAsync();
+                    _ = ScheduleInitialChartUpdateAsync();
+                    _isInitialized = true;
+                }
+
+                return;
+            }
+
+            var positions = await _positionsPort.LoadPositionsAsync();
+            var selected = positionId.HasValue
+                ? positions.FirstOrDefault(p => p.Id == positionId.Value)
+                : positions.FirstOrDefault();
+
+            if (selected is null)
+            {
+                return;
+            }
+
+            Position = selected;
+            _chartRangeOverride = selected.ChartRange;
+            _chartTimeRange = null;
+            ChartCandles.Clear();
+            _lastCandleBucketTime = null;
+
+            await _exchangeService.OptionsChain.EnsureBaseAssetAsync(selected.BaseAsset);
+
+            if (!_isInitialized)
+            {
+                await InitializeRuntimeAsync();
+                _ = ScheduleInitialChartUpdateAsync();
+                _isInitialized = true;
+            }
+        }
+        finally
+        {
+            _initializeLock.Release();
+        }
+    }
+
+    private async Task InitializeRuntimeAsync()
+    {
         UpdateDerivedState();
         _ = TryHydrateSelectedPriceFromExchangeAsync();
 
@@ -147,7 +233,6 @@ public sealed class PositionViewModel : IDisposable
 
         await ClosedPositions.InitializeAsync();
         await RefreshExchangeMissingFlagsAsync();
-
     }
 
     public async Task AddCollectionAsync()
@@ -257,16 +342,16 @@ public sealed class PositionViewModel : IDisposable
 
         if (updateChart)
         {
-            _positionBuilder.QueueChartUpdate();
+            QueueChartUpdate();
         }
 
         if (persist)
         {
-            await _positionBuilder.QueuePersistPositionsAsync(Position);
+            await QueuePersistPositionsAsync(Position);
         }
         if (refreshTicker)
         {
-            _positionBuilder.RefreshLegTickerSubscription();
+            RefreshLegTickerSubscription();
         }
         if (!updateChart)
         {
@@ -277,7 +362,7 @@ public sealed class PositionViewModel : IDisposable
             }
             else
             {
-                _positionBuilder.NotifyStateChanged();
+                NotifyStateChanged();
             }
         }
     }
@@ -288,6 +373,129 @@ public sealed class PositionViewModel : IDisposable
             ActivitySources.Telemetry.StartActivity($"{nameof(PositionViewModel)}.{nameof(PersistPositionAsync)}");
 
         await _positionsPort.SavePositionAsync(Position);
+    }
+
+    public async Task<bool> LoadPositionAsync(Guid positionId)
+    {
+        if (Position is not null && Position.Id == positionId)
+        {
+            return true;
+        }
+
+        var storedPositions = await _positionsPort.LoadPositionsAsync();
+        var selected = storedPositions.FirstOrDefault(p => p.Id == positionId);
+        if (selected is null)
+        {
+            return false;
+        }
+
+        await StopTickerAsync();
+        ResetPricingContextForPositionSwitch();
+        ReplacePosition(selected);
+        UpdateDerivedState();
+        await _exchangeService.OptionsChain.EnsureBaseAssetAsync(selected.BaseAsset);
+        _ = TryHydrateSelectedPriceFromExchangeAsync();
+        UpdateChart();
+        RefreshLegTickerSubscription();
+        await EnsureLiveSubscriptionAsync();
+        OnChange?.Invoke();
+        return true;
+    }
+
+  
+    public async Task UpdateNameAsync(PositionModel position, string name)
+    {
+        position.Name = name;
+        await QueuePersistPositionsAsync(position);
+        RefreshLegTickerSubscription();
+    }
+
+    public void UpdateChartRange(ChartRange range)
+    {
+        _chartRangeOverride = range;
+        Position.ChartRange = range;
+        _ = QueuePersistPositionsAsync(Position);
+        UpdateChart();
+        OnChange?.Invoke();
+    }
+
+    public void SetSelectedPrice(decimal price)
+    {
+        UpdateSelectedPrice(price, refresh: true);
+    }
+
+    public void UpdateSelectedPrice(decimal? price, bool refresh)
+    {
+        ApplySelectedPrice(price);
+        SyncChartSelectedPrice();
+        if (!refresh)
+        {
+            OnChange?.Invoke();
+            return;
+        }
+
+        UpdateChart();
+    }
+
+    public void UpdateChartSelectedPrice(decimal? price)
+    {
+        if (!IsLive)
+        {
+            return;
+        }
+
+        ChartSelectedPrice = price.HasValue ? (double)price.Value : null;
+    }
+
+    public async Task SetIsLiveAsync(bool isEnabled)
+    {
+        if (IsLive == isEnabled)
+        {
+            return;
+        }
+
+        ApplyIsLive(isEnabled);
+
+        if (!IsLive)
+        {
+            await StopTickerAsync();
+            UpdateChart();
+            OnChange?.Invoke();
+            return;
+        }
+
+        RefreshLegTickerSubscription();
+        SyncChartSelectedPrice();
+        OnChange?.Invoke();
+    }
+
+    public void SetValuationDateFromOffset(int dayOffset)
+    {
+        var clampedOffset = Math.Clamp(dayOffset, 0, MaxExpiryDays);
+        SelectedDayOffset = clampedOffset;
+        ApplyValuationDate(DateTime.UtcNow.Date.AddDays(clampedOffset));
+        UpdateChart();
+    }
+
+    public void SetValuationDate(DateTime date)
+    {
+        var today = DateTime.UtcNow.Date;
+        var clampedDate = date.Date < today ? today : date.Date > MaxExpiryDate ? MaxExpiryDate : date.Date;
+        ApplyValuationDate(clampedDate);
+        SelectedDayOffset = Math.Clamp((clampedDate - today).Days, 0, MaxExpiryDays);
+        UpdateChart();
+    }
+
+    public void ResetValuationDateToToday()
+    {
+        SetValuationDate(DateTime.UtcNow.Date);
+    }
+
+    public async Task<bool> RemovePositionAsync(PositionModel position)
+    {
+        await _positionsPort.DeletePositionAsync(position.Id);
+        await StopTickerAsync();
+        return true;
     }
 
     private void HandlePositionPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -313,7 +521,7 @@ public sealed class PositionViewModel : IDisposable
         _suppressNotesPersist = true;
         try
         {
-            await _positionBuilder.QueuePersistPositionsAsync(Position);
+            await QueuePersistPositionsAsync(Position);
         }
         finally
         {
@@ -323,8 +531,12 @@ public sealed class PositionViewModel : IDisposable
 
     public void Dispose()
     {
+        _isDisposed = true;
         CancelUiDebounce();
         _ = StopTickerAsync();
+        CancelAndDispose(ref _persistQueueCts, _persistQueueLock);
+        CancelAndDispose(ref _chartUpdateCts, _chartUpdateLock);
+        CancelAndDispose(ref _candlesLoadCts, _candlesLoadLock);
         _positionsSubscription?.Dispose();
         _positionsSubscription = null;
         _ordersSubscription?.Dispose();
@@ -504,7 +716,7 @@ public sealed class PositionViewModel : IDisposable
     }
 
 
-    internal void SetSelectedPrice(decimal? price)
+    private void ApplySelectedPrice(decimal? price)
     {
         if (_selectedPrice == price)
         {
@@ -515,7 +727,7 @@ public sealed class PositionViewModel : IDisposable
         UpdateDerivedState();
     }
 
-    internal void SetLivePrice(decimal? price)
+    private void ApplyLivePrice(decimal? price)
     {
         if (_livePrice == price)
         {
@@ -526,7 +738,7 @@ public sealed class PositionViewModel : IDisposable
         UpdateDerivedState();
     }
 
-    internal void SetIsLive(bool isLive)
+    private void ApplyIsLive(bool isLive)
     {
         if (_isLive == isLive)
         {
@@ -550,7 +762,7 @@ public sealed class PositionViewModel : IDisposable
         }
     }
 
-    internal void SetValuationDate(DateTime date)
+    private void ApplyValuationDate(DateTime date)
     {
         if (_valuationDate == date)
         {
@@ -626,9 +838,9 @@ public sealed class PositionViewModel : IDisposable
             return Task.CompletedTask;
         }
 
-        SetLivePrice(update.Price);
-        _positionBuilder.AppendTickerPrice(update.Price, update.Timestamp);
-        _positionBuilder.NotifyLivePriceChanged(update.Price);
+        ApplyLivePrice(update.Price);
+        AppendTickerPrice(update.Price, update.Timestamp);
+        NotifyLivePriceChanged(update.Price);
 
         return Task.CompletedTask;
     }
@@ -688,10 +900,10 @@ public sealed class PositionViewModel : IDisposable
 
             if (!_isLive && !_selectedPrice.HasValue)
             {
-                _positionBuilder.UpdateSelectedPrice(fetchedPrice.Value, refresh: false);
+                UpdateSelectedPrice(fetchedPrice.Value, refresh: false);
             }
 
-            _positionBuilder.AppendTickerPrice(fetchedPrice, DateTime.UtcNow);
+            AppendTickerPrice(fetchedPrice, DateTime.UtcNow);
         }
         catch
         {
@@ -727,6 +939,743 @@ public sealed class PositionViewModel : IDisposable
         }
     }
 
+    internal Task QueuePersistPositionsAsync(PositionModel? changedPosition = null)
+    {
+        lock (_persistQueueLock)
+        {
+            if (_isDisposed)
+            {
+                return Task.CompletedTask;
+            }
+
+            if (changedPosition is not null)
+            {
+                _queuedPersistPosition = changedPosition;
+            }
+            else if (_queuedPersistPosition is null)
+            {
+                _queuedPersistPosition = Position;
+            }
+
+            _persistQueueCts?.Cancel();
+            _persistQueueCts?.Dispose();
+            _persistQueueCts = new CancellationTokenSource();
+            var token = _persistQueueCts.Token;
+            _ = RunPersistQueueAsync(token);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public void QueueChartUpdate()
+    {
+        lock (_chartUpdateLock)
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            _chartUpdateCts?.Cancel();
+            _chartUpdateCts?.Dispose();
+            _chartUpdateCts = new CancellationTokenSource();
+            var token = _chartUpdateCts.Token;
+            _ = RunChartUpdateAsync(token);
+        }
+    }
+
+    private async Task RunChartUpdateAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(ChartUpdateDelay, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        UpdateChart();
+        OnChange?.Invoke();
+    }
+
+    private async Task RunPersistQueueAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(PersistQueueDelay, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        PositionModel? target;
+        lock (_persistQueueLock)
+        {
+            target = _queuedPersistPosition;
+            _queuedPersistPosition = null;
+        }
+
+        if (target is null && Position is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var position = target ?? Position;
+            if (position is not null)
+            {
+                await _positionsPort.SavePositionAsync(position);
+            }
+        }
+        catch
+        {
+            // Keep background persistence resilient.
+        }
+    }
+
+    public void UpdateChart()
+    {
+        using var activity = ActivitySources.Telemetry.StartActivity($"{nameof(PositionViewModel)}.{nameof(UpdateChart)}");
+
+        if (Position is null)
+        {
+            return;
+        }
+
+        var collections = Collections ?? new ObservableCollection<LegsCollectionViewModel>();
+        var allLegs = collections.SelectMany(collection => collection.Legs).ToList();
+        var visibleCollections = collections.Where(collection => collection.IsVisible).ToList();
+        var rangeLegs = visibleCollections.SelectMany(collection => collection.Legs).ToList();
+        var closedPositionsTotal = Position.Closed.Include ? Position.Closed.TotalNet : 0m;
+
+        if (rangeLegs.Count == 0)
+        {
+            rangeLegs = allLegs;
+        }
+
+        RefreshValuationDateBounds(allLegs);
+        var valuationDate = ValuationDate;
+        var rangeCalculationLegs = ResolveLegsForCalculation(rangeLegs).Where(leg => leg.IsIncluded).ToList();
+        var (xs, _, _) = _optionsService.GeneratePosition(
+            rangeCalculationLegs,
+            180,
+            valuationDate,
+            _chartRangeOverride?.XMin,
+            _chartRangeOverride?.XMax);
+        var displayPrice = GetEffectivePrice();
+
+        ChartStrategies.Clear();
+        ChartMarkers.Clear();
+        foreach (var collection in collections)
+        {
+            var collectionLegs = ResolveLegsForCalculation(collection.Legs).Where(leg => leg.IsIncluded).ToList();
+            var profits = xs.Select(price => _optionsService.CalculateTotalProfit(collectionLegs, price)).ToArray();
+            var theoreticalProfits = xs.Select(price => _optionsService.CalculateTotalTheoreticalProfit(collectionLegs, price, valuationDate)).ToArray();
+
+            if (Math.Abs(closedPositionsTotal) > 0.0001m)
+            {
+                for (var i = 0; i < profits.Length; i++)
+                {
+                    profits[i] += closedPositionsTotal;
+                }
+
+                for (var i = 0; i < theoreticalProfits.Length; i++)
+                {
+                    theoreticalProfits[i] += closedPositionsTotal;
+                }
+            }
+
+            var tempPoints = BuildPayoffPoints(xs, theoreticalProfits);
+            var expiryPoints = BuildPayoffPoints(xs, profits);
+            ChartStrategies.Add(new StrategySeries(
+                collection.Collection.Id.ToString(),
+                collection.Name,
+                collection.Color,
+                true,
+                tempPoints,
+                expiryPoints,
+                collection.IsVisible));
+
+            if (!collection.IsVisible)
+            {
+                continue;
+            }
+
+            foreach (var orderLeg in collection.Legs.Where(item => item.Leg.Status == LegStatus.Order))
+            {
+                if (!TryCreateOrderMarker(orderLeg, collection.Color, out var marker))
+                {
+                    continue;
+                }
+
+                ChartMarkers.Add(marker);
+            }
+        }
+
+        ChartSelectedPrice = displayPrice.HasValue ? (double)displayPrice.Value : null;
+    }
+
+    private static bool TryCreateOrderMarker(LegViewModel leg, string color, out PriceMarker marker)
+    {
+        marker = default!;
+
+        var price = leg.Leg.Type == LegType.Future
+            ? leg.Leg.Price
+            : leg.Leg.Strike;
+
+        if (!price.HasValue)
+        {
+            return false;
+        }
+
+        var direction = leg.Leg.Size >= 0 ? "Buy" : "Sell";
+        var symbol = string.IsNullOrWhiteSpace(leg.Leg.Symbol) ? leg.Leg.Type.ToString() : leg.Leg.Symbol!;
+        var size = Math.Abs(leg.Leg.Size);
+        marker = new PriceMarker((double)price.Value, $"Order {direction} {size:0.##}: {symbol}", color);
+        return true;
+    }
+
+    private static IReadOnlyList<PayoffPoint> BuildPayoffPoints(IReadOnlyList<decimal> prices, IReadOnlyList<decimal> profits)
+    {
+        var count = Math.Min(prices.Count, profits.Count);
+        if (count == 0)
+        {
+            return Array.Empty<PayoffPoint>();
+        }
+
+        var points = new PayoffPoint[count];
+        for (var i = 0; i < count; i++)
+        {
+            points[i] = new PayoffPoint((double)prices[i], (double)profits[i]);
+        }
+
+        return points;
+    }
+
+    private void SyncChartSelectedPrice()
+    {
+        var price = GetEffectivePrice();
+        ChartSelectedPrice = price.HasValue ? (double)price.Value : null;
+    }
+
+    public decimal? GetLegMarkIv(LegModel leg, string? baseAsset = null)
+    {
+        var resolvedBaseAsset = baseAsset ?? Position?.BaseAsset;
+        var ticker = _exchangeService.OptionsChain.FindTickerForLeg(leg, resolvedBaseAsset);
+        if (ticker is null || ticker.MarkIv <= 0)
+        {
+            if (ticker is null)
+            {
+                return null;
+            }
+
+            var bidIv = NormalizeIv(ticker.BidIv);
+            if (bidIv > 0)
+            {
+                return bidIv;
+            }
+
+            var askIv = NormalizeIv(ticker.AskIv);
+            return askIv > 0 ? askIv : null;
+        }
+
+        return NormalizeIv(ticker.MarkIv);
+    }
+
+    private static decimal NormalizeIv(decimal value)
+    {
+        if (value <= 0)
+        {
+            return 0m;
+        }
+
+        return value <= 3m ? value * 100m : value;
+    }
+
+    private decimal ResolveLegEntryPrice(LegViewModel leg)
+    {
+        if (leg.Leg.Type == LegType.Future && !leg.Leg.Price.HasValue)
+        {
+            return leg.CurrentPrice ?? leg.MarkPrice ?? 0m;
+        }
+
+        return leg.Leg.Price ?? leg.PlaceholderPrice ?? leg.MarkPrice ?? 0m;
+    }
+
+    private LegModel ResolveLegForCalculation(LegViewModel leg, string? baseAsset)
+    {
+        var resolvedPrice = ResolveLegEntryPrice(leg);
+        var model = leg.Leg;
+        var impliedVolatility = model.ImpliedVolatility;
+        if (!impliedVolatility.HasValue || impliedVolatility.Value <= 0)
+        {
+            var markIv = GetLegMarkIv(model, baseAsset);
+            if (markIv.HasValue)
+            {
+                impliedVolatility = markIv.Value;
+            }
+        }
+
+        var originalIv = model.ImpliedVolatility ?? 0m;
+        var resolvedIv = impliedVolatility ?? 0m;
+        var priceChanged = !model.Price.HasValue || Math.Abs(resolvedPrice - model.Price.Value) > 0.0001m;
+        if (!priceChanged && Math.Abs(resolvedIv - originalIv) < 0.0001m)
+        {
+            return model;
+        }
+
+        return new LegModel
+        {
+            Id = model.Id,
+            IsIncluded = model.IsIncluded,
+            Type = model.Type,
+            Strike = model.Strike,
+            ExpirationDate = model.ExpirationDate,
+            Size = model.Size,
+            Price = resolvedPrice,
+            ImpliedVolatility = impliedVolatility
+        };
+    }
+
+    private IEnumerable<LegModel> ResolveLegsForCalculation(IEnumerable<LegViewModel> legs)
+    {
+        var baseAsset = Position?.BaseAsset;
+        foreach (var leg in legs)
+        {
+            yield return ResolveLegForCalculation(leg, baseAsset);
+        }
+    }
+
+    private IEnumerable<LegModel> EnumerateAllLegs()
+    {
+        if (Position is null)
+        {
+            return Array.Empty<LegModel>();
+        }
+
+        return Position.Collections.SelectMany(collection => collection.Legs);
+    }
+
+    private void RefreshValuationDateBounds(IEnumerable<LegViewModel> legs)
+    {
+        var today = DateTime.UtcNow.Date;
+        var expirations = legs
+            .Select(l => l.Leg.ExpirationDate)
+            .Where(exp => exp.HasValue)
+            .Select(exp => exp!.Value)
+            .ToList();
+
+        MaxExpiryDate = expirations.Any() ? expirations.Max() : today;
+        if (MaxExpiryDate < today)
+        {
+            MaxExpiryDate = today;
+        }
+
+        MaxExpiryDays = Math.Max(0, (MaxExpiryDate - today).Days);
+        var currentValuationDate = ValuationDate;
+        var clampedDate = currentValuationDate == default ? today : currentValuationDate.Date;
+        if (clampedDate < today)
+        {
+            clampedDate = today;
+        }
+        else if (clampedDate > MaxExpiryDate)
+        {
+            clampedDate = MaxExpiryDate;
+        }
+
+        var clampedOffset = Math.Clamp((clampedDate - today).Days, 0, MaxExpiryDays);
+        ApplyValuationDate(clampedDate);
+        SelectedDayOffset = clampedOffset;
+    }
+
+    private decimal? GetEffectivePrice()
+    {
+        if (!IsLive)
+        {
+            if (SelectedPrice.HasValue)
+            {
+                return SelectedPrice.Value;
+            }
+        }
+        else if (LivePrice.HasValue)
+        {
+            return LivePrice.Value;
+        }
+
+        return null;
+    }
+
+    private void UpdateLegTickerSubscription(bool refresh = true)
+    {
+        _ = UpdateLegTickerSubscriptionAsync(refresh);
+    }
+
+    private async Task UpdateLegTickerSubscriptionAsync(bool refresh)
+    {
+        if (Position is null)
+        {
+            return;
+        }
+
+        var baseAsset = Position.BaseAsset;
+        _exchangeService.OptionsChain.TrackLegs(EnumerateAllLegs(), baseAsset);
+
+        if (refresh)
+        {
+            await _exchangeService.OptionsChain.RefreshAsync(baseAsset);
+            _exchangeService.OptionsChain.TrackLegs(EnumerateAllLegs(), baseAsset);
+            UpdateChart();
+            OnChange?.Invoke();
+        }
+    }
+
+    public void RefreshLegTickerSubscription()
+    {
+        UpdateLegTickerSubscription();
+    }
+
+    public async Task SetShowCandlesAsync(bool isEnabled)
+    {
+        if (ShowCandles == isEnabled)
+        {
+            return;
+        }
+
+        ShowCandles = isEnabled;
+        if (!ShowCandles)
+        {
+            OnChange?.Invoke();
+            return;
+        }
+
+        await LoadMissingCandlesForCurrentTimeRangeAsync();
+        OnChange?.Invoke();
+    }
+
+    public async Task UpdateChartTimeRangeAsync(TimeRange range)
+    {
+        _chartTimeRange = range;
+        if (!ShowCandles)
+        {
+            OnChange?.Invoke();
+            return;
+        }
+
+        await LoadMissingCandlesForCurrentTimeRangeAsync();
+        OnChange?.Invoke();
+    }
+
+    internal void AppendTickerPrice(decimal? price, DateTime timestampUtc)
+    {
+        if (!ShowCandles || !price.HasValue || price.Value <= 0)
+        {
+            return;
+        }
+
+        var utc = timestampUtc.Kind == DateTimeKind.Utc ? timestampUtc : timestampUtc.ToUniversalTime();
+        var bucketTime = AlignToBucket(utc, CandleBucket);
+        var bucketMs = new DateTimeOffset(bucketTime).ToUnixTimeMilliseconds();
+        var value = (double)price.Value;
+
+        if (ChartCandles.Count > 0 && _lastCandleBucketTime == bucketMs)
+        {
+            var last = ChartCandles[ChartCandles.Count - 1];
+            ChartCandles[ChartCandles.Count - 1] = last with
+            {
+                High = Math.Max(last.High, value),
+                Low = Math.Min(last.Low, value),
+                Close = value
+            };
+            return;
+        }
+
+        ChartCandles.Add(new CandlePoint(bucketMs, value, value, value, value));
+        _lastCandleBucketTime = bucketMs;
+        while (ChartCandles.Count > MaxChartCandles)
+        {
+            ChartCandles.RemoveAt(0);
+        }
+    }
+
+    internal void NotifyLivePriceChanged(decimal? price)
+    {
+        if (IsLive)
+        {
+            UpdateChartSelectedPrice(price);
+        }
+
+        LivePriceChanged?.Invoke(price);
+    }
+
+    public void NotifyStateChanged()
+    {
+        OnChange?.Invoke();
+    }
+
+    private async Task ScheduleInitialChartUpdateAsync()
+    {
+        if (_initialChartScheduled)
+        {
+            return;
+        }
+
+        _initialChartScheduled = true;
+        await Task.Yield();
+        UpdateChart();
+        OnChange?.Invoke();
+    }
+
+    private static DateTime AlignToBucket(DateTime timestampUtc, TimeSpan bucket)
+    {
+        var ticks = timestampUtc.Ticks - (timestampUtc.Ticks % bucket.Ticks);
+        return new DateTime(ticks, DateTimeKind.Utc);
+    }
+
+    private async Task LoadMissingCandlesForCurrentTimeRangeAsync()
+    {
+        var symbol = GetCurrentSymbol();
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return;
+        }
+
+        var (fromUtc, toUtc) = ResolveTimeWindowUtc();
+        var requestedFromMs = new DateTimeOffset(fromUtc).ToUnixTimeMilliseconds();
+        var requestedToMs = new DateTimeOffset(toUtc).ToUnixTimeMilliseconds();
+        var bucketMs = (long)CandleBucket.TotalMilliseconds;
+        var loadedRange = GetLoadedCandleRange();
+        var needsFullLoad = loadedRange is null;
+        var rangesToLoad = new List<(DateTime fromUtc, DateTime toUtc)>();
+
+        if (loadedRange is null)
+        {
+            rangesToLoad.Add((fromUtc, toUtc));
+        }
+        else
+        {
+            var loaded = loadedRange.Value;
+            if (requestedFromMs < loaded.minMs - bucketMs)
+            {
+                var leftToUtc = DateTimeOffset.FromUnixTimeMilliseconds(loaded.minMs).UtcDateTime;
+                rangesToLoad.Add((fromUtc, leftToUtc));
+            }
+
+            if (requestedToMs > loaded.maxMs + bucketMs)
+            {
+                var rightFromUtc = DateTimeOffset.FromUnixTimeMilliseconds(loaded.maxMs).UtcDateTime;
+                rangesToLoad.Add((rightFromUtc, toUtc));
+            }
+        }
+
+        if (rangesToLoad.Count == 0)
+        {
+            if (ChartCandles.Count == 0)
+            {
+                AppendTickerPrice(GetEffectivePrice(), DateTime.UtcNow);
+            }
+
+            return;
+        }
+
+        CancellationToken token;
+        lock (_candlesLoadLock)
+        {
+            _candlesLoadCts?.Cancel();
+            _candlesLoadCts?.Dispose();
+            _candlesLoadCts = new CancellationTokenSource();
+            token = _candlesLoadCts.Token;
+        }
+
+        var fetchedCandles = new List<CandlePoint>();
+        try
+        {
+            foreach (var range in rangesToLoad)
+            {
+                if (range.toUtc <= range.fromUtc)
+                {
+                    continue;
+                }
+
+                var candles = await _exchangeService.Tickers.GetCandlesAsync(symbol, range.fromUtc, range.toUtc, token);
+                if (candles.Count > 0)
+                {
+                    fetchedCandles.AddRange(candles);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch
+        {
+            return;
+        }
+
+        if (token.IsCancellationRequested)
+        {
+            return;
+        }
+
+        if (needsFullLoad)
+        {
+            ChartCandles.Clear();
+        }
+
+        MergeCandles(fetchedCandles);
+        _lastCandleBucketTime = ChartCandles.Count > 0 ? ChartCandles[^1].Time : null;
+        if (ChartCandles.Count == 0)
+        {
+            AppendTickerPrice(GetEffectivePrice(), DateTime.UtcNow);
+        }
+    }
+
+    private (DateTime fromUtc, DateTime toUtc) ResolveTimeWindowUtc()
+    {
+        if (_chartTimeRange is not null)
+        {
+            var from = DateTimeOffset.FromUnixTimeMilliseconds((long)_chartTimeRange.Min).UtcDateTime;
+            var to = DateTimeOffset.FromUnixTimeMilliseconds((long)_chartTimeRange.Max).UtcDateTime;
+            return from <= to ? (from, to) : (to, from);
+        }
+
+        var now = DateTime.UtcNow;
+        var fromUtc = now - DefaultCandlesWindow;
+        var toUtc = now;
+        _chartTimeRange = new TimeRange(
+            new DateTimeOffset(fromUtc).ToUnixTimeMilliseconds(),
+            new DateTimeOffset(toUtc).ToUnixTimeMilliseconds());
+        return (fromUtc, toUtc);
+    }
+
+    private (long minMs, long maxMs)? GetLoadedCandleRange()
+    {
+        if (ChartCandles.Count == 0)
+        {
+            return null;
+        }
+
+        return (ChartCandles.Min(c => c.Time), ChartCandles.Max(c => c.Time));
+    }
+
+    private void MergeCandles(IEnumerable<CandlePoint> candles)
+    {
+        var mergedByTime = new SortedDictionary<long, CandlePoint>();
+        foreach (var existing in ChartCandles)
+        {
+            mergedByTime[existing.Time] = existing;
+        }
+
+        foreach (var candle in candles)
+        {
+            mergedByTime[candle.Time] = candle;
+        }
+
+        if (mergedByTime.Count == 0)
+        {
+            return;
+        }
+
+        ChartCandles.Clear();
+        foreach (var candle in mergedByTime.Values)
+        {
+            ChartCandles.Add(candle);
+        }
+
+        while (ChartCandles.Count > MaxChartCandles)
+        {
+            ChartCandles.RemoveAt(0);
+        }
+    }
+
+    private string? GetCurrentSymbol()
+    {
+        var baseAsset = Position?.BaseAsset?.Trim();
+        var quoteAsset = Position?.QuoteAsset?.Trim();
+        if (string.IsNullOrWhiteSpace(baseAsset) || string.IsNullOrWhiteSpace(quoteAsset))
+        {
+            return null;
+        }
+
+        return $"{baseAsset}{quoteAsset}".Replace(" ", string.Empty, StringComparison.OrdinalIgnoreCase).ToUpperInvariant();
+    }
+
+    private void ReplacePosition(PositionModel position)
+    {
+        foreach (var collection in Collections)
+        {
+            collection.Updated -= HandleCollectionUpdatedAsync;
+            collection.Dispose();
+        }
+
+        Collections.Clear();
+        ClosedPositions.Model.PropertyChanged -= OnClosedPositionsChanged;
+        ClosedPositions.UpdatedCompleted -= OnClosedPositionsUpdated;
+        Position.PropertyChanged -= HandlePositionPropertyChanged;
+
+        _position = null!;
+        Position = position;
+        _chartRangeOverride = position.ChartRange;
+        _chartTimeRange = null;
+        ChartCandles.Clear();
+        _lastCandleBucketTime = null;
+    }
+
+    private void ResetPricingContextForPositionSwitch()
+    {
+        _selectedPrice = null;
+        _livePrice = null;
+        _currentPrice = null;
+        _isLive = false;
+        _currentSymbol = null;
+        _valuationDate = DateTime.UtcNow.Date;
+        SelectedDayOffset = 0;
+        MaxExpiryDate = DateTime.UtcNow.Date;
+        MaxExpiryDays = 0;
+        ChartSelectedPrice = null;
+    }
+
+    internal static LegModel? FindMatchingLeg(IEnumerable<LegModel> legs, LegModel candidate)
+    {
+        return legs.FirstOrDefault(leg =>
+            leg.Type == candidate.Type
+            && IsDateMatch(leg.ExpirationDate, candidate.ExpirationDate)
+            && IsStrikeMatch(leg.Strike, candidate.Strike));
+    }
+
+    private static bool IsStrikeMatch(decimal? left, decimal? right)
+    {
+        if (!left.HasValue && !right.HasValue)
+        {
+            return true;
+        }
+
+        if (!left.HasValue || !right.HasValue)
+        {
+            return false;
+        }
+
+        return Math.Abs(left.Value - right.Value) < 0.01m;
+    }
+
+    private static bool IsDateMatch(DateTime? left, DateTime? right)
+    {
+        if (!left.HasValue && !right.HasValue)
+        {
+            return true;
+        }
+
+        if (!left.HasValue || !right.HasValue)
+        {
+            return false;
+        }
+
+        return left.Value.Date == right.Value.Date;
+    }
+
     private void QueueUiStateChanged()
     {
         CancellationToken token;
@@ -757,7 +1706,7 @@ public sealed class PositionViewModel : IDisposable
             return;
         }
 
-        _positionBuilder.NotifyStateChanged();
+        NotifyStateChanged();
     }
 
     private void CancelUiDebounce()
@@ -800,5 +1749,41 @@ public sealed class PositionViewModel : IDisposable
         }
 
         return magnitude;
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        Dispose();
+        return ValueTask.CompletedTask;
+    }
+
+    private static void CancelAndDispose(ref CancellationTokenSource? source, object gate)
+    {
+        CancellationTokenSource? toDispose;
+        lock (gate)
+        {
+            toDispose = source;
+            source = null;
+        }
+
+        if (toDispose is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!toDispose.IsCancellationRequested)
+            {
+                toDispose.Cancel();
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        finally
+        {
+            toDispose.Dispose();
+        }
     }
 }

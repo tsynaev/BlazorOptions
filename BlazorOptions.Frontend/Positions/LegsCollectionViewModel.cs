@@ -745,7 +745,7 @@ public sealed class LegsCollectionViewModel : IDisposable
             }
 
             EnsureLegSymbol(leg);
-            var existing = PositionBuilderViewModel.FindMatchingLeg(Collection.Legs, leg);
+            var existing = PositionViewModel.FindMatchingLeg(Collection.Legs, leg);
             if (existing is null)
             {
                 Collection.Legs.Add(leg);

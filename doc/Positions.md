@@ -65,8 +65,8 @@ The Positions feature lets you build, manage, and visualize option strategies an
 See `doc/LegParsing.md` for the full parsing rules, defaults, and UI preview behavior.
 
 ## UI updates
-- The legacy tabs were replaced with a borderless dropdown so selecting positions works on mobile and still keeps the URL in sync via `/positions/{positionId}` links.
-- Switching positions now updates the route, preserves the previously opened chart after a refresh, and shows an error alert with recovery actions when someone navigates to a nonexistent position ID.
+- The position page is route-driven and opens a single position by ID via `/position/{positionId}` (legacy `/positions/{positionId}` is still accepted).
+- Opening `/positions` without an ID shows guidance to open a position from the dashboard.
 - Chart recalculation now runs only when a leg field used in charting changes (include/type/strike/expiry/size/price/IV); other leg edits persist without forcing a chart refresh.
 - Chart data is regenerated using the user-adjusted axis range whenever the payoff chart range changes, and the last range is saved per position.
 - Auto-centering caused by selected-price updates is no longer persisted as user chart range, which prevents accidental tiny range saves during page initialization.

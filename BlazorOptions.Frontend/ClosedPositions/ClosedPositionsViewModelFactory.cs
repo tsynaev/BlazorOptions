@@ -16,12 +16,12 @@ public sealed class ClosedPositionsViewModelFactory
         _exchangeService = exchangeService;
     }
 
-    public ClosedPositionsViewModel Create(PositionBuilderViewModel positionBuilder, PositionModel position)
+    public ClosedPositionsViewModel Create(PositionViewModel positionViewModel, PositionModel position)
     {
 
         var viewModel =
             new ClosedPositionsViewModel(
-                positionBuilder,
+                positionViewModel,
                 _tradingHistoryPort,
                 _exchangeService);
 

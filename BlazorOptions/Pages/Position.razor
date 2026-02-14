@@ -1,19 +1,18 @@
+@page "/position/{PositionId:guid}"
+@page "/positions/{PositionId:guid}"
 @page "/positions"
-@page "/positions/{PositionId:guid?}"
 @implements IAsyncDisposable
-@inject PositionBuilderViewModel ViewModel
+@inject PositionViewModel ViewModel
 @inject IDialogService DialogService
-@inject INavigationService NavigationService
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
-@using System.Linq
-@using Microsoft.AspNetCore.Components.Web
+@using System.Collections.ObjectModel
 @using Microsoft.JSInterop
 @using BlazorOptions.Shared
 @using BlazorOptions.ViewModels
 @using BlazorChart.Models
 
-<PageTitle>Positions</PageTitle>
+<PageTitle>Position</PageTitle>
 
 @if (_routeErrorMessage is not null)
 {
@@ -22,9 +21,14 @@
             @_routeErrorMessage
         </MudAlert>
         <MudStack Row="true" Spacing="1">
-            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="NavigateToFirstPosition">Open first available position</MudButton>
-            <MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="CreatePosition">Create new position</MudButton>
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" Href="/">Open dashboard</MudButton>
         </MudStack>
+    </MudStack>
+}
+else if (_isRouteLoading)
+{
+    <MudStack Class="pa-6" AlignItems="AlignItems.Center" Justify="Justify.Center">
+        <MudProgressCircular Indeterminate="true" Color="Color.Primary" Size="Size.Large" />
     </MudStack>
 }
 else
@@ -36,9 +40,9 @@ else
                 <MudStack Spacing="1">
                     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
                         <MudText Typo="Typo.h6">
-                            @(ViewModel.SelectedPosition?.Position is null
+                            @(!HasActivePosition
                                 ? "No position selected"
-                                : FormatPositionName(ViewModel.SelectedPosition.Position))
+                                : FormatPositionName(ViewModel.Position))
                         </MudText>
                         <MudMenu Icon="@Icons.Material.Filled.MoreVert"
                                  Disabled="@(!HasActivePosition)"
@@ -49,7 +53,7 @@ else
                             <MudMenuItem Disabled="@(!HasActivePosition)" OnClick="OpenRenameDialogAsync">
                                 <MudIcon Icon="@Icons.Material.Filled.Edit" Class="mr-2" /> Edit position
                             </MudMenuItem>
-                            <MudMenuItem Disabled="@(!HasActivePosition)" OnClick="async () => await ConfirmAndRemovePositionAsync(ViewModel.SelectedPosition)">
+                            <MudMenuItem Disabled="@(!HasActivePosition)" OnClick="ConfirmAndRemovePositionAsync">
                                 <MudIcon Icon="@Icons.Material.Filled.Delete" Class="mr-2" /> Delete position
                             </MudMenuItem>
                         </MudMenu>
@@ -82,12 +86,12 @@ else
                                 </MudChip>
                             </MudStack>
                            
-                            <PayoffChart Strategies="@ViewModel.ChartStrategies"
-                                         SelectedPrice="@ViewModel.ChartSelectedPrice"
+                            <PayoffChart Strategies="@DisplayChartStrategies"
+                                         SelectedPrice="@DisplaySelectedPrice"
                                          SelectedPriceChanged="HandleChartPriceSelected"
-                                         Markers="@ViewModel.ChartMarkers"
-                                         Candles="@ViewModel.ChartCandles"
-                                         ShowCandles="@ViewModel.ShowCandles"
+                                         Markers="@DisplayChartMarkers"
+                                         Candles="@DisplayChartCandles"
+                                         ShowCandles="@DisplayShowCandles"
                                          ShowLegends="true"
                                          IsDarkTheme="@IsDarkMode"
                                          Range="@ViewModel.ChartRange"
@@ -128,13 +132,13 @@ else
                         </MudStack>
                     </MudPaper>
                 </MudItem>
-                @if (ViewModel.SelectedPosition != null)
+                @if (HasActivePosition)
                 {
                     <MudItem xs="12" md="4">
                         <MudPaper Class="notes-panel" Elevation="0">
                             <MudText Typo="Typo.subtitle2">Notes</MudText>
                             <MudTextField T="string"
-                                          @bind-Value="@ViewModel.SelectedPosition.Position.Notes"
+                                          @bind-Value="@ViewModel.Position.Notes"
 
                                           Variant="Variant.Outlined"
                                           Margin="Margin.Dense"
@@ -148,9 +152,9 @@ else
         </MudCardContent>
     </MudCard>
 
-        @if (ViewModel.SelectedPosition is not null)
+        @if (HasActivePosition)
         {
-            <PositionPanel ViewModel="@ViewModel.SelectedPosition" />
+            <PositionPanel ViewModel="@ViewModel" />
         }
 
         @if (HasActivePosition)
@@ -159,7 +163,7 @@ else
                            Color="Color.Error"
                            Size="Size.Large"
                            Class="position-delete-fab"
-                           OnClick="async () => await ConfirmAndRemovePositionAsync(ViewModel.SelectedPosition)" />
+                           OnClick="ConfirmAndRemovePositionAsync" />
         }
     </MudStack>
 }
@@ -296,11 +300,15 @@ else
 </style>
 
 @code {
+    private static readonly ObservableCollection<StrategySeries> EmptyStrategies = new();
+    private static readonly ObservableCollection<PriceMarker> EmptyMarkers = new();
+    private static readonly ObservableCollection<CandlePoint> EmptyCandles = new();
+
     private const string ChartRangeStoragePrefix = "positions.chartRange.";
     private const string ChartTimeIntervalStorageKey = "positions.chartTimeIntervalMs";
-    private int _activeTabIndex;
-    private bool HasActivePosition => ViewModel.SelectedPosition?.Position is not null;
+    private bool HasActivePosition => _viewModelReady && ViewModel.Position?.Id != Guid.Empty;
     private bool _viewModelReady;
+    private bool _isRouteLoading = true;
     private Guid? _pendingRoutePositionId;
     private string? _routeErrorMessage;
     private IJSObjectReference? _chartRangeModule;
@@ -313,13 +321,22 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        _isRouteLoading = true;
         ViewModel.OnChange += HandleViewModelChanged;
         ViewModel.LivePriceChanged += HandleLivePriceChanged;
-        await ViewModel.InitializeAsync(PositionId);
-        _viewModelReady = true;
-        await ApplyRouteAsync(_pendingRoutePositionId);
-        await RestoreChartRangeIfMissingAsync();
-        await RestoreChartTimeIntervalAsync();
+        if (PositionId.HasValue && PositionId.Value != Guid.Empty)
+        {
+            await ViewModel.InitializeAsync(PositionId);
+            _viewModelReady = true;
+            await ApplyRouteAsync(PositionId);
+            await RestoreChartRangeIfMissingAsync();
+            await RestoreChartTimeIntervalAsync();
+        }
+        else
+        {
+            _routeErrorMessage = "Open a position from the dashboard.";
+            _isRouteLoading = false;
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -337,11 +354,23 @@ else
     protected override async Task OnParametersSetAsync()
     {
         await base.OnParametersSetAsync();
+        _isRouteLoading = true;
         _pendingRoutePositionId = PositionId;
+        if (!_viewModelReady && PositionId.HasValue && PositionId.Value != Guid.Empty)
+        {
+            await ViewModel.InitializeAsync(PositionId);
+            _viewModelReady = true;
+        }
+
         if (_viewModelReady)
         {
             await ApplyRouteAsync(PositionId);
             await InvokeAsync(StateHasChanged);
+        }
+        else
+        {
+            _routeErrorMessage = "Open a position from the dashboard.";
+            _isRouteLoading = false;
         }
     }
 
@@ -361,49 +390,6 @@ else
         ViewModel.UpdateChartRange(range);
         _ = SaveChartRangeAsync(range);
         return Task.CompletedTask;
-    }
-
-    private Task OnSwipeEnd(SwipeEventArgs args) => args.SwipeDirection switch
-    {
-        SwipeDirection.RightToLeft => ChangeTabByDelta(1),
-        SwipeDirection.LeftToRight => ChangeTabByDelta(-1),
-        _ => Task.CompletedTask
-    };
-
-    private async Task ChangeTabByDelta(int delta)
-    {
-        if (ViewModel.Positions.Count == 0)
-        {
-            return;
-        }
-
-        var nextIndex = Math.Clamp(_activeTabIndex + delta, 0, ViewModel.Positions.Count - 1);
-
-        if (nextIndex != _activeTabIndex)
-        {
-            await OnTabChanged(nextIndex);
-        }
-    }
-
-    private async Task HandlePositionChange(Guid? positionId)
-    {
-        if (!positionId.HasValue)
-        {
-            _routeErrorMessage = null;
-            SyncActiveTabIndex();
-            return;
-        }
-
-        var matched = ViewModel.Positions.FirstOrDefault(p => p.Id == positionId.Value);
-        if (matched is null)
-        {
-            _routeErrorMessage = $"Position {positionId.Value} not found.";
-            _activeTabIndex = -1;
-            return;
-        }
-
-        var index = ViewModel.Positions.IndexOf(matched);
-        await OnTabChanged(index);
     }
 
     private async Task OnTemporaryPriceChanged(decimal? price)
@@ -464,82 +450,16 @@ else
         await SaveChartTimeIntervalAsync(range);
         await InvokeAsync(StateHasChanged);
     }
-
-
-
-    private async Task CreatePosition()
-    {
-        var initialName = $"Position {ViewModel.Positions.Count + 1}";
-        var initialBaseAsset = ViewModel.SelectedPosition?.Position?.BaseAsset ?? "ETH";
-        var initialQuoteAsset = ViewModel.SelectedPosition?.Position?.QuoteAsset ?? "USDT";
-
-        var dialogViewModel = await NavigationService.NavigateToAsync<PositionCreateDialogViewModel>(viewModel =>
-            viewModel.InitializeAsync(initialName, initialBaseAsset, initialQuoteAsset));
-
-        var position = await dialogViewModel.WaitForResultAsync();
-        if (position is null)
-        {
-            return;
-        }
-
-        var initialLegs = position.Collections.FirstOrDefault()?.Legs?.ToList() ?? new List<LegModel>();
-        await ViewModel.AddPositionAsync(position.Name, position.BaseAsset, position.QuoteAsset, includeSampleLegs: false, initialLegs);
-        _activeTabIndex = Math.Max(0, ViewModel.Positions.Count - 1);
-        await InvokeAsync(StateHasChanged);
-        if (ViewModel.SelectedPosition?.Position?.Id is Guid newId && newId != Guid.Empty)
-        {
-            UpdateUrl(newId);
-        }
-    }
-
-    private void SyncActiveTabIndex()
-    {
-        var selectedIndex = ViewModel.SelectedPosition?.Position is null ? -1 : ViewModel.Positions.IndexOf(ViewModel.SelectedPosition.Position);
-
-        if (selectedIndex >= 0)
-        {
-            _activeTabIndex = selectedIndex;
-        }
-        else if (ViewModel.Positions.Count > 0)
-        {
-            _activeTabIndex = 0;
-        }
-    }
-
-    private async Task OnTabChanged(int index)
-    {
-        if (index < 0 || index >= ViewModel.Positions.Count)
-        {
-            SyncActiveTabIndex();
-            return;
-        }
-
-        var positionId = ViewModel.Positions[index].Id;
-
-        if (await ViewModel.SelectPositionAsync(positionId))
-        {
-            _activeTabIndex = index;
-            await InvokeAsync(StateHasChanged);
-            await RestoreChartRangeIfMissingAsync();
-            _routeErrorMessage = null;
-            UpdateUrl(positionId);
-            return;
-        }
-
-        _routeErrorMessage = $"Position {positionId} no longer exists.";
-        _activeTabIndex = -1;
-    }
-
     private async Task OpenRenameDialogAsync()
     {
-        if (ViewModel.SelectedPosition?.Position is null)
+        if (!HasActivePosition)
         {
             return;
         }
 
         var parameters = new DialogParameters
         {
-            [nameof(PositionNameDialog.InitialName)] = ViewModel.SelectedPosition?.Position?.Name
+            [nameof(PositionNameDialog.InitialName)] = ViewModel.Position.Name
         };
 
         var options = new DialogOptions
@@ -557,29 +477,22 @@ else
             return;
         }
 
-        var active = ViewModel.SelectedPosition?.Position;
-
-        if (active is null)
-        {
-            return;
-        }
-
-        await ViewModel.UpdateNameAsync(active, name);
+        await ViewModel.UpdateNameAsync(ViewModel.Position, name);
         StateHasChanged();
     }
 
 
-    private async Task ConfirmAndRemovePositionAsync(PositionViewModel? position)
+    private async Task ConfirmAndRemovePositionAsync()
     {
-        if (position?.Position is null)
+        if (!HasActivePosition)
         {
             return;
         }
 
 
-        var positionName = string.IsNullOrWhiteSpace(position.Position.Name)
+        var positionName = string.IsNullOrWhiteSpace(ViewModel.Position.Name)
             ? "this position"
-            : position.Position.Name;
+            : ViewModel.Position.Name;
         var confirmed = await DialogService.ShowMessageBox(
             "Remove position?",
             $"Delete {positionName} and its chart view?",
@@ -591,10 +504,9 @@ else
             return;
         }
 
-        if (await ViewModel.RemovePositionAsync(position.Position))
+        if (await ViewModel.RemovePositionAsync(ViewModel.Position))
         {
-            SyncActiveTabIndex();
-            await InvokeAsync(StateHasChanged);
+            NavigationManager.NavigateTo("/");
         }
     }
 
@@ -731,13 +643,12 @@ else
 
     private string? GetChartRangeStorageKey()
     {
-        var id = ViewModel.SelectedPosition?.Position?.Id;
-        if (!id.HasValue || id.Value == Guid.Empty)
+        if (!HasActivePosition)
         {
             return null;
         }
 
-        return $"{ChartRangeStoragePrefix}{id.Value}";
+        return $"{ChartRangeStoragePrefix}{ViewModel.Position.Id}";
     }
 
     private async Task<IJSObjectReference?> GetChartRangeModuleAsync()
@@ -765,32 +676,50 @@ else
 
         if (!routePositionId.HasValue)
         {
-            SyncActiveTabIndex();
+            _routeErrorMessage = "Open a position from the dashboard.";
+            _isRouteLoading = false;
             return;
         }
 
-        if (ViewModel.SelectedPosition?.Position?.Id == routePositionId.Value)
+        if (HasActivePosition && ViewModel.Position.Id == routePositionId.Value)
         {
-            SyncActiveTabIndex();
+            UpdateUrl(routePositionId.Value);
+            _isRouteLoading = false;
             return;
         }
 
-        if (!await ViewModel.SelectPositionAsync(routePositionId.Value))
+        _isRouteLoading = true;
+        await InvokeAsync(StateHasChanged);
+        try
         {
-            // Position can be created on another page just before navigation; retry after reload once.
-            if (!await ViewModel.ReloadAndSelectPositionAsync(routePositionId.Value))
+            if (!await ViewModel.LoadPositionAsync(routePositionId.Value))
             {
                 _routeErrorMessage = $"Position {routePositionId.Value} not found.";
-                _activeTabIndex = -1;
                 return;
             }
         }
+        finally
+        {
+            _isRouteLoading = false;
+        }
 
-        SyncActiveTabIndex();
         await InvokeAsync(StateHasChanged);
         await RestoreChartRangeIfMissingAsync();
         UpdateUrl(routePositionId.Value);
     }
+
+    private ObservableCollection<StrategySeries> DisplayChartStrategies =>
+        _isRouteLoading ? EmptyStrategies : ViewModel.ChartStrategies;
+
+    private ObservableCollection<PriceMarker> DisplayChartMarkers =>
+        _isRouteLoading ? EmptyMarkers : ViewModel.ChartMarkers;
+
+    private ObservableCollection<CandlePoint> DisplayChartCandles =>
+        _isRouteLoading ? EmptyCandles : ViewModel.ChartCandles;
+
+    private double? DisplaySelectedPrice => _isRouteLoading ? null : ViewModel.ChartSelectedPrice;
+
+    private bool DisplayShowCandles => !_isRouteLoading && ViewModel.ShowCandles;
 
     private async Task DebounceLiveRenderAsync()
     {
@@ -837,24 +766,13 @@ else
 
     private void UpdateUrl(Guid positionId)
     {
-        var targetUri = $"/positions/{positionId}";
+        var targetUri = $"/position/{positionId}";
         var absoluteTarget = NavigationManager.ToAbsoluteUri(targetUri).ToString();
 
         if (!string.Equals(NavigationManager.Uri, absoluteTarget, StringComparison.OrdinalIgnoreCase))
         {
             NavigationManager.NavigateTo(targetUri);
         }
-    }
-
-    private void NavigateToFirstPosition()
-    {
-        if (ViewModel.Positions.Count == 0)
-        {
-            NavigationManager.NavigateTo("/positions");
-            return;
-        }
-
-        UpdateUrl(ViewModel.Positions[0].Id);
     }
 
     private static string ResolveAssetLabel(string? value)
@@ -872,15 +790,14 @@ else
 
     private decimal? ResolveTotalTempPnl()
     {
-        var selected = ViewModel.SelectedPosition;
-        if (selected is null)
+        if (!HasActivePosition)
         {
             return null;
         }
 
         decimal total = 0;
         var hasValue = false;
-        foreach (var collection in selected.Collections)
+        foreach (var collection in ViewModel.Collections)
         {
             if (!collection.Collection.IsVisible)
             {
@@ -917,7 +834,7 @@ else
 
     private decimal? ResolveClosedNetPnl()
     {
-        var closed = ViewModel.SelectedPosition?.Position?.Closed;
+        var closed = HasActivePosition ? ViewModel.Position.Closed : null;
         if (closed is null)
         {
             return null;
