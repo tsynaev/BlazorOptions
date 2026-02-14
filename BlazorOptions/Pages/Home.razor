@@ -8,9 +8,11 @@
 <MudStack Spacing="2">
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
         <MudText Typo="Typo.h4">Dashboard</MudText>
-        <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="ReloadAsync" Disabled="ViewModel.IsLoading">
-            @(ViewModel.IsLoading ? "Loading..." : "Refresh")
-        </MudButton>
+        <MudIconButton Icon="@(ViewModel.IsLoading ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Refresh)"
+                       Color="Color.Primary"
+                       Disabled="ViewModel.IsLoading"
+                       OnClick="ReloadAsync"
+                       aria-label="Refresh dashboard" />
     </MudStack>
 
     @if (!string.IsNullOrWhiteSpace(ViewModel.ErrorMessage))

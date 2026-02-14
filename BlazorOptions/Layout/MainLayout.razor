@@ -18,13 +18,43 @@
             <MudText Typo="Typo.subtitle2">@ViewModel.UserName</MudText>
         }
         <MudIconButton Icon="@Icons.Material.Filled.AccountCircle"
+                       Class="appbar-account"
                        Color="Color.Inherit"
                        Href="account-settings"
                        aria-label="Account settings" />
     </MudAppBar>
-    <MudMainContent>
+    <MudMainContent Class="main-content-shell">
         @Body
     </MudMainContent>
+
+    <MudPaper Class="mobile-bottom-nav" Square="true" Elevation="8">
+        <div class="mobile-bottom-nav-row">
+            <MudNavLink Href="/" Match="NavLinkMatch.All" Class="mobile-bottom-link">
+                <span class="mobile-bottom-icon-wrap">
+                    <MudIcon Icon="@Icons.Material.Filled.Home" />
+                </span>
+                <MudText Typo="Typo.caption">Home</MudText>
+            </MudNavLink>
+            <MudNavLink Href="/positions" Class="mobile-bottom-link">
+                <span class="mobile-bottom-icon-wrap">
+                    <MudIcon Icon="@Icons.Material.Filled.ShowChart" />
+                </span>
+                <MudText Typo="Typo.caption">Position</MudText>
+            </MudNavLink>
+            <MudNavLink Href="/volume-heatmap" Class="mobile-bottom-link">
+                <span class="mobile-bottom-icon-wrap">
+                    <MudIcon Icon="@Icons.Material.Filled.Storage" />
+                </span>
+                <MudText Typo="Typo.caption">Data</MudText>
+            </MudNavLink>
+            <MudNavLink Href="/account-settings" Class="mobile-bottom-link">
+                <span class="mobile-bottom-icon-wrap">
+                    <MudIcon Icon="@Icons.Material.Filled.AccountCircle" />
+                </span>
+                <MudText Typo="Typo.caption">Account</MudText>
+            </MudNavLink>
+        </div>
+    </MudPaper>
 </MudLayout>
 
 @code {
@@ -64,5 +94,88 @@
 
     .appbar-link.active {
         text-decoration: underline;
+    }
+
+    .mobile-bottom-nav {
+        display: none;
+    }
+
+    .mobile-bottom-nav-row {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        align-items: stretch;
+        height: 64px;
+    }
+
+    .mobile-bottom-link {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
+        min-width: 0 !important;
+        text-align: center;
+        line-height: 1;
+        text-decoration: none;
+        padding: 6px 0 !important;
+        margin: 0 !important;
+    }
+
+    .mobile-bottom-link .mud-icon-root {
+        display: block;
+        margin: 0 auto;
+    }
+
+    .mobile-bottom-icon-wrap {
+        width: 28px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .mobile-bottom-link .mud-typography {
+        margin: 0;
+        line-height: 1.1;
+    }
+
+    .mobile-bottom-link .mud-nav-link-text {
+        width: auto !important;
+        margin-left: 0 !important;
+        margin-inline-start: 0 !important;
+        text-align: center !important;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
+    }
+
+    @@media (max-width: 768px) {
+        .mud-appbar {
+            display: none;
+        }
+
+        .appbar-links {
+            display: none;
+        }
+
+        .appbar-account {
+            display: none;
+        }
+
+        .mobile-bottom-nav {
+            display: block;
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 1200;
+        }
+
+        .main-content-shell {
+            padding-top: 0 !important;
+            padding-bottom: 72px;
+        }
     }
 </style>
