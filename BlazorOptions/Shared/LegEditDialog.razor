@@ -80,9 +80,11 @@
             <MudGrid Spacing="2">
                 <MudItem xs="12" sm="6">
                     <MudNumericField T="decimal"
+                                     @key="_sizeFieldKey"
                                      Label="Size"
-                                     Value="@ViewModel.Leg.Size"
-                                     ValueChanged="ViewModel.UpdateLegSizeAsync"
+                                     @bind-Value="SizeValue"
+                                     Immediate="true"
+                                     Format="0.########"
                                      Margin="Margin.Dense"
                                      Disabled="@ViewModel.Leg.IsReadOnly" />
                 </MudItem>
@@ -122,11 +124,19 @@
     [Parameter, EditorRequired] public LegViewModel ViewModel { get; set; } = default!;
 
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    private decimal _sizeValue;
+    private string _sizeFieldKey = string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
+        SyncEditableFields();
         await ViewModel.EnsureFutureExpirationsLoadedAsync();
         await InvokeAsync(StateHasChanged);
+    }
+
+    protected override void OnParametersSet()
+    {
+        SyncEditableFields();
     }
 
     private Task SaveAsync()
@@ -149,6 +159,28 @@
     private static string FormatPrice(decimal? price)
     {
         return price.HasValue ? price.Value.ToString("0.##", CultureInfo.InvariantCulture) : string.Empty;
+    }
+
+    private void SyncEditableFields()
+    {
+        _sizeValue = ViewModel.Leg.Size;
+        // Key forces a clean MudNumericField state when the edited leg changes.
+        _sizeFieldKey = $"{ViewModel.Leg.ReferenceId ?? ViewModel.Leg.Symbol ?? "leg"}:{ViewModel.Leg.Size.ToString(CultureInfo.InvariantCulture)}";
+    }
+
+    private decimal SizeValue
+    {
+        get => _sizeValue;
+        set
+        {
+            if (_sizeValue == value)
+            {
+                return;
+            }
+
+            _sizeValue = value;
+            ViewModel.UpdateLegSizeAsync(value);
+        }
     }
 
     private static string FormatIv(decimal? iv)
