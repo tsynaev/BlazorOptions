@@ -59,6 +59,7 @@ builder.Services.AddScoped<IOptions<BybitSettings>, LocalStorageBybitSettingsOpt
 builder.Services.AddScoped<MainLayoutViewModel>();
 builder.Services.AddTransient<AccountSettingsViewModel>();
 builder.Services.AddTransient<BybitSettingsViewModel>();
+builder.Services.AddScoped<HomeDashboardViewModel>();
 builder.Services.AddScoped<PositionBuilderViewModel>();
 builder.Services.AddScoped<INotifyUserService, NotifyUserService>();
 builder.Services.AddScoped<LegsCollectionViewModelFactory>();
