@@ -1,73 +1,9 @@
 @page "/bybit-settings"
-@implements IDisposable
-@inject BlazorOptions.ViewModels.BybitSettingsViewModel ViewModel
-
-<PageTitle>Bybit settings</PageTitle>
-
-<MudStack Spacing="3">
-    <MudText Typo="Typo.h4">Bybit settings</MudText>
-
-    <MudPaper Class="pa-6" Elevation="1">
-        <MudStack Spacing="2">
-            <MudText Typo="Typo.h6">API credentials</MudText>
-            <MudTextField Label="API key"
-                          @bind-Value="ViewModel.ApiKey"
-                          Variant="Variant.Outlined"
-                          Margin="Margin.Dense" />
-            <MudTextField Label="API secret"
-                          @bind-Value="ViewModel.ApiSecret"
-                          Variant="Variant.Outlined"
-                          Margin="Margin.Dense"
-                          InputType="InputType.Password" />
-            <MudTextField Label="WebSocket URL"
-                          @bind-Value="ViewModel.WebSocketUrl"
-                          Variant="Variant.Outlined"
-                          Margin="Margin.Dense" />
-            <MudNumericField T="int"
-                             Label="Live price update interval (milliseconds)"
-                             @bind-Value="ViewModel.LivePriceUpdateIntervalMilliseconds"
-                             Variant="Variant.Outlined"
-                             Margin="Margin.Dense"
-                             Min="100" />
-            <MudTextField Label="Options base coins"
-                          @bind-Value="ViewModel.OptionBaseCoins"
-                          Variant="Variant.Outlined"
-                          Margin="Margin.Dense"
-                          HelperText="Examples: BTC, ETH, SOL. Any non-letter/digit separator is supported." />
-            <MudTextField Label="Options quote coins"
-                          @bind-Value="ViewModel.OptionQuoteCoins"
-                          Variant="Variant.Outlined"
-                          Margin="Margin.Dense"
-                          HelperText="Examples: USDT, USDC. Any non-letter/digit separator is supported." />
-            <MudText Typo="Typo.caption">
-                REST API Base Endpoint: https://bybit-exchange.github.io/docs/v5/guide
-            </MudText>
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">
-                Save settings
-            </MudButton>
-        </MudStack>
-    </MudPaper>
-</MudStack>
+@inject NavigationManager Navigation
 
 @code {
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
-        ViewModel.OnChange += HandleViewModelChanged;
-        await ViewModel.LoadAsync();
-    }
-
-    public void Dispose()
-    {
-        ViewModel.OnChange -= HandleViewModelChanged;
-    }
-
-    private async Task SaveAsync()
-    {
-        await ViewModel.SaveAsync();
-    }
-
-    private void HandleViewModelChanged()
-    {
-        _ = InvokeAsync(StateHasChanged);
+        Navigation.NavigateTo("/account-settings", true);
     }
 }

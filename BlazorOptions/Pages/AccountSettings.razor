@@ -59,6 +59,44 @@
             </MudButton>
         </MudStack>
     </MudPaper>
+
+    <MudPaper Class="pa-6" Elevation="1">
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.h6">Bybit settings</MudText>
+            <MudTextField Label="API key"
+                          @bind-Value="ViewModel.ApiKey"
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense" />
+            <MudTextField Label="API secret"
+                          @bind-Value="ViewModel.ApiSecret"
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense"
+                          InputType="InputType.Password" />
+            <MudTextField Label="WebSocket URL"
+                          @bind-Value="ViewModel.WebSocketUrl"
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense" />
+            <MudNumericField T="int"
+                             Label="Live price update interval (milliseconds)"
+                             @bind-Value="ViewModel.LivePriceUpdateIntervalMilliseconds"
+                             Variant="Variant.Outlined"
+                             Margin="Margin.Dense"
+                             Min="100" />
+            <MudTextField Label="Options base coins"
+                          @bind-Value="ViewModel.OptionBaseCoins"
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense"
+                          HelperText="Examples: BTC, ETH, SOL. Any non-letter/digit separator is supported." />
+            <MudTextField Label="Options quote coins"
+                          @bind-Value="ViewModel.OptionQuoteCoins"
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense"
+                          HelperText="Examples: USDT, USDC. Any non-letter/digit separator is supported." />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="HandleSaveBybitSettingsAsync">
+                Save Bybit settings
+            </MudButton>
+        </MudStack>
+    </MudPaper>
 </MudStack>
 
 @code {
@@ -101,5 +139,10 @@
     private Task HandleSaveRiskSettingsAsync()
     {
         return ViewModel.SaveRiskSettingsAsync();
+    }
+
+    private Task HandleSaveBybitSettingsAsync()
+    {
+        return ViewModel.SaveBybitSettingsAsync();
     }
 }

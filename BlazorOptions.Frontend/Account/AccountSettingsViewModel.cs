@@ -1,4 +1,5 @@
 using BlazorOptions.Services;
+using Microsoft.Extensions.Options;
 
 namespace BlazorOptions.ViewModels;
 
@@ -7,15 +8,18 @@ public class AccountSettingsViewModel : IDisposable
     private readonly AuthApiService _authApiService;
     private readonly AuthSessionService _sessionService;
     private readonly ILocalStorageService _localStorageService;
+    private readonly IOptions<BybitSettings> _bybitSettingsOptions;
 
     public AccountSettingsViewModel(
         AuthApiService authApiService,
         AuthSessionService sessionService,
-        ILocalStorageService localStorageService)
+        ILocalStorageService localStorageService,
+        IOptions<BybitSettings> bybitSettingsOptions)
     {
         _authApiService = authApiService;
         _sessionService = sessionService;
         _localStorageService = localStorageService;
+        _bybitSettingsOptions = bybitSettingsOptions;
         _sessionService.OnChange += HandleSessionChanged;
     }
 
@@ -41,10 +45,23 @@ public class AccountSettingsViewModel : IDisposable
 
     public decimal MaxLossFuturesPercent { get; set; } = 30m;
 
+    public string ApiKey { get; set; } = string.Empty;
+
+    public string ApiSecret { get; set; } = string.Empty;
+
+    public string WebSocketUrl { get; set; } = "wss://stream.bybit.com/v5/public/linear";
+
+    public int LivePriceUpdateIntervalMilliseconds { get; set; } = 1000;
+
+    public string OptionBaseCoins { get; set; } = "BTC, ETH, SOL";
+
+    public string OptionQuoteCoins { get; set; } = "USDT";
+
     public async Task InitializeAsync()
     {
         await _sessionService.InitializeAsync();
         await LoadRiskSettingsAsync();
+        await LoadBybitSettingsAsync();
     }
 
     public async Task RegisterAsync()
@@ -151,5 +168,35 @@ public class AccountSettingsViewModel : IDisposable
         MaxLossOptionPercent = Math.Max(1m, settings.MaxLossOptionPercent);
         MaxLossFuturesPercent = Math.Max(1m, settings.MaxLossFuturesPercent);
         OnChange?.Invoke();
+    }
+
+    public async Task SaveBybitSettingsAsync()
+    {
+        var settings = new BybitSettings
+        {
+            ApiKey = ApiKey,
+            ApiSecret = ApiSecret,
+            WebSocketUrl = WebSocketUrl,
+            LivePriceUpdateIntervalMilliseconds = Math.Max(100, LivePriceUpdateIntervalMilliseconds),
+            OptionBaseCoins = OptionBaseCoins,
+            OptionQuoteCoins = OptionQuoteCoins
+        };
+
+        var payload = BybitSettingsStorage.Serialize(settings);
+        await _localStorageService.SetItemAsync(BybitSettingsStorage.StorageKey, payload);
+        OnChange?.Invoke();
+    }
+
+    private Task LoadBybitSettingsAsync()
+    {
+        var settings = _bybitSettingsOptions.Value;
+        ApiKey = settings.ApiKey;
+        ApiSecret = settings.ApiSecret;
+        WebSocketUrl = settings.WebSocketUrl;
+        LivePriceUpdateIntervalMilliseconds = Math.Max(100, settings.LivePriceUpdateIntervalMilliseconds);
+        OptionBaseCoins = string.IsNullOrWhiteSpace(settings.OptionBaseCoins) ? "BTC, ETH, SOL" : settings.OptionBaseCoins;
+        OptionQuoteCoins = string.IsNullOrWhiteSpace(settings.OptionQuoteCoins) ? "USDT" : settings.OptionQuoteCoins;
+        OnChange?.Invoke();
+        return Task.CompletedTask;
     }
 }

@@ -13,3 +13,7 @@ The Application Settings feature centralizes user preferences and sync account a
 ## Notes
 - When signed in, changes are synced to the server and broadcast to other devices.
 - Without authentication, the app operates fully in local-only mode.
+
+## Bybit
+- Bybit settings are managed from the Account Settings page.
+- Option instrument selection is driven by configured option base/quote coin lists.
