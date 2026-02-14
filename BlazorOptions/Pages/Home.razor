@@ -87,7 +87,8 @@
                                                                     <MudChip T="string"
                                                                              Size="Size.Small"
                                                                              Variant="Variant.Outlined"
-                                                                             Class="@($"home-leg-chip {leg.SeverityClass}")">
+                                                                             Class="@($"home-leg-chip {leg.SeverityClass}")"
+                                                                             @onclick:stopPropagation="true">
                                                                         @leg.Text
                                                                     </MudChip>
                                                                 </ChildContent>
