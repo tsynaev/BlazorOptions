@@ -19,6 +19,14 @@ public interface IOptionsChainService
 
     List<OptionChainTicker> GetTickersByBaseAsset(string baseAsset, LegType? legType = null);
 
+    IReadOnlyList<string> GetCachedBaseAssets();
+
+    IReadOnlyList<string> GetCachedQuoteAssets(string baseAsset);
+
+    Task<IReadOnlyList<string>> GetAvailableBaseAssetsAsync(CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<string>> GetAvailableQuoteAssetsAsync(string baseAsset, CancellationToken cancellationToken = default);
+
     Task EnsureBaseAssetAsync(string baseAsset);
 
     Task RefreshAsync(string? baseAsset = null, CancellationToken cancellationToken = default);

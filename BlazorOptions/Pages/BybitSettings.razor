@@ -29,6 +29,16 @@
                              Variant="Variant.Outlined"
                              Margin="Margin.Dense"
                              Min="100" />
+            <MudTextField Label="Options base coins"
+                          @bind-Value="ViewModel.OptionBaseCoins"
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense"
+                          HelperText="Examples: BTC, ETH, SOL. Any non-letter/digit separator is supported." />
+            <MudTextField Label="Options quote coins"
+                          @bind-Value="ViewModel.OptionQuoteCoins"
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense"
+                          HelperText="Examples: USDT, USDC. Any non-letter/digit separator is supported." />
             <MudText Typo="Typo.caption">
                 REST API Base Endpoint: https://bybit-exchange.github.io/docs/v5/guide
             </MudText>

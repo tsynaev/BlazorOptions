@@ -5,7 +5,7 @@
 - `/data`: entry page with links to data tools.
 - `/volume-heatmap`: existing weekday/hour heatmap.
 - `/open-interest`: 3D open-interest chart.
-- `/volatility-skew`: placeholder page for future analytics.
+- `/volatility-skew`: strike/price skew chart with expiration chip filtering.
 
 ## Open Interest
 
@@ -19,3 +19,18 @@
   - Y: expiration date
   - Z: aggregated open interest (sum for strike + expiration)
 - Filters: base/quote selectors on page.
+
+## Volatility Skew
+
+- Source: `IExchangeService.OptionsChain` tickers.
+- Axes:
+  - X: strike
+  - Y: IV %
+- Data:
+  - line = mark IV
+  - bid/ask triangles = bid IV / ask IV (only when exactly one expiration is selected)
+  - tooltip shows price and IV for mark/bid/ask
+- Filters:
+  - instrument selector (`BASE/QUOTE`, from Bybit settings option base/quote lists)
+  - Call/Put switch
+  - expiration chips with add/remove behavior

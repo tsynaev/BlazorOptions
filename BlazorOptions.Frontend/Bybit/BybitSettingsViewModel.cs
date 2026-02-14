@@ -22,6 +22,10 @@ public class BybitSettingsViewModel
 
     public int LivePriceUpdateIntervalMilliseconds { get; set; } = 1000;
 
+    public string OptionBaseCoins { get; set; } = "BTC, ETH, SOL";
+
+    public string OptionQuoteCoins { get; set; } = "USDT";
+
     public event Action? OnChange;
 
     public Task LoadAsync()
@@ -31,6 +35,8 @@ public class BybitSettingsViewModel
         ApiSecret = settings.ApiSecret;
         WebSocketUrl = settings.WebSocketUrl;
         LivePriceUpdateIntervalMilliseconds = Math.Max(100, settings.LivePriceUpdateIntervalMilliseconds);
+        OptionBaseCoins = string.IsNullOrWhiteSpace(settings.OptionBaseCoins) ? "BTC, ETH, SOL" : settings.OptionBaseCoins;
+        OptionQuoteCoins = string.IsNullOrWhiteSpace(settings.OptionQuoteCoins) ? "USDT" : settings.OptionQuoteCoins;
         OnChange?.Invoke();
         return Task.CompletedTask;
     }
@@ -42,7 +48,9 @@ public class BybitSettingsViewModel
             ApiKey = ApiKey,
             ApiSecret = ApiSecret,
             WebSocketUrl = WebSocketUrl,
-            LivePriceUpdateIntervalMilliseconds = Math.Max(100, LivePriceUpdateIntervalMilliseconds)
+            LivePriceUpdateIntervalMilliseconds = Math.Max(100, LivePriceUpdateIntervalMilliseconds),
+            OptionBaseCoins = OptionBaseCoins,
+            OptionQuoteCoins = OptionQuoteCoins
         };
 
         var payload = BybitSettingsStorage.Serialize(settings);

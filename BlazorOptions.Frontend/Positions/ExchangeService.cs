@@ -202,6 +202,26 @@ public sealed class ExchangeService : IExchangeService
             return new List<OptionChainTicker>();
         }
 
+        public IReadOnlyList<string> GetCachedBaseAssets()
+        {
+            return Array.Empty<string>();
+        }
+
+        public IReadOnlyList<string> GetCachedQuoteAssets(string baseAsset)
+        {
+            return Array.Empty<string>();
+        }
+
+        public Task<IReadOnlyList<string>> GetAvailableBaseAssetsAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+        }
+
+        public Task<IReadOnlyList<string>> GetAvailableQuoteAssetsAsync(string baseAsset, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+        }
+
         public Task EnsureBaseAssetAsync(string baseAsset) => Task.CompletedTask;
 
         public Task RefreshAsync(string? baseAsset = null, CancellationToken cancellationToken = default) => Task.CompletedTask;

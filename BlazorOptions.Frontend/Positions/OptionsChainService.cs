@@ -7,6 +7,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Options;
 
 namespace BlazorOptions.Services;
 
@@ -24,6 +25,8 @@ public class OptionsChainService : IOptionsChainService
     private HashSet<string> _trackedSymbols = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<Func<OptionChainTicker, Task>>>
         _subscriberHandlers = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<ExchangeTradingPair> _availableOptionPairs = Array.Empty<ExchangeTradingPair>();
+    private readonly IOptions<BybitSettings>? _bybitSettingsOptions;
     private ClientWebSocket? _socket;
     private CancellationTokenSource? _socketCts;
     private Task? _socketTask;
@@ -36,10 +39,11 @@ public class OptionsChainService : IOptionsChainService
   
     private readonly IExchangeService _exchangeService;
 
-    public OptionsChainService(HttpClient httpClient, IExchangeService exchangeService)
+    public OptionsChainService(HttpClient httpClient, IExchangeService exchangeService, IOptions<BybitSettings>? bybitSettingsOptions = null)
     {
         _httpClient = httpClient;
         _exchangeService = exchangeService;
+        _bybitSettingsOptions = bybitSettingsOptions;
     }
 
     public DateTime? LastUpdatedUtc { get; private set; }
@@ -77,6 +81,74 @@ public class OptionsChainService : IOptionsChainService
 
     }
 
+    public IReadOnlyList<string> GetCachedBaseAssets()
+    {
+        lock (_cacheLock)
+        {
+            return _cachedTickers.Keys
+                .OrderBy(x => x)
+                .ToArray();
+        }
+    }
+
+    public IReadOnlyList<string> GetCachedQuoteAssets(string baseAsset)
+    {
+        if (string.IsNullOrWhiteSpace(baseAsset))
+        {
+            return Array.Empty<string>();
+        }
+
+        var normalizedBase = baseAsset.Trim().ToUpperInvariant();
+        lock (_cacheLock)
+        {
+            if (!_cachedTickers.TryGetValue(normalizedBase, out var tickers))
+            {
+                return Array.Empty<string>();
+            }
+
+            return tickers
+                .Select(t => ExtractQuoteAsset(t.Symbol))
+                .Where(q => !string.IsNullOrWhiteSpace(q))
+                .Select(q => q!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(x => x)
+                .ToArray();
+        }
+    }
+
+    public async Task<IReadOnlyList<string>> GetAvailableBaseAssetsAsync(CancellationToken cancellationToken = default)
+    {
+        await EnsureAvailableOptionPairsAsync(cancellationToken);
+        lock (_cacheLock)
+        {
+            return _availableOptionPairs
+                .Select(p => p.BaseAsset)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(x => x)
+                .ToArray();
+        }
+    }
+
+    public async Task<IReadOnlyList<string>> GetAvailableQuoteAssetsAsync(string baseAsset, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(baseAsset))
+        {
+            return Array.Empty<string>();
+        }
+
+        await EnsureAvailableOptionPairsAsync(cancellationToken);
+        var normalizedBase = baseAsset.Trim().ToUpperInvariant();
+        lock (_cacheLock)
+        {
+            return _availableOptionPairs
+                .Where(p => string.Equals(p.BaseAsset, normalizedBase, StringComparison.OrdinalIgnoreCase))
+                .Select(p => p.QuoteAsset)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(x => x)
+                .ToArray();
+        }
+    }
+
 
 
     public IReadOnlyCollection<string> GetTrackedSymbols()
@@ -109,27 +181,31 @@ public class OptionsChainService : IOptionsChainService
         {
             IsRefreshing = true;
 
-            string[] assets;
             if (string.IsNullOrEmpty(baseAsset))
             {
-                assets = _cachedTickers.Keys.ToArray();
-            }
-            else
-            {
-                assets = [baseAsset];
-            }
-
-
-            foreach (var asset in assets)
-            {
-                var updated = await FetchTickersAsync(asset, cancellationToken);
-
+                var updated = await FetchTickersAsync(null, cancellationToken);
                 if (updated.Count > 0)
                 {
                     lock (_cacheLock)
                     {
-                        _cachedTickers.Remove(asset);
-                        _cachedTickers.Add(asset, updated);
+                        _cachedTickers = updated
+                            .GroupBy(t => t.BaseAsset, StringComparer.OrdinalIgnoreCase)
+                            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+                    }
+
+                    LastUpdatedUtc = DateTime.UtcNow;
+                }
+            }
+            else
+            {
+                var normalizedBase = baseAsset.Trim().ToUpperInvariant();
+                var updated = await FetchTickersAsync(normalizedBase, cancellationToken);
+                if (updated.Count > 0)
+                {
+                    lock (_cacheLock)
+                    {
+                        _cachedTickers.Remove(normalizedBase);
+                        _cachedTickers.Add(normalizedBase, updated);
                     }
 
                     LastUpdatedUtc = DateTime.UtcNow;
@@ -240,6 +316,57 @@ public class OptionsChainService : IOptionsChainService
         }
 
         return $"{BybitOptionsTickerUrl}&baseCoin={Uri.EscapeDataString(baseAsset.Trim())}";
+    }
+
+    private async Task EnsureAvailableOptionPairsAsync(CancellationToken cancellationToken)
+    {
+        var fetched = await FetchAvailableOptionPairsAsync(cancellationToken);
+        lock (_cacheLock)
+        {
+            _availableOptionPairs = fetched.Count > 0 ? fetched : BuildPairsFromSettings();
+        }
+    }
+
+    private async Task<IReadOnlyList<ExchangeTradingPair>> FetchAvailableOptionPairsAsync(CancellationToken cancellationToken)
+    {
+        // Bybit doesn't expose a reliable complete options instruments list without base filter.
+        // We use user-configured base/quote settings as source of truth for selectable instruments.
+        await Task.CompletedTask;
+        return BuildPairsFromSettings();
+    }
+
+    private IReadOnlyList<ExchangeTradingPair> BuildPairsFromSettings()
+    {
+        var settings = _bybitSettingsOptions?.Value ?? new BybitSettings();
+        var bases = ParseAssetList(settings.OptionBaseCoins, ["BTC", "ETH", "SOL"]);
+        var quotes = ParseAssetList(settings.OptionQuoteCoins, ["USDT"]);
+        var pairs = new List<ExchangeTradingPair>(bases.Count * quotes.Count);
+
+        foreach (var baseAsset in bases)
+        {
+            foreach (var quoteAsset in quotes)
+            {
+                pairs.Add(new ExchangeTradingPair(baseAsset, quoteAsset));
+            }
+        }
+
+        return pairs;
+    }
+
+    private static IReadOnlyList<string> ParseAssetList(string? raw, IReadOnlyList<string> fallback)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return fallback;
+        }
+
+        var parsed = Regex.Split(raw, "[^a-zA-Z0-9]+")
+            .Select(x => x.Trim().ToUpperInvariant())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return parsed.Length > 0 ? parsed : fallback;
     }
 
     private List<OptionChainTicker> ParseTickersFromDocument(JsonDocument? document)
@@ -384,16 +511,45 @@ public class OptionsChainService : IOptionsChainService
         return !string.IsNullOrWhiteSpace(value);
     }
 
-    private static decimal ReadDecimal(JsonElement element, string propertyName)
+    private static decimal ReadDecimal(JsonElement element, string propertyName, params string[] fallbackPropertyNames)
     {
-        if (!element.TryGetProperty(propertyName, out var property))
+        if (TryReadDecimal(element, propertyName, out var value))
+        {
+            return value;
+        }
+
+        if (fallbackPropertyNames is null || fallbackPropertyNames.Length == 0)
         {
             return 0;
         }
 
-        var raw = property.ValueKind == JsonValueKind.String ? property.GetString() : property.GetRawText();
+        foreach (var fallback in fallbackPropertyNames)
+        {
+            if (TryReadDecimal(element, fallback, out value))
+            {
+                return value;
+            }
+        }
 
-        return decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var value) ? value : 0;
+        return 0;
+    }
+
+    private static bool TryReadDecimal(JsonElement element, string propertyName, out decimal value)
+    {
+        value = 0;
+
+        if (!element.TryGetProperty(propertyName, out var property))
+        {
+            return false;
+        }
+
+        var raw = property.ValueKind == JsonValueKind.String ? property.GetString() : property.GetRawText();
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return false;
+        }
+
+        return decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out value);
     }
 
     private async Task EnsureWebSocketSubscriptionsAsync(IEnumerable<string> symbols)
@@ -679,10 +835,10 @@ public class OptionsChainService : IOptionsChainService
         var markPrice = ReadDecimal(entry, "markPrice");
         var lastPrice = ReadDecimal(entry, "lastPrice");
         var markIv = ReadDecimal(entry, "markIv");
-        var bidPrice = ReadDecimal(entry, "bidPrice");
-        var askPrice = ReadDecimal(entry, "askPrice");
-        var bidIv = ReadDecimal(entry, "bidIv");
-        var askIv = ReadDecimal(entry, "askIv");
+        var bidPrice = ReadDecimal(entry, "bidPrice", "bid1Price");
+        var askPrice = ReadDecimal(entry, "askPrice", "ask1Price");
+        var bidIv = ReadDecimal(entry, "bidIv", "bid1Iv");
+        var askIv = ReadDecimal(entry, "askIv", "ask1Iv");
         var delta = ReadNullableDecimal(entry, "delta");
         var gamma = ReadNullableDecimal(entry, "gamma");
         var vega = ReadNullableDecimal(entry, "vega");
@@ -877,6 +1033,17 @@ public class OptionsChainService : IOptionsChainService
         {
             _socketLock.Release();
         }
+    }
+
+    private static string? ExtractQuoteAsset(string symbol)
+    {
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return null;
+        }
+
+        var parts = symbol.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return parts.Length >= 5 ? parts[4] : null;
     }
 
     private bool IsSymbolTracked(string symbol)
