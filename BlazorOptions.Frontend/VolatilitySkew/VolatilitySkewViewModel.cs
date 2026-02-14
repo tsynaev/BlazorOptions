@@ -26,6 +26,7 @@ public sealed class VolatilitySkewViewModel : Bindable
     private IReadOnlyList<string> _availableInstruments = Array.Empty<string>();
     private IReadOnlyList<VolatilitySkewExpirationChip> _expirationChips = Array.Empty<VolatilitySkewExpirationChip>();
     private VolatilitySkewChartOptions? _chart;
+    private VolatilitySkewSurfaceOptions? _surfaceChart;
     private LegType _selectedType = LegType.Call;
 
     public VolatilitySkewViewModel(IExchangeService exchangeService)
@@ -79,6 +80,12 @@ public sealed class VolatilitySkewViewModel : Bindable
     {
         get => _chart;
         private set => SetField(ref _chart, value);
+    }
+
+    public VolatilitySkewSurfaceOptions? SurfaceChart
+    {
+        get => _surfaceChart;
+        private set => SetField(ref _surfaceChart, value);
     }
 
     public LegType SelectedType
@@ -144,6 +151,7 @@ public sealed class VolatilitySkewViewModel : Bindable
             _cachedTickers.Clear();
             ExpirationChips = Array.Empty<VolatilitySkewExpirationChip>();
             Chart = null;
+            SurfaceChart = null;
         }
         finally
         {
@@ -271,6 +279,7 @@ public sealed class VolatilitySkewViewModel : Bindable
         if (selectedExpirations.Count == 0 || _cachedTickers.Count == 0)
         {
             Chart = null;
+            SurfaceChart = null;
             return;
         }
 
@@ -316,6 +325,7 @@ public sealed class VolatilitySkewViewModel : Bindable
         if (series.Count == 0)
         {
             Chart = null;
+            SurfaceChart = null;
             return;
         }
 
@@ -325,6 +335,8 @@ public sealed class VolatilitySkewViewModel : Bindable
             series,
             series.Count == 1,
             currentPrice > 0d ? currentPrice : null);
+
+        SurfaceChart = BuildSurfaceChart();
     }
 
     private void ClearLoadedData()
@@ -332,7 +344,169 @@ public sealed class VolatilitySkewViewModel : Bindable
         _cachedTickers.Clear();
         ExpirationChips = Array.Empty<VolatilitySkewExpirationChip>();
         Chart = null;
+        SurfaceChart = null;
         ErrorMessage = null;
+    }
+
+    private VolatilitySkewSurfaceOptions? BuildSurfaceChart()
+    {
+        var tickers = _cachedTickers
+            .Where(t => t.Type == SelectedType)
+            .Where(t => t.MarkIv > 0m)
+            .ToList();
+
+        if (tickers.Count == 0)
+        {
+            return null;
+        }
+
+        var strikes = tickers
+            .Select(t => (double)t.Strike)
+            .Distinct()
+            .OrderBy(v => v)
+            .ToArray();
+        var expirations = tickers
+            .Select(t => t.ExpirationDate.Date)
+            .Distinct()
+            .OrderBy(v => v)
+            .ToArray();
+
+        if (strikes.Length == 0 || expirations.Length == 0)
+        {
+            return null;
+        }
+
+        var strikeIndex = strikes
+            .Select((value, index) => new { value, index })
+            .ToDictionary(x => x.value, x => x.index);
+        var expirationIndex = expirations
+            .Select((value, index) => new { value, index })
+            .ToDictionary(x => x.value, x => x.index);
+
+        var grouped = tickers
+            .GroupBy(t => (Strike: (double)t.Strike, Exp: t.ExpirationDate.Date))
+            .ToDictionary(
+                g => g.Key,
+                g => g.Average(x => ToIvPercent(x.MarkIv)));
+
+        var matrix = new double?[expirations.Length, strikes.Length];
+        foreach (var item in grouped)
+        {
+            var x = strikeIndex[item.Key.Strike];
+            var y = expirationIndex[item.Key.Exp];
+            matrix[y, x] = item.Value;
+        }
+
+        // Fill missing IV values along strike axis inside known boundaries per expiration.
+        for (var y = 0; y < expirations.Length; y++)
+        {
+            InterpolateRow(matrix, y, strikes.Length);
+        }
+
+        // Fill remaining gaps across expiration axis per strike.
+        for (var x = 0; x < strikes.Length; x++)
+        {
+            InterpolateColumn(matrix, x, expirations.Length);
+        }
+
+        var points = new List<VolatilitySkewSurfacePoint>(strikes.Length * expirations.Length);
+        var min = double.PositiveInfinity;
+        var max = double.NegativeInfinity;
+
+        for (var y = 0; y < expirations.Length; y++)
+        {
+            for (var x = 0; x < strikes.Length; x++)
+            {
+                var iv = matrix[y, x] ?? 0d;
+                min = Math.Min(min, iv);
+                max = Math.Max(max, iv);
+                points.Add(new VolatilitySkewSurfacePoint(x, y, iv));
+            }
+        }
+
+        if (!double.IsFinite(min)) min = 0d;
+        if (!double.IsFinite(max)) max = 0d;
+
+        return new VolatilitySkewSurfaceOptions(
+            BaseAsset,
+            QuoteAsset,
+            strikes,
+            expirations.Select(d => d.ToString("yyyy-MM-dd")).ToArray(),
+            points,
+            min,
+            max);
+    }
+
+    private static void InterpolateRow(double?[,] matrix, int row, int width)
+    {
+        var known = new List<int>();
+        for (var x = 0; x < width; x++)
+        {
+            if (matrix[row, x].HasValue)
+            {
+                known.Add(x);
+            }
+        }
+
+        if (known.Count < 2)
+        {
+            return;
+        }
+
+        for (var i = 0; i < known.Count - 1; i++)
+        {
+            var left = known[i];
+            var right = known[i + 1];
+            var leftValue = matrix[row, left]!.Value;
+            var rightValue = matrix[row, right]!.Value;
+            var gap = right - left;
+            if (gap <= 1)
+            {
+                continue;
+            }
+
+            for (var x = left + 1; x < right; x++)
+            {
+                var t = (double)(x - left) / gap;
+                matrix[row, x] = leftValue + (rightValue - leftValue) * t;
+            }
+        }
+    }
+
+    private static void InterpolateColumn(double?[,] matrix, int column, int height)
+    {
+        var known = new List<int>();
+        for (var y = 0; y < height; y++)
+        {
+            if (matrix[y, column].HasValue)
+            {
+                known.Add(y);
+            }
+        }
+
+        if (known.Count < 2)
+        {
+            return;
+        }
+
+        for (var i = 0; i < known.Count - 1; i++)
+        {
+            var top = known[i];
+            var bottom = known[i + 1];
+            var topValue = matrix[top, column]!.Value;
+            var bottomValue = matrix[bottom, column]!.Value;
+            var gap = bottom - top;
+            if (gap <= 1)
+            {
+                continue;
+            }
+
+            for (var y = top + 1; y < bottom; y++)
+            {
+                var t = (double)(y - top) / gap;
+                matrix[y, column] = topValue + (bottomValue - topValue) * t;
+            }
+        }
     }
 
     private static string NormalizeAsset(string? value)

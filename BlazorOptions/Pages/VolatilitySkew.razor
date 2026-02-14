@@ -66,6 +66,14 @@
             <VolatilitySkewChart Config="ViewModel.Chart" Height="520px" />
         </MudPaper>
     }
+
+    @if (ViewModel.SurfaceChart is not null)
+    {
+        <MudPaper Class="pa-2">
+            <MudText Typo="Typo.h6" Class="px-2 pt-2">IV Surface</MudText>
+            <VolatilitySkewSurfaceChart Config="ViewModel.SurfaceChart" Height="560px" />
+        </MudPaper>
+    }
 </MudStack>
 
 @code {

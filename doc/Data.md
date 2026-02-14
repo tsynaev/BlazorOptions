@@ -30,6 +30,10 @@
   - line = mark IV
   - bid/ask triangles = bid IV / ask IV (only when exactly one expiration is selected)
   - tooltip shows price and IV for mark/bid/ask
+  - additional 3D surface:
+    - X: strike
+    - Y: expiration date
+    - Z: IV %
 - Filters:
   - instrument selector (`BASE/QUOTE`, from Bybit settings option base/quote lists)
   - Call/Put switch
