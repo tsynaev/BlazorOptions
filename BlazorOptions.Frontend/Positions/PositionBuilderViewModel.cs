@@ -166,6 +166,30 @@ public class PositionBuilderViewModel : IAsyncDisposable
         return true;
     }
 
+    public async Task<bool> ReloadAndSelectPositionAsync(Guid positionId)
+    {
+        var storedPositions = await _positionsPort.LoadPositionsAsync();
+        var selectedPosition = storedPositions.FirstOrDefault(p => p.Id == positionId);
+        if (selectedPosition is null)
+        {
+            return false;
+        }
+
+        Positions.Clear();
+        foreach (var position in storedPositions)
+        {
+            NormalizeCollections(position);
+            Positions.Add(position);
+        }
+
+        await SetSelectedPositionAsync(selectedPosition);
+        UpdateChart();
+        UpdateLegTickerSubscription();
+        await SelectedPosition!.EnsureLiveSubscriptionAsync();
+        OnChange?.Invoke();
+        return true;
+    }
+
     private async Task ScheduleInitialChartUpdateAsync()
     {
         if (_initialChartScheduled)

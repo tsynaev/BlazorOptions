@@ -122,14 +122,14 @@
             return;
         }
 
-        var request = new PositionCreateRequest(
+        var position = ViewModel.CreatePositionModel(
             name,
             baseAsset,
             quoteAsset,
-            PositionsViewModel.SelectedPositions.ToList(),
-            initialLegs);
+            initialLegs,
+            PositionsViewModel.SelectedPositions.ToList());
 
-        ViewModel.Confirm(request);
+        ViewModel.Confirm(position);
         Dialog.Close(DialogResult.Ok(true));
     }
 

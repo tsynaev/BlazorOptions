@@ -34,22 +34,12 @@ else
         <MudCardContent>
             <MudStack Spacing="2">
                 <MudStack Spacing="1">
-                    <MudText Typo="Typo.h4">Positions</MudText>
                     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="position-select-row">
-                            <MudSelect T="Guid?" Class="position-select"
-                                       Value="@ViewModel.SelectedPosition?.Position?.Id"
-                                       ValueChanged="HandlePositionChange"
-                                       Variant="Variant.Text"
-                                       Adornment="Adornment.Start"
-                                       AdornmentIcon="@Icons.Material.Filled.ListAlt">
-                                @foreach (var pos in ViewModel.Positions)
-                                {
-                                    <MudSelectItem T="Guid?" Value="@pos.Id" @key="pos.Id">@FormatPositionName(pos)</MudSelectItem>
-                                }
-                            </MudSelect>
-                            <MudIconButton Icon="@Icons.Material.Filled.AddCircle" Color="Color.Primary" OnClick="CreatePosition" />
-                        </MudStack>
+                        <MudText Typo="Typo.h6">
+                            @(ViewModel.SelectedPosition?.Position is null
+                                ? "No position selected"
+                                : FormatPositionName(ViewModel.SelectedPosition.Position))
+                        </MudText>
                         <MudMenu Icon="@Icons.Material.Filled.MoreVert"
                                  Disabled="@(!HasActivePosition)"
                                  Dense="true"
@@ -162,6 +152,15 @@ else
         {
             <PositionPanel ViewModel="@ViewModel.SelectedPosition" />
         }
+
+        @if (HasActivePosition)
+        {
+            <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                           Color="Color.Error"
+                           Size="Size.Large"
+                           Class="position-delete-fab"
+                           OnClick="async () => await ConfirmAndRemovePositionAsync(ViewModel.SelectedPosition)" />
+        }
     </MudStack>
 }
 
@@ -267,6 +266,12 @@ else
         bottom: 10px;
         z-index: 2;
     }
+    .position-delete-fab {
+        position: fixed;
+        right: 20px;
+        bottom: 20px;
+        z-index: 1300;
+    }
     @@media (max-width: 600px) {
         .chart-surface {
             padding: 8px 0;
@@ -282,6 +287,10 @@ else
         .position-grid > .mud-grid-item {
             padding-left: 0;
             padding-right: 0;
+        }
+        .position-delete-fab {
+            right: 16px;
+            bottom: 84px;
         }
     }
 </style>
@@ -467,22 +476,14 @@ else
         var dialogViewModel = await NavigationService.NavigateToAsync<PositionCreateDialogViewModel>(viewModel =>
             viewModel.InitializeAsync(initialName, initialBaseAsset, initialQuoteAsset));
 
-        var request = await dialogViewModel.WaitForResultAsync();
-        if (request is null)
+        var position = await dialogViewModel.WaitForResultAsync();
+        if (position is null)
         {
             return;
         }
 
-        var includeSampleLegs = request.SelectedBybitPositions.Count == 0 && request.InitialLegs.Count == 0;
-        await ViewModel.AddPositionAsync(request.Name, request.BaseAsset, request.QuoteAsset, includeSampleLegs, request.InitialLegs);
-        if (request.SelectedBybitPositions.Count > 0 && ViewModel.SelectedPosition is not null)
-        {
-            var collection = ViewModel.SelectedPosition.Collections.FirstOrDefault();
-            if (collection is not null)
-            {
-                await collection.AddBybitPositionsToCollectionAsync(request.SelectedBybitPositions);
-            }
-        }
+        var initialLegs = position.Collections.FirstOrDefault()?.Legs?.ToList() ?? new List<LegModel>();
+        await ViewModel.AddPositionAsync(position.Name, position.BaseAsset, position.QuoteAsset, includeSampleLegs: false, initialLegs);
         _activeTabIndex = Math.Max(0, ViewModel.Positions.Count - 1);
         await InvokeAsync(StateHasChanged);
         if (ViewModel.SelectedPosition?.Position?.Id is Guid newId && newId != Guid.Empty)
@@ -576,7 +577,14 @@ else
         }
 
 
-        var confirmed = await DialogService.ShowMessageBox("Remove position?", $"Delete {position.Position.Name} and its chart view?", yesText: "Delete", cancelText: "Cancel");
+        var positionName = string.IsNullOrWhiteSpace(position.Position.Name)
+            ? "this position"
+            : position.Position.Name;
+        var confirmed = await DialogService.ShowMessageBox(
+            "Remove position?",
+            $"Delete {positionName} and its chart view?",
+            yesText: "Delete",
+            cancelText: "Cancel");
 
         if (confirmed != true)
         {
@@ -769,9 +777,13 @@ else
 
         if (!await ViewModel.SelectPositionAsync(routePositionId.Value))
         {
-            _routeErrorMessage = $"Position {routePositionId.Value} not found.";
-            _activeTabIndex = -1;
-            return;
+            // Position can be created on another page just before navigation; retry after reload once.
+            if (!await ViewModel.ReloadAndSelectPositionAsync(routePositionId.Value))
+            {
+                _routeErrorMessage = $"Position {routePositionId.Value} not found.";
+                _activeTabIndex = -1;
+                return;
+            }
         }
 
         SyncActiveTabIndex();

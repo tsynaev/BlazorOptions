@@ -2,17 +2,24 @@
 @implements IDisposable
 @inject HomeDashboardViewModel ViewModel
 @inject NavigationManager NavigationManager
+@inject IDialogService DialogService
 
 <PageTitle>Home</PageTitle>
 
 <MudStack Spacing="2">
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
         <MudText Typo="Typo.h4">Dashboard</MudText>
-        <MudIconButton Icon="@(ViewModel.IsLoading ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Refresh)"
-                       Color="Color.Primary"
-                       Disabled="ViewModel.IsLoading"
-                       OnClick="ReloadAsync"
-                       aria-label="Refresh dashboard" />
+        <MudStack Row="true" Spacing="1">
+            <MudIconButton Icon="@Icons.Material.Filled.AddCircle"
+                           Color="Color.Primary"
+                           OnClick="CreatePositionAsync"
+                           aria-label="Open positions" />
+            <MudIconButton Icon="@(ViewModel.IsLoading ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Refresh)"
+                           Color="Color.Primary"
+                           Disabled="ViewModel.IsLoading"
+                           OnClick="ReloadAsync"
+                           aria-label="Refresh dashboard" />
+        </MudStack>
     </MudStack>
 
     @if (!string.IsNullOrWhiteSpace(ViewModel.ErrorMessage))
@@ -122,9 +129,15 @@
 
                                     @if (!string.IsNullOrWhiteSpace(position.Notes))
                                     {
-                                        <MudText Typo="Typo.caption">Notes: @position.Notes</MudText>
+                                        <MudText Typo="Typo.caption" Style="white-space: pre-line;">@position.Notes</MudText>
                                     }
                                 </MudStack>
+                                <div class="home-card-delete" @onclick:stopPropagation="true">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                                   Color="Color.Error"
+                                                   Size="Size.Small"
+                                                   OnClick="async () => await ConfirmAndRemovePositionAsync(position.Id, position.Name)" />
+                                </div>
                             </MudPaper>
                         </MudItem>
                     }
@@ -149,6 +162,34 @@
     private Task ReloadAsync()
     {
         return ViewModel.LoadAsync();
+    }
+
+    private async Task CreatePositionAsync()
+    {
+        var createdPositionId = await ViewModel.CreatePositionAsync();
+        if (!createdPositionId.HasValue || createdPositionId.Value == Guid.Empty)
+        {
+            return;
+        }
+
+        OpenPosition(createdPositionId.Value);
+    }
+
+    private async Task ConfirmAndRemovePositionAsync(Guid positionId, string? positionName)
+    {
+        var label = string.IsNullOrWhiteSpace(positionName) ? "this position" : positionName;
+        var confirmed = await DialogService.ShowMessageBox(
+            "Remove position?",
+            $"Delete {label} from dashboard and positions?",
+            yesText: "Delete",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        await ViewModel.RemovePositionAsync(positionId);
     }
 
     private void OpenPosition(Guid positionId)
@@ -256,6 +297,14 @@
 
     .home-position-card-clickable {
         cursor: pointer;
+        position: relative;
+        padding-bottom: 36px;
+    }
+
+    .home-card-delete {
+        position: absolute;
+        right: 6px;
+        bottom: 6px;
     }
 
     .home-position-pnl {

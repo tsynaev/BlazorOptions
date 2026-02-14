@@ -10,6 +10,7 @@ public sealed class HomeDashboardViewModel : Bindable
     private readonly OptionsService _optionsService;
     private readonly IExchangeService _exchangeService;
     private readonly ILocalStorageService _localStorageService;
+    private readonly INavigationService _navigationService;
     private bool _isLoading;
     private string? _errorMessage;
     private IReadOnlyList<HomePositionCardModel> _positions = Array.Empty<HomePositionCardModel>();
@@ -20,12 +21,14 @@ public sealed class HomeDashboardViewModel : Bindable
         IPositionsPort positionsPort,
         OptionsService optionsService,
         IExchangeService exchangeService,
-        ILocalStorageService localStorageService)
+        ILocalStorageService localStorageService,
+        INavigationService navigationService)
     {
         _positionsPort = positionsPort;
         _optionsService = optionsService;
         _exchangeService = exchangeService;
         _localStorageService = localStorageService;
+        _navigationService = navigationService;
     }
 
     public bool IsLoading
@@ -93,6 +96,35 @@ public sealed class HomeDashboardViewModel : Bindable
         {
             IsLoading = false;
         }
+    }
+
+    public async Task<bool> RemovePositionAsync(Guid positionId)
+    {
+        if (positionId == Guid.Empty)
+        {
+            return false;
+        }
+
+        await _positionsPort.DeletePositionAsync(positionId);
+        await LoadAsync();
+        return true;
+    }
+
+    public async Task<Guid?> CreatePositionAsync()
+    {
+        var initialName = $"Position {Positions.Count + 1}";
+        var dialogViewModel = await _navigationService.NavigateToAsync<PositionCreateDialogViewModel>(viewModel =>
+            viewModel.InitializeAsync(initialName, "ETH", "USDT"));
+
+        var position = await dialogViewModel.WaitForResultAsync();
+        if (position is null)
+        {
+            return null;
+        }
+
+        await _positionsPort.SavePositionAsync(position);
+        await LoadAsync();
+        return position.Id;
     }
 
     private HomePositionCardModel BuildCard(PositionModel model, decimal? exchangePrice)

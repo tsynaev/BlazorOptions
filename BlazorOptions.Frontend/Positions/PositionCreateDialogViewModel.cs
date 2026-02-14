@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Text.Json;
+using BlazorOptions.API.Positions;
 using BlazorOptions.Services;
 
 namespace BlazorOptions.ViewModels;
@@ -13,7 +14,7 @@ public sealed class PositionCreateDialogViewModel : Bindable
     private readonly IExchangeService _exchangeService;
     private readonly ILocalStorageService _localStorageService;
     private readonly ILegsParserService _legsParserService;
-    private TaskCompletionSource<PositionCreateRequest?>? _resultTcs;
+    private TaskCompletionSource<PositionModel?>? _resultTcs;
     private string? _initialName;
     private string? _initialBaseAsset;
     private string? _initialQuoteAsset;
@@ -95,16 +96,16 @@ public sealed class PositionCreateDialogViewModel : Bindable
         InitialQuoteAsset = string.IsNullOrWhiteSpace(initialQuoteAsset) ? null : initialQuoteAsset.Trim();
         LegInput = string.Empty;
         LegInputError = null;
-        _resultTcs = new TaskCompletionSource<PositionCreateRequest?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _resultTcs = new TaskCompletionSource<PositionModel?>(TaskCreationOptions.RunContinuationsAsynchronously);
         return UpdateBaseAssetAsync(InitialBaseAsset);
     }
 
-    public Task<PositionCreateRequest?> WaitForResultAsync()
+    public Task<PositionModel?> WaitForResultAsync()
     {
-        return _resultTcs?.Task ?? Task.FromResult<PositionCreateRequest?>(null);
+        return _resultTcs?.Task ?? Task.FromResult<PositionModel?>(null);
     }
 
-    public void Confirm(PositionCreateRequest request)
+    public void Confirm(PositionModel request)
     {
         _resultTcs?.TrySetResult(request);
     }
@@ -112,6 +113,57 @@ public sealed class PositionCreateDialogViewModel : Bindable
     public void Cancel()
     {
         _resultTcs?.TrySetResult(null);
+    }
+
+    public PositionModel CreatePositionModel(
+        string? name,
+        string? baseAsset,
+        string? quoteAsset,
+        IReadOnlyList<LegModel>? initialLegs,
+        IReadOnlyList<ExchangePosition>? selectedBybitPositions)
+    {
+        var position = new PositionModel
+        {
+            Name = string.IsNullOrWhiteSpace(name) ? "Position" : name.Trim(),
+            BaseAsset = string.IsNullOrWhiteSpace(baseAsset) ? "ETH" : baseAsset.Trim().ToUpperInvariant(),
+            QuoteAsset = string.IsNullOrWhiteSpace(quoteAsset) ? "USDT" : quoteAsset.Trim().ToUpperInvariant()
+        };
+
+        var collection = PositionViewModel.CreateCollection(position, PositionViewModel.GetNextCollectionName(position));
+
+        if (initialLegs is not null && initialLegs.Count > 0)
+        {
+            foreach (var leg in initialLegs)
+            {
+                collection.Legs.Add(leg.Clone());
+            }
+        }
+
+        if (selectedBybitPositions is not null && selectedBybitPositions.Count > 0)
+        {
+            foreach (var exchangePosition in selectedBybitPositions)
+            {
+                var size = DetermineSignedSize(exchangePosition);
+                if (Math.Abs(size) < 0.0001m)
+                {
+                    continue;
+                }
+
+                if (!_exchangeService.TryCreateLeg(exchangePosition.Symbol, size, position.BaseAsset, exchangePosition.Category, out var leg))
+                {
+                    continue;
+                }
+
+                leg.IsReadOnly = true;
+                leg.Price = exchangePosition.AvgPrice;
+                leg.Symbol = exchangePosition.Symbol;
+                leg.ImpliedVolatility = null;
+                collection.Legs.Add(leg);
+            }
+        }
+
+        position.Collections.Add(collection);
+        return position;
     }
 
     public async Task UpdateBaseAssetAsync(string? baseAsset)
@@ -353,6 +405,27 @@ public sealed class PositionCreateDialogViewModel : Bindable
     private static string BuildDefaultsKey(string baseAsset)
     {
         return $"{DefaultsStoragePrefix}{baseAsset.Trim().ToUpperInvariant()}";
+    }
+
+    private static decimal DetermineSignedSize(ExchangePosition position)
+    {
+        var magnitude = Math.Abs(position.Size);
+        if (magnitude < 0.0001m)
+        {
+            return 0m;
+        }
+
+        if (!string.IsNullOrWhiteSpace(position.Side))
+        {
+            var normalized = position.Side.Trim();
+            if (string.Equals(normalized, "Sell", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, "Short", StringComparison.OrdinalIgnoreCase))
+            {
+                return -magnitude;
+            }
+        }
+
+        return magnitude;
     }
 
     private sealed class PositionCreateDefaults

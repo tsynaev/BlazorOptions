@@ -9,6 +9,7 @@ public interface IExchangeService
     string? FormatSymbol(LegModel leg, string? baseAsset = null, string? settleAsset = null);
     bool TryParseSymbol(string symbol, out string baseAsset, out DateTime expiration, out decimal strike, out LegType type);
     bool TryCreateLeg(string symbol, decimal size, out LegModel leg);
+    bool TryCreateLeg(string symbol, decimal size, string? baseAsset, string? category, out LegModel leg);
     IOrdersService Orders { get; }
     IPositionsService Positions { get; }
     ITickersService Tickers { get; }
@@ -115,18 +116,60 @@ public sealed class ExchangeService : IExchangeService
 
     public bool TryCreateLeg(string symbol, decimal size, out LegModel leg)
     {
+        return TryCreateLeg(symbol, size, null, null, out leg);
+    }
+
+    public bool TryCreateLeg(string symbol, decimal size, string? baseAsset, string? category, out LegModel leg)
+    {
         leg = new LegModel();
-        var parsed = TryParseSymbol(symbol, out var baseAsset, out var expiration, out var strike, out var type);
-        if (!parsed)
+
+        if (string.IsNullOrWhiteSpace(symbol))
         {
             return false;
         }
 
-        leg.ExpirationDate = expiration;
-        leg.Strike = strike;
-        leg.Type = type;
+        var normalizedBase = string.IsNullOrWhiteSpace(baseAsset) ? null : baseAsset.Trim().ToUpperInvariant();
+        var normalizedCategory = string.IsNullOrWhiteSpace(category) ? null : category.Trim().ToUpperInvariant();
+
+        if (TryParseSymbol(symbol, out var parsedBase, out var expiration, out var strike, out var type))
+        {
+            if (!string.IsNullOrWhiteSpace(normalizedBase) &&
+                !string.Equals(parsedBase, normalizedBase, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            leg.ExpirationDate = expiration;
+            leg.Strike = strike;
+            leg.Type = type;
+            leg.Size = size;
+            leg.Symbol = symbol;
+            return true;
+        }
+
+        // Futures/perpetual symbols can be plain (e.g. ETHUSDT) or dated (e.g. ETHUSDT-27JUN26).
+        if (normalizedCategory is "OPTION")
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(normalizedBase) &&
+            !symbol.StartsWith(normalizedBase, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        leg.Type = LegType.Future;
         leg.Size = size;
         leg.Symbol = symbol;
+
+        var tokens = symbol.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (tokens.Length >= 2 &&
+            DateTime.TryParseExact(tokens[1], ExpirationFormats, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsedExpiration))
+        {
+            leg.ExpirationDate = parsedExpiration.Date;
+        }
+
         return true;
     }
 
