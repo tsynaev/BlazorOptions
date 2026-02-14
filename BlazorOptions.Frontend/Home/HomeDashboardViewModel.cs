@@ -9,19 +9,23 @@ public sealed class HomeDashboardViewModel : Bindable
     private readonly IPositionsPort _positionsPort;
     private readonly OptionsService _optionsService;
     private readonly IExchangeService _exchangeService;
+    private readonly ILocalStorageService _localStorageService;
     private bool _isLoading;
     private string? _errorMessage;
     private IReadOnlyList<HomePositionCardModel> _positions = Array.Empty<HomePositionCardModel>();
     private IReadOnlyList<HomePositionGroupModel> _groups = Array.Empty<HomePositionGroupModel>();
+    private AccountRiskSettings _riskSettings = AccountRiskSettingsStorage.Default;
 
     public HomeDashboardViewModel(
         IPositionsPort positionsPort,
         OptionsService optionsService,
-        IExchangeService exchangeService)
+        IExchangeService exchangeService,
+        ILocalStorageService localStorageService)
     {
         _positionsPort = positionsPort;
         _optionsService = optionsService;
         _exchangeService = exchangeService;
+        _localStorageService = localStorageService;
     }
 
     public bool IsLoading
@@ -60,6 +64,7 @@ public sealed class HomeDashboardViewModel : Bindable
 
         try
         {
+            _riskSettings = await LoadRiskSettingsAsync();
             var models = await _positionsPort.LoadPositionsAsync();
             await EnsureOptionChainsAsync(models);
             var pricesBySymbol = await LoadCurrentPricesAsync(models);
@@ -92,19 +97,22 @@ public sealed class HomeDashboardViewModel : Bindable
 
     private HomePositionCardModel BuildCard(PositionModel model, decimal? exchangePrice)
     {
-        var legs = model.Collections
+        var sourceLegs = model.Collections
             .SelectMany(collection => collection.Legs)
             .Where(leg => leg.IsIncluded)
             .ToList();
+        var legs = PrepareLegsForChart(sourceLegs, model.BaseAsset);
 
-        var chart = BuildChart(legs, model.ChartRange);
         var entryValue = legs.Sum(ResolveEntryValue);
-        var currentPrice = exchangePrice ?? ResolveCurrentPrice(chart, model.ChartRange);
-        var tempPnl = legs.Count > 0
-            ? _optionsService.CalculateTotalProfit(legs, currentPrice)
+        var currentPrice = exchangePrice ?? ResolveFallbackCurrentPrice(model.ChartRange, legs);
+        var tempPnl = legs.Sum(leg => ResolveLegPnl(leg, currentPrice, model.BaseAsset));
+        var theoreticalAtCurrent = legs.Count > 0
+            ? _optionsService.CalculateTotalTheoreticalProfit(legs, currentPrice, DateTime.UtcNow)
             : 0m;
-        var closed = model.Closed.Include ? model.Closed.TotalNet : 0m;
-        var totalPnl = tempPnl + closed;
+        var realizedPnl = model.Closed.TotalNet;
+        var tempOffset = tempPnl - theoreticalAtCurrent;
+        var chart = BuildChart(legs, model.ChartRange, realizedPnl, tempOffset);
+        var totalPnl = tempPnl + realizedPnl;
         var pnlPercent = entryValue > 0m ? (totalPnl / entryValue) * 100m : (decimal?)null;
         var currentPricePercent = ResolveCurrentPricePercent(currentPrice, chart.XMin, chart.XMax);
 
@@ -124,9 +132,13 @@ public sealed class HomeDashboardViewModel : Bindable
             currentPricePercent);
     }
 
-    private HomeMiniChartModel BuildChart(IReadOnlyList<LegModel> legs, BlazorChart.Models.ChartRange? range)
+    private HomeMiniChartModel BuildChart(
+        IReadOnlyList<LegModel> legs,
+        BlazorChart.Models.ChartRange? range,
+        decimal pnlShift,
+        decimal tempOffset)
     {
-        var (xs, profits, _) = _optionsService.GeneratePosition(
+        var (xs, profits, theoreticalProfits) = _optionsService.GeneratePosition(
             legs,
             points: 48,
             xMinOverride: range?.XMin,
@@ -137,10 +149,13 @@ public sealed class HomeDashboardViewModel : Bindable
             .ToArray();
         IReadOnlyList<string> sparseLabels = BuildSparseLabels(labels, 8);
         var values = profits
-            .Select(value => (double)value)
+            .Select(value => (double)(value + pnlShift))
+            .ToArray();
+        var tempValues = theoreticalProfits
+            .Select(value => (double)(value + pnlShift + tempOffset))
             .ToArray();
 
-        return new HomeMiniChartModel(sparseLabels, values, (double)xs[0], (double)xs[^1]);
+        return new HomeMiniChartModel(sparseLabels, values, tempValues, (double)xs[0], (double)xs[^1]);
     }
 
     private static decimal ResolveCurrentPrice(HomeMiniChartModel chart, BlazorChart.Models.ChartRange? range)
@@ -174,6 +189,12 @@ public sealed class HomeDashboardViewModel : Bindable
 
     private static decimal ResolveEntryValue(LegModel leg)
     {
+        if (leg.Type == LegType.Future)
+        {
+            // Futures entry value is treated as zero for PnL percent scaling.
+            return 0m;
+        }
+
         if (!leg.Price.HasValue)
         {
             return 0m;
@@ -205,12 +226,17 @@ public sealed class HomeDashboardViewModel : Bindable
             ? (markPrice.Value - entry) * leg.Size
             : _optionsService.CalculateLegProfit(leg, currentPrice);
         decimal? pnlPercent = null;
-        if (entryValue > 0)
+        if (leg.Type == LegType.Future)
+        {
+            pnlPercent = ResolveFuturesPnlPercent(leg, currentPrice);
+        }
+        else if (entryValue > 0)
         {
             pnlPercent = pnl / entryValue * 100m;
         }
 
-        var severityClass = ResolveLegSeverityClass(pnlPercent);
+        var severityClass = ResolveLegSeverityClass(leg.Type, pnlPercent, _riskSettings);
+        var currentValue = ResolveCurrentValue(leg, markPrice);
         return new HomeLegChipModel(
             FormatQuickAdd(leg),
             leg.ExpirationDate,
@@ -221,7 +247,19 @@ public sealed class HomeDashboardViewModel : Bindable
             leg.Size,
             leg.Price,
             markPrice,
-            pnl);
+            pnl,
+            entryValue,
+            currentValue);
+    }
+
+    private static decimal ResolveCurrentValue(LegModel leg, decimal? markPrice)
+    {
+        if (!markPrice.HasValue)
+        {
+            return 0m;
+        }
+
+        return Math.Abs(leg.Size * markPrice.Value);
     }
 
     private decimal? ResolveLegMarkPrice(LegModel leg, decimal currentPrice, string? baseAsset)
@@ -233,6 +271,61 @@ public sealed class HomeDashboardViewModel : Bindable
 
         var ticker = _exchangeService.OptionsChain.FindTickerForLeg(leg, baseAsset);
         return ResolveOptionMarkPrice(ticker);
+    }
+
+    private List<LegModel> PrepareLegsForChart(IReadOnlyList<LegModel> legs, string? baseAsset)
+    {
+        var prepared = new List<LegModel>(legs.Count);
+        foreach (var leg in legs)
+        {
+            var clone = leg.Clone();
+            if (clone.Type != LegType.Future)
+            {
+                var ticker = _exchangeService.OptionsChain.FindTickerForLeg(clone, baseAsset);
+                if (ticker is not null)
+                {
+                    var ivPercent = NormalizeIv(ticker.MarkIv)
+                        ?? NormalizeIv(ticker.BidIv)
+                        ?? NormalizeIv(ticker.AskIv);
+
+                    if ((!clone.ImpliedVolatility.HasValue || clone.ImpliedVolatility.Value <= 0m) && ivPercent.HasValue)
+                    {
+                        clone.ImpliedVolatility = ivPercent.Value;
+                    }
+
+                    if (!clone.Price.HasValue || clone.Price.Value <= 0m)
+                    {
+                        clone.Price = ResolveOptionMarkPrice(ticker);
+                    }
+                }
+            }
+
+            prepared.Add(clone);
+        }
+
+        return prepared;
+    }
+
+    private static decimal? NormalizeIv(decimal? value)
+    {
+        if (!value.HasValue || value.Value <= 0m)
+        {
+            return null;
+        }
+
+        return value.Value <= 3m ? value.Value * 100m : value.Value;
+    }
+
+    private decimal ResolveLegPnl(LegModel leg, decimal currentPrice, string? baseAsset)
+    {
+        var mark = ResolveLegMarkPrice(leg, currentPrice, baseAsset);
+        if (mark.HasValue)
+        {
+            var entry = leg.Price ?? 0m;
+            return (mark.Value - entry) * leg.Size;
+        }
+
+        return _optionsService.CalculateLegProfit(leg, currentPrice);
     }
 
     private static decimal? ResolveOptionMarkPrice(OptionChainTicker? ticker)
@@ -260,7 +353,7 @@ public sealed class HomeDashboardViewModel : Bindable
         return null;
     }
 
-    private static string ResolveLegSeverityClass(decimal? pnlPercent)
+    private static string ResolveLegSeverityClass(LegType type, decimal? pnlPercent, AccountRiskSettings riskSettings)
     {
         if (!pnlPercent.HasValue)
         {
@@ -273,22 +366,52 @@ public sealed class HomeDashboardViewModel : Bindable
         }
 
         var loss = Math.Abs(pnlPercent.Value);
-        if (loss >= 30m)
+        var maxLoss = type == LegType.Future
+            ? Math.Max(1m, riskSettings.MaxLossFuturesPercent)
+            : Math.Max(1m, riskSettings.MaxLossOptionPercent);
+
+        if (loss >= maxLoss)
         {
             return "home-leg-critical";
         }
 
-        if (loss >= 20m)
+        if (loss >= maxLoss * 0.66m)
         {
             return "home-leg-high";
         }
 
-        if (loss >= 10m)
+        return "home-leg-low";
+    }
+
+    private static decimal? ResolveFuturesPnlPercent(LegModel leg, decimal currentPrice)
+    {
+        if (!leg.Price.HasValue || leg.Price.Value == 0m)
         {
-            return "home-leg-medium";
+            return null;
         }
 
-        return "home-leg-low";
+        var entry = leg.Price.Value;
+        var movePercent = (currentPrice - entry) / entry * 100m;
+        var side = Math.Sign(leg.Size);
+        if (side == 0)
+        {
+            return null;
+        }
+
+        return movePercent * side;
+    }
+
+    private static decimal ResolveFallbackCurrentPrice(BlazorChart.Models.ChartRange? range, IReadOnlyList<LegModel> legs)
+    {
+        if (range is not null && range.XMax > range.XMin)
+        {
+            return (decimal)((range.XMin + range.XMax) / 2d);
+        }
+
+        var anchor = legs.Count > 0
+            ? legs.Average(l => l.Strike.HasValue && l.Strike.Value > 0 ? l.Strike.Value : (l.Price ?? 0m))
+            : 0m;
+        return anchor > 0m ? anchor : 0m;
     }
 
     private static IReadOnlyList<string> BuildSparseLabels(IReadOnlyList<string> labels, int maxVisible)
@@ -353,6 +476,19 @@ public sealed class HomeDashboardViewModel : Bindable
         }
     }
 
+    private async Task<AccountRiskSettings> LoadRiskSettingsAsync()
+    {
+        try
+        {
+            var payload = await _localStorageService.GetItemAsync(AccountRiskSettingsStorage.StorageKey);
+            return AccountRiskSettingsStorage.Parse(payload);
+        }
+        catch
+        {
+            return AccountRiskSettingsStorage.Default;
+        }
+    }
+
     private async Task<decimal?> TryLoadCurrentPriceAsync(string symbol)
     {
         try
@@ -396,7 +532,9 @@ public sealed record HomeLegChipModel(
     decimal Size,
     decimal? EntryPrice,
     decimal? MarkPrice,
-    decimal Pnl);
+    decimal Pnl,
+    decimal EntryValue,
+    decimal CurrentValue);
 
 public sealed record HomePositionGroupModel(
     string AssetPair,
@@ -405,5 +543,6 @@ public sealed record HomePositionGroupModel(
 public sealed record HomeMiniChartModel(
     IReadOnlyList<string> XLabels,
     IReadOnlyList<double> Values,
+    IReadOnlyList<double> TempValues,
     double XMin,
     double XMax);

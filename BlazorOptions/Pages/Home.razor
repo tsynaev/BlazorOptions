@@ -98,6 +98,8 @@
                                                                             <tr><td>Size</td><td>@leg.Size.ToString("0.####")</td></tr>
                                                                             <tr><td>Entry</td><td>@FormatNullable(leg.EntryPrice)</td></tr>
                                                                             <tr><td>Mark</td><td>@FormatNullable(leg.MarkPrice)</td></tr>
+                                                                            <tr><td>Entry value</td><td>@leg.EntryValue.ToString("0.##")</td></tr>
+                                                                            <tr><td>Current value</td><td>@leg.CurrentValue.ToString("0.##")</td></tr>
                                                                             <tr><td>PnL</td><td>@leg.Pnl.ToString("0.##")</td></tr>
                                                                             <tr><td>PnL %</td><td>@FormatPercent(leg.PnlPercent)</td></tr>
                                                                             @if (!string.IsNullOrWhiteSpace(leg.Symbol))
@@ -168,6 +170,11 @@
             },
             new ChartSeries
             {
+                Name = "Temp",
+                Data = chart.TempValues.ToArray()
+            },
+            new ChartSeries
+            {
                 Name = "Zero",
                 Data = zero
             }
@@ -216,7 +223,7 @@
 
     private readonly ChartOptions _miniChartOptions = new()
     {
-        ChartPalette = ["#3b82f6", "#f8fafc"],
+        ChartPalette = ["#3b82f6", "#22d3ee", "#f8fafc"],
         ShowLegend = false,
         ShowToolTips = true,
         LineStrokeWidth = 2.5,

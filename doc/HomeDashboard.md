@@ -11,6 +11,7 @@ Route: `/`
   - total P/L
   - P/L percent from entry value
   - mini line chart (payoff snapshot)
+  - mini chart includes both expiry P/L and temp/theoretical P/L lines
   - included legs in quick-add style
   - notes
   - leg chips with loss-severity colors:
@@ -24,5 +25,11 @@ Route: `/`
 ## Calculation Notes
 
 - Entry value: sum of `abs(size * price)` for included legs with price.
-- Current P/L: payoff at midpoint price of saved chart x-range (or chart midpoint fallback).
-- Total P/L: current P/L + closed net P/L when closed positions are included.
+- Futures legs use `0` entry value for PnL% scaling.
+- Current temp P/L: theoretical payoff at midpoint price of saved chart x-range (or chart midpoint fallback).
+- Total temp P/L: current temp P/L + closed net P/L.
+- Mini chart P/L curve is shifted by closed net P/L (realized P/L baseline).
+- Leg chip severity uses Account Settings thresholds:
+  - options: `Max loss for options (%)`
+  - futures: `Max loss for futures (%)`
+  - for negative PnL%, chips transition from yellow to orange and become red at/above max loss.

@@ -40,6 +40,25 @@
             }
         </MudStack>
     </MudPaper>
+
+    <MudPaper Class="pa-6" Elevation="1">
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.h6">Risk thresholds</MudText>
+            <MudNumericField T="decimal"
+                             Label="Max loss for options (%)"
+                             @bind-Value="ViewModel.MaxLossOptionPercent"
+                             Min="1"
+                             Step="1" />
+            <MudNumericField T="decimal"
+                             Label="Max loss for futures (%)"
+                             @bind-Value="ViewModel.MaxLossFuturesPercent"
+                             Min="1"
+                             Step="1" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="HandleSaveRiskSettingsAsync">
+                Save thresholds
+            </MudButton>
+        </MudStack>
+    </MudPaper>
 </MudStack>
 
 @code {
@@ -77,5 +96,10 @@
     private Task HandleLogoutAsync()
     {
         return ViewModel.LogoutAsync();
+    }
+
+    private Task HandleSaveRiskSettingsAsync()
+    {
+        return ViewModel.SaveRiskSettingsAsync();
     }
 }

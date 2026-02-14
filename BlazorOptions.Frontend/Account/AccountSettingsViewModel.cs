@@ -6,13 +6,16 @@ public class AccountSettingsViewModel : IDisposable
 {
     private readonly AuthApiService _authApiService;
     private readonly AuthSessionService _sessionService;
+    private readonly ILocalStorageService _localStorageService;
 
     public AccountSettingsViewModel(
         AuthApiService authApiService,
-        AuthSessionService sessionService)
+        AuthSessionService sessionService,
+        ILocalStorageService localStorageService)
     {
         _authApiService = authApiService;
         _sessionService = sessionService;
+        _localStorageService = localStorageService;
         _sessionService.OnChange += HandleSessionChanged;
     }
 
@@ -34,9 +37,14 @@ public class AccountSettingsViewModel : IDisposable
         ? $"Signed in as {_sessionService.UserName}"
         : "Not signed in";
 
+    public decimal MaxLossOptionPercent { get; set; } = 30m;
+
+    public decimal MaxLossFuturesPercent { get; set; } = 30m;
+
     public async Task InitializeAsync()
     {
         await _sessionService.InitializeAsync();
+        await LoadRiskSettingsAsync();
     }
 
     public async Task RegisterAsync()
@@ -119,5 +127,29 @@ public class AccountSettingsViewModel : IDisposable
             IsAuthBusy = false;
             OnChange?.Invoke();
         }
+    }
+
+    public async Task SaveRiskSettingsAsync()
+    {
+        MaxLossOptionPercent = Math.Max(1m, MaxLossOptionPercent);
+        MaxLossFuturesPercent = Math.Max(1m, MaxLossFuturesPercent);
+
+        var payload = AccountRiskSettingsStorage.Serialize(new AccountRiskSettings
+        {
+            MaxLossOptionPercent = MaxLossOptionPercent,
+            MaxLossFuturesPercent = MaxLossFuturesPercent
+        });
+
+        await _localStorageService.SetItemAsync(AccountRiskSettingsStorage.StorageKey, payload);
+        OnChange?.Invoke();
+    }
+
+    private async Task LoadRiskSettingsAsync()
+    {
+        var payload = await _localStorageService.GetItemAsync(AccountRiskSettingsStorage.StorageKey);
+        var settings = AccountRiskSettingsStorage.Parse(payload);
+        MaxLossOptionPercent = Math.Max(1m, settings.MaxLossOptionPercent);
+        MaxLossFuturesPercent = Math.Max(1m, settings.MaxLossFuturesPercent);
+        OnChange?.Invoke();
     }
 }
