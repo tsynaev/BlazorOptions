@@ -60,7 +60,7 @@ builder.Services.AddScoped<MainLayoutViewModel>();
 builder.Services.AddTransient<AccountSettingsViewModel>();
 builder.Services.AddTransient<BybitSettingsViewModel>();
 builder.Services.AddScoped<HomeDashboardViewModel>();
-builder.Services.AddScoped<PositionViewModel>();
+builder.Services.AddTransient<PositionViewModel>();
 builder.Services.AddScoped<INotifyUserService, NotifyUserService>();
 builder.Services.AddScoped<LegsCollectionViewModelFactory>();
 builder.Services.AddTransient<LegViewModelFactory>();
