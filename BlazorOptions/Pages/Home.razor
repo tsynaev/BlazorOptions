@@ -71,15 +71,22 @@
                                     <MudGrid Spacing="1">
                                         <MudItem xs="12" md="6">
                                             <div class="home-mini-chart">
-                                                <MudChart ChartType="ChartType.Line"
-                                                          Width="100%"
-                                                          Height="180px"
-                                                          XAxisLabels="@position.Chart.XLabels.ToArray()"
-                                                          ChartOptions="@_miniChartOptions"
-                                                          ChartSeries="@BuildSeries(position.Chart)" />
-                                                @if (position.CurrentPricePercent.HasValue)
+                                                @if (position.IsChartReady)
                                                 {
-                                                    <div class="home-current-price-line" style="@BuildCurrentPriceLineStyle(position.CurrentPricePercent.Value)"></div>
+                                                    <MudChart ChartType="ChartType.Line"
+                                                              Width="100%"
+                                                              Height="180px"
+                                                              XAxisLabels="@position.Chart.XLabels.ToArray()"
+                                                              ChartOptions="@_miniChartOptions"
+                                                              ChartSeries="@BuildSeries(position.Chart)" />
+                                                    @if (position.CurrentPricePercent.HasValue)
+                                                    {
+                                                        <div class="home-current-price-line" style="@BuildCurrentPriceLineStyle(position.CurrentPricePercent.Value)"></div>
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    <MudSkeleton Height="180px" Width="100%" Animation="Animation.Wave" />
                                                 }
                                             </div>
                                         </MudItem>

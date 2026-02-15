@@ -16,6 +16,7 @@ public sealed class HomeDashboardViewModel : Bindable
     private IReadOnlyList<HomePositionCardModel> _positions = Array.Empty<HomePositionCardModel>();
     private IReadOnlyList<HomePositionGroupModel> _groups = Array.Empty<HomePositionGroupModel>();
     private AccountRiskSettings _riskSettings = AccountRiskSettingsStorage.Default;
+    private CancellationTokenSource? _chartLoadCts;
 
     public HomeDashboardViewModel(
         IPositionsPort positionsPort,
@@ -62,6 +63,10 @@ public sealed class HomeDashboardViewModel : Bindable
             return;
         }
 
+        _chartLoadCts?.Cancel();
+        _chartLoadCts?.Dispose();
+        _chartLoadCts = new CancellationTokenSource();
+
         IsLoading = true;
         ErrorMessage = null;
 
@@ -76,15 +81,11 @@ public sealed class HomeDashboardViewModel : Bindable
                 {
                     var symbol = $"{model.BaseAsset}{model.QuoteAsset}".ToUpperInvariant();
                     pricesBySymbol.TryGetValue(symbol, out var currentPrice);
-                    return BuildCard(model, currentPrice);
+                    return BuildCard(model, currentPrice, withChart: false);
                 })
                 .ToArray();
-            Positions = cards;
-            Groups = cards
-                .GroupBy(card => card.AssetPair, StringComparer.OrdinalIgnoreCase)
-                .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
-                .Select(group => new HomePositionGroupModel(group.Key, group.ToArray()))
-                .ToArray();
+            SetCards(cards);
+            _ = WarmUpChartsAsync(models, pricesBySymbol, _chartLoadCts.Token);
         }
         catch (Exception ex)
         {
@@ -95,6 +96,26 @@ public sealed class HomeDashboardViewModel : Bindable
         finally
         {
             IsLoading = false;
+        }
+    }
+
+    private async Task WarmUpChartsAsync(
+        IReadOnlyList<PositionModel> models,
+        IReadOnlyDictionary<string, decimal?> pricesBySymbol,
+        CancellationToken cancellationToken)
+    {
+        foreach (var model in models)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            var symbol = $"{model.BaseAsset}{model.QuoteAsset}".ToUpperInvariant();
+            pricesBySymbol.TryGetValue(symbol, out var currentPrice);
+            var card = BuildCard(model, currentPrice, withChart: true);
+            ReplaceCard(card);
+            await Task.Yield();
         }
     }
 
@@ -127,7 +148,7 @@ public sealed class HomeDashboardViewModel : Bindable
         return position.Id;
     }
 
-    private HomePositionCardModel BuildCard(PositionModel model, decimal? exchangePrice)
+    private HomePositionCardModel BuildCard(PositionModel model, decimal? exchangePrice, bool withChart)
     {
         var sourceLegs = model.Collections
             .SelectMany(collection => collection.Legs)
@@ -143,10 +164,14 @@ public sealed class HomeDashboardViewModel : Bindable
             : 0m;
         var realizedPnl = model.Closed.TotalNet;
         var tempOffset = tempPnl - theoreticalAtCurrent;
-        var chart = BuildChart(legs, model.ChartRange, realizedPnl, tempOffset);
+        var chart = withChart
+            ? BuildChart(legs, model.ChartRange, realizedPnl, tempOffset)
+            : HomeMiniChartModel.Empty;
         var totalPnl = tempPnl + realizedPnl;
         var pnlPercent = entryValue > 0m ? (totalPnl / entryValue) * 100m : (decimal?)null;
-        var currentPricePercent = ResolveCurrentPricePercent(currentPrice, chart.XMin, chart.XMax);
+        var currentPricePercent = withChart
+            ? ResolveCurrentPricePercent(currentPrice, chart.XMin, chart.XMax)
+            : null;
 
         var assetPair = $"{model.BaseAsset}/{model.QuoteAsset}";
         return new HomePositionCardModel(
@@ -161,7 +186,8 @@ public sealed class HomeDashboardViewModel : Bindable
             model.Notes,
             chart,
             exchangePrice,
-            currentPricePercent);
+            currentPricePercent,
+            withChart);
     }
 
     private HomeMiniChartModel BuildChart(
@@ -539,6 +565,34 @@ public sealed class HomeDashboardViewModel : Bindable
             return null;
         }
     }
+
+    private void SetCards(IReadOnlyList<HomePositionCardModel> cards)
+    {
+        Positions = cards;
+        Groups = cards
+            .GroupBy(card => card.AssetPair, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new HomePositionGroupModel(group.Key, group.ToArray()))
+            .ToArray();
+    }
+
+    private void ReplaceCard(HomePositionCardModel updatedCard)
+    {
+        if (Positions.Count == 0)
+        {
+            return;
+        }
+
+        var cards = Positions.ToArray();
+        var index = Array.FindIndex(cards, card => card.Id == updatedCard.Id);
+        if (index < 0)
+        {
+            return;
+        }
+
+        cards[index] = updatedCard;
+        SetCards(cards);
+    }
 }
 
 public sealed record HomePositionCardModel(
@@ -552,7 +606,8 @@ public sealed record HomePositionCardModel(
     string Notes,
     HomeMiniChartModel Chart,
     decimal? CurrentPrice,
-    double? CurrentPricePercent);
+    double? CurrentPricePercent,
+    bool IsChartReady);
 
 public sealed record HomeLegChipModel(
     string Text,
@@ -577,4 +632,12 @@ public sealed record HomeMiniChartModel(
     IReadOnlyList<double> Values,
     IReadOnlyList<double> TempValues,
     double XMin,
-    double XMax);
+    double XMax)
+{
+    public static HomeMiniChartModel Empty { get; } = new(
+        Array.Empty<string>(),
+        Array.Empty<double>(),
+        Array.Empty<double>(),
+        0d,
+        0d);
+}

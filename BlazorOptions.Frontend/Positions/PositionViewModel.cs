@@ -1753,8 +1753,25 @@ public sealed class PositionViewModel : IDisposable
 
     public ValueTask DisposeAsync()
     {
+        return DisposeAsyncCore();
+    }
+
+    private async ValueTask DisposeAsyncCore()
+    {
+        try
+        {
+            if (_position is not null)
+            {
+                // Flush latest edits (for example notes) before canceling debounce queues.
+                await _positionsPort.SavePositionAsync(_position);
+            }
+        }
+        catch
+        {
+            // Ignore persistence failures during disposal.
+        }
+
         Dispose();
-        return ValueTask.CompletedTask;
     }
 
     private static void CancelAndDispose(ref CancellationTokenSource? source, object gate)

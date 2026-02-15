@@ -6,6 +6,8 @@ Route: `/`
 
 - Home page now renders dashboard cards for all saved positions.
 - Cards are grouped by `base/quote` asset pair.
+- Cards and non-chart data are shown first; mini charts are then rendered asynchronously one-by-one to keep initial page load responsive.
+- While a card chart is warming up, the card shows a chart skeleton placeholder.
 - Each card shows:
   - position name in `base/quote - name` format
   - total P/L
