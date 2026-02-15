@@ -15,6 +15,7 @@ public interface IExchangeService
     ITickersService Tickers { get; }
     IOptionsChainService OptionsChain { get; }
     IFuturesInstrumentsService FuturesInstruments { get; }
+    bool IsLive { set; }
 }
 
 public sealed class ExchangeService : IExchangeService
@@ -23,6 +24,16 @@ public sealed class ExchangeService : IExchangeService
     private readonly IServiceProvider? _services;
     private IOptionsChainService? _optionsChain;
     private IFuturesInstrumentsService? _futuresInstruments;
+
+
+    public bool IsLive
+    {
+        set
+        {
+            Tickers.IsLive = value;
+            OptionsChain.IsLive = value;
+        }
+    }
 
     public ExchangeService()
         : this(new NullOrdersService(), new NullPositionsService(), new NullTickersService(), null)
@@ -50,6 +61,8 @@ public sealed class ExchangeService : IExchangeService
 
     public IFuturesInstrumentsService FuturesInstruments => _futuresInstruments ??= _services?.GetRequiredService<IFuturesInstrumentsService>()
         ?? new NullFuturesInstrumentsService();
+
+
 
     public string? FormatSymbol(LegModel leg, string? baseAsset = null, string? settleAsset = null)
     {
@@ -207,9 +220,16 @@ public sealed class ExchangeService : IExchangeService
 
     private sealed class NullTickersService : ITickersService
     {
+        public bool IsLive { get; set; }
+
         public ValueTask<IDisposable> SubscribeAsync(string symbol, Func<ExchangePriceUpdate, Task> handler, CancellationToken cancellationToken = default)
         {
             return new ValueTask<IDisposable>(new SubscriptionRegistration(() => { }));
+        }
+
+        public Task UpdateTickersAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
         }
 
         public Task<IReadOnlyList<CandlePoint>> GetCandlesAsync(
@@ -239,6 +259,8 @@ public sealed class ExchangeService : IExchangeService
         public DateTime? LastUpdatedUtc => null;
 
         public bool IsRefreshing => false;
+
+        public bool IsLive { get; set; }
 
         public List<OptionChainTicker> GetTickersByBaseAsset(string baseAsset, LegType? legType = null)
         {

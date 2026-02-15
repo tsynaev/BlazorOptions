@@ -1448,7 +1448,7 @@ public sealed class LegsCollectionViewModel : IDisposable
             }
             else
             {
-                viewModel.UpdateLeg(leg);
+                viewModel.Leg = leg;
             }
 
             viewModel.CurrentPrice = _currentPrice;

@@ -62,6 +62,11 @@ public sealed class LegViewModel : IDisposable
         get => _leg ?? throw new InvalidOperationException("Leg is not set.");
         set
         {
+            if (ReferenceEquals(_leg, value))
+            {
+                return;
+            }
+
             if (_leg is not null)
             {
                 DetachLegModel(_leg);
@@ -71,6 +76,7 @@ public sealed class LegViewModel : IDisposable
             AttachLegModel(_leg);
 
             RefreshExpDatesAndStrikes();
+            ResetGreeks();
             _ = RefreshSubscriptionAsync();
         }
     }
@@ -142,13 +148,11 @@ public sealed class LegViewModel : IDisposable
             {
                 _subscriptionRegistration?.Dispose();
                 _subscriptionRegistration = null;
-                RefreshNonLiveMarketSnapshot();
                 Changed?.Invoke(LegsCollectionUpdateKind.ViewModelDataUpdated);
             }
             else
             {
                 CalculateLegTheoreticalProfit();
-                _ = RefreshSubscriptionAsync();
             }
         }
     }
@@ -280,24 +284,6 @@ public sealed class LegViewModel : IDisposable
         }
     }
 
-    public void UpdateLeg(LegModel leg)
-    {
-        if (ReferenceEquals(_leg, leg))
-        {
-            return;
-        }
-
-        if (_leg is not null)
-        {
-            DetachLegModel(_leg);
-        }
-
-        _leg = leg;
-        AttachLegModel(_leg);
-        ResetGreeks();
-
-        _ = RefreshSubscriptionAsync();
-    }
 
     public bool SetLegStatus(LegStatus status, string? message)
     {
@@ -469,12 +455,6 @@ public sealed class LegViewModel : IDisposable
             return;
         }
 
-        if (!_isLive)
-        {
-            RefreshNonLiveMarketSnapshot();
-            return;
-        }
-
         await _subscriptionLock.WaitAsync();
         try
         {
@@ -524,11 +504,6 @@ public sealed class LegViewModel : IDisposable
 
     private async Task HandleOptionTicker(OptionChainTicker ticker)
     {
-        if (!_isLive)
-        {
-            return;
-        }
-
         var changed = false;
 
         decimal? nextBid = ticker.BidPrice > 0 ? ticker.BidPrice : null;

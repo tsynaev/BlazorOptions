@@ -16,19 +16,21 @@ public class ExchangeTickerService : ITickersService
     private readonly ConcurrentDictionary<IExchangeTickerClient, Func<ExchangePriceUpdate, Task>> _handlers = new();
     private readonly object _subscriberLock = new();
     private readonly Dictionary<string, List<Func<ExchangePriceUpdate, Task>>> _subscriberHandlers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, decimal> _lastPriceBySymbol = new(StringComparer.OrdinalIgnoreCase);
     private IExchangeTickerClient? _activeClient;
     private Uri? _activeWebSocketUrl;
     private readonly IOptions<BybitSettings> _bybitSettingsOptions;
     private readonly HttpClient _httpClient;
     private TimeSpan _livePriceUpdateInterval = TimeSpan.FromMilliseconds(1000);
     private readonly Dictionary<string, DateTime> _lastUpdateUtc = new(StringComparer.OrdinalIgnoreCase);
+    private readonly SemaphoreSlim _liveModeLock = new(1, 1);
+    private bool _isLive;
 
     public ExchangeTickerService(
         IEnumerable<IExchangeTickerClient> clients,
         IOptions<BybitSettings> bybitSettingsOptions,
         HttpClient httpClient)
     {
-        // TODO: Evaluate Bybit.Net usage when it supports Blazor WebAssembly.
         _clients = clients.ToDictionary(client => client.Exchange, StringComparer.OrdinalIgnoreCase);
         _bybitSettingsOptions = bybitSettingsOptions;
         _httpClient = httpClient;
@@ -38,6 +40,21 @@ public class ExchangeTickerService : ITickersService
             var handler = HandleClientPriceUpdated;
             _handlers[client] = handler;
             client.PriceUpdated += handler;
+        }
+    }
+
+    public bool IsLive
+    {
+        get => _isLive;
+        set
+        {
+            if (_isLive == value)
+            {
+                return;
+            }
+
+            _isLive = value;
+            _ = SetLiveModeAsync(value);
         }
     }
 
@@ -192,14 +209,101 @@ public class ExchangeTickerService : ITickersService
             handlers.Add(handler);
         }
 
-        await EnsureConnectedAsync(cancellationToken);
-
-        if (shouldSubscribe)
+        decimal cachedPrice;
+        var hasCachedPrice = false;
+        lock (_subscriberLock)
         {
-            await _activeClient!.SubscribeAsync(normalizedSymbol, cancellationToken);
+            hasCachedPrice = _lastPriceBySymbol.TryGetValue(normalizedSymbol, out cachedPrice);
+        }
+
+        if (hasCachedPrice)
+        {
+            try
+            {
+                await handler(new ExchangePriceUpdate("Bybit", normalizedSymbol, cachedPrice, DateTime.UtcNow));
+            }
+            catch
+            {
+                // Keep subscription flow resilient if consumer callback fails.
+            }
+        }
+
+        if (IsLive)
+        {
+            await EnsureConnectedAsync(cancellationToken);
+
+            if (shouldSubscribe)
+            {
+                await _activeClient!.SubscribeAsync(normalizedSymbol, cancellationToken);
+            }
         }
 
         return new SubscriptionRegistration(() => _ = UnsubscribeAsync(normalizedSymbol, handler));
+    }
+
+    public async Task UpdateTickersAsync(CancellationToken cancellationToken = default)
+    {
+        string[] targetSymbols;
+
+        lock (_subscriberLock)
+        {
+            targetSymbols = _subscriberHandlers.Keys
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
+
+        if (targetSymbols.Length == 0)
+        {
+            return;
+        }
+
+        foreach (var symbol in targetSymbols)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            decimal? price = null;
+            try
+            {
+                var toUtc = DateTime.UtcNow;
+                var fromUtc = toUtc.AddHours(-2);
+                var candles = await GetCandlesWithVolumeAsync(symbol, fromUtc, toUtc, 60, cancellationToken);
+                var last = candles
+                    .OrderBy(c => c.Time)
+                    .LastOrDefault();
+                if (last is not null && last.Close > 0)
+                {
+                    price = (decimal)last.Close;
+                }
+            }
+            catch
+            {
+                // Keep snapshot update resilient.
+            }
+
+            if (price.HasValue)
+            {
+                lock (_subscriberLock)
+                {
+                    _lastPriceBySymbol[symbol] = price.Value;
+                }
+
+                await DispatchUpdateAsync(new ExchangePriceUpdate("Bybit", symbol, price.Value, DateTime.UtcNow));
+                continue;
+            }
+
+            decimal cachedPrice;
+            lock (_subscriberLock)
+            {
+                if (!_lastPriceBySymbol.TryGetValue(symbol, out cachedPrice))
+                {
+                    continue;
+                }
+            }
+
+            // Fallback to cached symbol price to ensure subscribers are notified.
+            await DispatchUpdateAsync(new ExchangePriceUpdate("Bybit", symbol, cachedPrice, DateTime.UtcNow));
+        }
     }
 
     private Uri ResolveWebSocketUrl(string? url)
@@ -237,6 +341,29 @@ public class ExchangeTickerService : ITickersService
         _handlers.Clear();
     }
 
+    private async Task SetLiveModeAsync(bool isLive)
+    {
+        await _liveModeLock.WaitAsync();
+        try
+        {
+            if (isLive)
+            {
+                await EnsureConnectedAsync(CancellationToken.None);
+                return;
+            }
+
+            await DisconnectAsync();
+        }
+        catch
+        {
+            // Ignore toggling failures and keep service usable.
+        }
+        finally
+        {
+            _liveModeLock.Release();
+        }
+    }
+
     private async Task EnsureConnectedAsync(CancellationToken cancellationToken)
     {
         if (!_clients.TryGetValue("Bybit", out var client))
@@ -271,6 +398,11 @@ public class ExchangeTickerService : ITickersService
 
     private async Task HandleClientPriceUpdated(ExchangePriceUpdate update)
     {
+        if (!IsLive)
+        {
+            return;
+        }
+
         var settings = _bybitSettingsOptions.Value;
         _livePriceUpdateInterval = TimeSpan.FromMilliseconds(Math.Max(100, settings.LivePriceUpdateIntervalMilliseconds));
         var now = DateTime.UtcNow;
@@ -281,7 +413,16 @@ public class ExchangeTickerService : ITickersService
         }
 
         _lastUpdateUtc[update.Symbol] = now;
+        lock (_subscriberLock)
+        {
+            _lastPriceBySymbol[update.Symbol] = update.Price;
+        }
 
+        await DispatchUpdateAsync(update);
+    }
+
+    private async Task DispatchUpdateAsync(ExchangePriceUpdate update)
+    {
         List<Func<ExchangePriceUpdate, Task>>? handlers = null;
         lock (_subscriberLock)
         {

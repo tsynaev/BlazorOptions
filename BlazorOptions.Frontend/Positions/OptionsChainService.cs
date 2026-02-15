@@ -32,12 +32,14 @@ public class OptionsChainService : IOptionsChainService
     private Task? _socketTask;
     private Task? _heartbeatTask;
     private readonly HashSet<string> _subscribedSymbols = new(StringComparer.OrdinalIgnoreCase);
+    private readonly SemaphoreSlim _liveModeLock = new(1, 1);
     private int _reconnectState;
     private static readonly TimeSpan ReconnectDelayMin = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan ReconnectDelayMax = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(20);
   
     private readonly IExchangeService _exchangeService;
+    private bool _isLive;
 
     public OptionsChainService(HttpClient httpClient, IExchangeService exchangeService, IOptions<BybitSettings>? bybitSettingsOptions = null)
     {
@@ -49,6 +51,21 @@ public class OptionsChainService : IOptionsChainService
     public DateTime? LastUpdatedUtc { get; private set; }
 
     public bool IsRefreshing { get; private set; }
+
+    public bool IsLive
+    {
+        get => _isLive;
+        set
+        {
+            if (_isLive == value)
+            {
+                return;
+            }
+
+            _isLive = value;
+            _ = SetLiveModeAsync(value);
+        }
+    }
 
   
 
@@ -167,8 +184,13 @@ public class OptionsChainService : IOptionsChainService
         }
     }
 
-    public async Task UpdateTickersAsync(string baseAsset, CancellationToken cancellationToken = default)
+    public async Task UpdateTickersAsync(string? baseAsset = null, CancellationToken cancellationToken = default)
     {
+        var baseAssets = ResolveBaseAssetsToRefresh(baseAsset);
+        if (baseAssets.Count == 0)
+        {
+            return;
+        }
 
         if (!await _refreshLock.WaitAsync(0, cancellationToken))
         {
@@ -180,20 +202,34 @@ public class OptionsChainService : IOptionsChainService
         try
         {
             IsRefreshing = true;
-
-            var normalizedBase = baseAsset.Trim().ToUpperInvariant();
-            var updated = await FetchTickersAsync(normalizedBase, cancellationToken);
-            if (updated.Count > 0)
+            var allUpdated = new List<OptionChainTicker>();
+            foreach (var currentBase in baseAssets)
             {
-                lock (_cacheLock)
+                var updated = await FetchTickersAsync(currentBase, cancellationToken);
+                if (updated.Count == 0)
                 {
-                    _cachedTickers.Remove(normalizedBase);
-                    _cachedTickers.Add(normalizedBase, updated);
+                    continue;
                 }
 
-                LastUpdatedUtc = DateTime.UtcNow;
+                lock (_cacheLock)
+                {
+                    _cachedTickers[currentBase] = updated;
+                }
+
+                allUpdated.AddRange(updated);
             }
 
+            if (allUpdated.Count > 0)
+            {
+                LastUpdatedUtc = DateTime.UtcNow;
+
+                foreach (var ticker in allUpdated
+                             .GroupBy(t => t.Symbol, StringComparer.OrdinalIgnoreCase)
+                             .Select(group => group.Last()))
+                {
+                    await DispatchSubscriberHandlers(ticker);
+                }
+            }
         }
         finally
         {
@@ -234,7 +270,10 @@ public class OptionsChainService : IOptionsChainService
             _trackedSymbols = symbols;
         }
 
-        _ = EnsureWebSocketSubscriptionsAsync(symbols);
+        if (IsLive)
+        {
+            _ = EnsureWebSocketSubscriptionsAsync(symbols);
+        }
     }
 
     public async ValueTask<IDisposable> SubscribeAsync(string symbol, Func<OptionChainTicker, Task> when)
@@ -259,7 +298,33 @@ public class OptionsChainService : IOptionsChainService
             handlers.Add(when);
         }
 
-        if (shouldSubscribe)
+        OptionChainTicker? cachedTicker = null;
+        lock (_cacheLock)
+        {
+            foreach (var tickers in _cachedTickers.Values)
+            {
+                cachedTicker = tickers.FirstOrDefault(t =>
+                    string.Equals(t.Symbol, symbol, StringComparison.OrdinalIgnoreCase));
+                if (cachedTicker is not null)
+                {
+                    break;
+                }
+            }
+        }
+
+        if (cachedTicker is not null)
+        {
+            try
+            {
+                await when(cachedTicker);
+            }
+            catch
+            {
+                // Keep subscription flow resilient if consumer callback fails.
+            }
+        }
+
+        if (shouldSubscribe && IsLive)
         {
             await EnsureWebSocketSubscriptionsAsync(new[] { symbol });
         }
@@ -480,6 +545,11 @@ public class OptionsChainService : IOptionsChainService
 
     private async Task EnsureWebSocketSubscriptionsAsync(IEnumerable<string> symbols)
     {
+        if (!IsLive)
+        {
+            return;
+        }
+
         var symbolList = symbols
             .Where(symbol => !string.IsNullOrWhiteSpace(symbol))
             .Distinct(System.StringComparer.OrdinalIgnoreCase)
@@ -625,6 +695,11 @@ public class OptionsChainService : IOptionsChainService
 
     private async Task TryHandleTickerPayload(string payload)
     {
+        if (!IsLive)
+        {
+            return;
+        }
+
         try
         {
             using var document = JsonDocument.Parse(payload);
@@ -679,6 +754,11 @@ public class OptionsChainService : IOptionsChainService
 
     private void TriggerReconnect()
     {
+        if (!IsLive)
+        {
+            return;
+        }
+
         if (Interlocked.Exchange(ref _reconnectState, 1) == 1)
         {
             return;
@@ -712,6 +792,89 @@ public class OptionsChainService : IOptionsChainService
 
             Interlocked.Exchange(ref _reconnectState, 0);
         });
+    }
+
+    private async Task SetLiveModeAsync(bool isLive)
+    {
+        await _liveModeLock.WaitAsync();
+        try
+        {
+            if (!isLive)
+            {
+                await StopSocketAsync();
+                return;
+            }
+
+            var symbols = GetAllSymbolsToSubscribe();
+            if (symbols.Count == 0)
+            {
+                return;
+            }
+
+            await EnsureWebSocketSubscriptionsAsync(symbols);
+        }
+        catch
+        {
+            // Keep service usable if live mode transition fails.
+        }
+        finally
+        {
+            _liveModeLock.Release();
+        }
+    }
+
+    private List<string> ResolveBaseAssetsToRefresh(string? baseAsset)
+    {
+        if (!string.IsNullOrWhiteSpace(baseAsset))
+        {
+            return new List<string> { baseAsset.Trim().ToUpperInvariant() };
+        }
+
+        lock (_cacheLock)
+        {
+            if (_cachedTickers.Count > 0)
+            {
+                return _cachedTickers.Keys
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(x => x)
+                    .ToList();
+            }
+        }
+
+        return BuildPairsFromSettings()
+            .Select(pair => pair.BaseAsset)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x)
+            .ToList();
+    }
+
+    private List<string> GetAllSymbolsToSubscribe()
+    {
+        var symbols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        lock (_cacheLock)
+        {
+            foreach (var symbol in _trackedSymbols)
+            {
+                if (!string.IsNullOrWhiteSpace(symbol))
+                {
+                    symbols.Add(symbol.Trim());
+                }
+            }
+        }
+
+        lock (_subscriberLock)
+        {
+            foreach (var symbol in _subscriberHandlers.Keys)
+            {
+                if (!string.IsNullOrWhiteSpace(symbol))
+                {
+                    symbols.Add(symbol.Trim());
+                }
+            }
+        }
+
+        return symbols.ToList();
     }
 
     private OptionChainTicker? UpdateTickerFromPayload(JsonElement entry)

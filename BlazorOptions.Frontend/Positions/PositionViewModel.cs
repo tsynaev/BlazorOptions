@@ -65,7 +65,6 @@ public sealed class PositionViewModel : IDisposable
     private readonly object _candlesLoadLock = new();
     private CancellationTokenSource? _candlesLoadCts;
     private readonly SemaphoreSlim _initializeLock = new(1, 1);
-    private bool _isInitialized;
     private bool _isDisposed;
 
     public PositionViewModel(
@@ -187,7 +186,7 @@ public sealed class PositionViewModel : IDisposable
             UpdateDerivedState();
             await TryHydrateSelectedPriceFromRecentCandleAsync();
 
-            await _exchangeService.OptionsChain.UpdateTickersAsync(Position.BaseAsset);
+            _ = _exchangeService.OptionsChain.UpdateTickersAsync(Position.BaseAsset);
 
 
 
@@ -206,8 +205,6 @@ public sealed class PositionViewModel : IDisposable
             _lastCandleBucketTime = null;
 
             OnChange?.Invoke();
-            _isInitialized = true;
-
         }
         finally
         {
@@ -408,9 +405,10 @@ public sealed class PositionViewModel : IDisposable
 
         ApplyIsLive(isEnabled);
 
+        _exchangeService.IsLive = isEnabled;
+
         if (!IsLive)
         {
-            await StopTickerAsync();
             UpdateChart();
             OnChange?.Invoke();
             return;
@@ -697,6 +695,9 @@ public sealed class PositionViewModel : IDisposable
         }
 
         _isLive = isLive;
+        // Keep ticker transport mode centralized in ticker service.
+        _exchangeService.Tickers.IsLive = _isLive;
+        _exchangeService.OptionsChain.IsLive = _isLive;
         if (!_isLive && !_selectedPrice.HasValue)
         {
             _selectedPrice = _livePrice;
@@ -1512,6 +1513,8 @@ public sealed class PositionViewModel : IDisposable
         _livePrice = null;
         _currentPrice = null;
         _isLive = false;
+        _exchangeService.Tickers.IsLive = false;
+        _exchangeService.OptionsChain.IsLive = false;
         _currentSymbol = null;
         _valuationDate = DateTime.UtcNow.Date;
         SelectedDayOffset = 0;

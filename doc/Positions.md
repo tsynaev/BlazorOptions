@@ -30,6 +30,9 @@ The Positions feature lets you build, manage, and visualize option strategies an
 ## Live price and subscriptions
 - Exchange ticker subscription is per-position and managed by `PositionViewModel`.
 - `ExchangeTickerService` handles Bybit-only subscription, throttles updates internally, and resolves settings from local storage via options.
+- `ITickersService.SubscribeAsync` works in both non-live and live modes: handlers receive updates from explicit `ITickersService.UpdateTickersAsync(...)` calls, and websocket-driven updates only when `ITickersService.IsLive` is `true`.
+- If a symbol already has a cached ticker/price snapshot, subscribe callbacks are invoked immediately on subscribe for both `ITickersService` and `IOptionsChainService`.
+- `IOptionsChainService` follows the same live/update contract: `SubscribeAsync` is always allowed, `UpdateTickersAsync(...)` pushes fresh snapshots to subscribers, and websocket updates are delivered only when `IOptionsChainService.IsLive` is `true`.
 - Turning live off disposes the exchange ticker subscription; turning live on re-subscribes.
 - When chart candles are enabled, live ticker updates are aggregated into 1-hour OHLC candles and pushed to the payoff chart.
 - Enabling candles triggers an immediate historical candle load for the current chart time range (default window is 48 hours).

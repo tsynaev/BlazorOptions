@@ -17,6 +17,8 @@ public interface IOptionsChainService
 
     bool IsRefreshing { get; }
 
+    bool IsLive { get; set; }
+
     List<OptionChainTicker> GetTickersByBaseAsset(string baseAsset, LegType? legType = null);
 
     IReadOnlyList<string> GetCachedBaseAssets();
@@ -58,11 +60,17 @@ public interface IPositionsService : IAsyncDisposable
 
 public interface ITickersService : IAsyncDisposable
 {
+    bool IsLive { get; set; }
+
     ValueTask<IDisposable> SubscribeAsync(
         string symbol,
         Func<ExchangePriceUpdate, Task> handler,
         CancellationToken cancellationToken = default);
 
+    Task UpdateTickersAsync(CancellationToken cancellationToken = default);
+
+
+// TODO: remove GetCandlesWithVolumeAsync, add volume to CandlePoint, add intervalMinutes parameter
     Task<IReadOnlyList<CandlePoint>> GetCandlesAsync(
         string symbol,
         DateTime fromUtc,
