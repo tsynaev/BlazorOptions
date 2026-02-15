@@ -62,6 +62,34 @@ public sealed class PositionsStore
         }
     }
 
+    public async Task<PositionModel?> LoadPositionAsync(string userId, Guid positionId)
+    {
+        await AcquireReadAsync();
+        try
+        {
+            await using var connection = await OpenConnectionAsync(userId);
+            var command = connection.CreateCommand();
+            command.CommandText = $"""
+                SELECT Payload
+                FROM {PositionsTable}
+                WHERE PositionId = $positionId
+                """;
+            command.Parameters.AddWithValue("$positionId", positionId.ToString("N"));
+            await using var reader = await command.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                var payload = reader.GetString(0);
+                return JsonSerializer.Deserialize<PositionModel>(payload, _serializerOptions);
+            }
+
+            return null;
+        }
+        finally
+        {
+            ReleaseRead();
+        }
+    }
+
     public async Task SavePositionsAsync(string userId, IReadOnlyList<PositionModel> positions)
     {
         await AcquireWriteAsync();
@@ -305,4 +333,6 @@ public sealed class PositionsStore
             ? trimmed
             : Path.GetFullPath(Path.Combine(contentRootPath, trimmed));
     }
+
+   
 }

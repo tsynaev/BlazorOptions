@@ -265,9 +265,9 @@ public sealed class ExchangeService : IExchangeService
             return Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
         }
 
-        public Task EnsureBaseAssetAsync(string baseAsset) => Task.CompletedTask;
+        public Task EnsureTickersForBaseAssetAsync(string baseAsset) => Task.CompletedTask;
 
-        public Task RefreshAsync(string? baseAsset = null, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task UpdateTickersAsync(string? baseAsset = null, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public OptionChainTicker? FindTickerForLeg(LegModel leg, string? baseAsset = null) => null;
 

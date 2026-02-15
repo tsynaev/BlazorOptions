@@ -131,7 +131,7 @@ public sealed class VolatilitySkewViewModel : Bindable
 
         try
         {
-            await _exchangeService.OptionsChain.RefreshAsync(BaseAsset);
+            await _exchangeService.OptionsChain.UpdateTickersAsync(BaseAsset);
             _cachedTickers = _exchangeService.OptionsChain.GetTickersByBaseAsset(BaseAsset)
                 .Where(t => MatchesQuote(t.Symbol, QuoteAsset))
                 .Where(t => t.MarkIv > 0m)

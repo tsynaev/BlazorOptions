@@ -1717,7 +1717,7 @@ public sealed class LegsCollectionViewModel : IDisposable
                 continue;
             }
 
-            var value = leg.TempPnl;
+            var value = leg.PnL;
             if (!value.HasValue)
             {
                 continue;

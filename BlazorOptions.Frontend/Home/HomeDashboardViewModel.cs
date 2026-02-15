@@ -525,7 +525,7 @@ public sealed class HomeDashboardViewModel : Bindable
         {
             try
             {
-                await _exchangeService.OptionsChain.EnsureBaseAssetAsync(baseAsset!);
+                await _exchangeService.OptionsChain.EnsureTickersForBaseAssetAsync(baseAsset!);
             }
             catch
             {

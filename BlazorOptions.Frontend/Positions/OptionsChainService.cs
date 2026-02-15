@@ -15,7 +15,7 @@ public class OptionsChainService : IOptionsChainService
 {
     private const string BybitOptionsTickerUrl = "https://api.bybit.com/v5/market/tickers?category=option";
     private static readonly Uri BybitOptionsWebSocketUrl = new("wss://stream.bybit.com/v5/public/option");
-    private const string BybitOptionsDocsUrl = "https://bybit-exchange.github.io/docs/v5/market/tickers";
+
     private readonly HttpClient _httpClient;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private readonly SemaphoreSlim _socketLock = new(1, 1);
@@ -159,17 +159,17 @@ public class OptionsChainService : IOptionsChainService
         }
     }
 
-    public async Task EnsureBaseAssetAsync(string baseAsset)
+    public async Task EnsureTickersForBaseAssetAsync(string baseAsset)
     {
         if (!_cachedTickers.TryGetValue(baseAsset, out _))
         {
-            await RefreshAsync(baseAsset);
+            await UpdateTickersAsync(baseAsset);
         }
     }
 
-    public async Task RefreshAsync(string? baseAsset = null, CancellationToken cancellationToken = default)
+    public async Task UpdateTickersAsync(string baseAsset, CancellationToken cancellationToken = default)
     {
-        
+
         if (!await _refreshLock.WaitAsync(0, cancellationToken))
         {
             return;
@@ -181,37 +181,18 @@ public class OptionsChainService : IOptionsChainService
         {
             IsRefreshing = true;
 
-            if (string.IsNullOrEmpty(baseAsset))
+            var normalizedBase = baseAsset.Trim().ToUpperInvariant();
+            var updated = await FetchTickersAsync(normalizedBase, cancellationToken);
+            if (updated.Count > 0)
             {
-                var updated = await FetchTickersAsync(null, cancellationToken);
-                if (updated.Count > 0)
+                lock (_cacheLock)
                 {
-                    lock (_cacheLock)
-                    {
-                        _cachedTickers = updated
-                            .GroupBy(t => t.BaseAsset, StringComparer.OrdinalIgnoreCase)
-                            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
-                    }
-
-                    LastUpdatedUtc = DateTime.UtcNow;
+                    _cachedTickers.Remove(normalizedBase);
+                    _cachedTickers.Add(normalizedBase, updated);
                 }
-            }
-            else
-            {
-                var normalizedBase = baseAsset.Trim().ToUpperInvariant();
-                var updated = await FetchTickersAsync(normalizedBase, cancellationToken);
-                if (updated.Count > 0)
-                {
-                    lock (_cacheLock)
-                    {
-                        _cachedTickers.Remove(normalizedBase);
-                        _cachedTickers.Add(normalizedBase, updated);
-                    }
 
-                    LastUpdatedUtc = DateTime.UtcNow;
-                }
+                LastUpdatedUtc = DateTime.UtcNow;
             }
-
 
         }
         finally
@@ -286,29 +267,21 @@ public class OptionsChainService : IOptionsChainService
         return new SubscriptionRegistration(() => _ = UnsubscribeAsync(symbol, when));
     }
 
-    private async Task<List<OptionChainTicker>> FetchTickersAsync(string? baseAsset, CancellationToken cancellationToken)
+    private async Task<List<OptionChainTicker>> FetchTickersAsync(string baseAsset, CancellationToken cancellationToken)
     {
-        try
-        {
-            var requestUrl = BuildTickerUrl(baseAsset);
-            using var response = await _httpClient.GetAsync(requestUrl, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                return await FetchTickersFromDocumentationAsync(cancellationToken);
-            }
+        var requestUrl = BuildTickerUrl(baseAsset);
+        using var response = await _httpClient.GetAsync(requestUrl, cancellationToken);
 
-            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        response.EnsureSuccessStatusCode();
 
-            return ParseTickersFromDocument(document);
-        }
-        catch
-        {
-            return await FetchTickersFromDocumentationAsync(cancellationToken);
-        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+
+        return ParseTickersFromDocument(document);
     }
 
-    private static string BuildTickerUrl(string? baseAsset)
+    private static string BuildTickerUrl(string baseAsset)
     {
         if (string.IsNullOrWhiteSpace(baseAsset))
         {
@@ -438,54 +411,7 @@ public class OptionsChainService : IOptionsChainService
         return int.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out value);
     }
 
-    private async Task<List<OptionChainTicker>> FetchTickersFromDocumentationAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            using var response = await _httpClient.GetAsync(BybitOptionsDocsUrl, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                return new List<OptionChainTicker>();
-            }
-
-            var html = await response.Content.ReadAsStringAsync(cancellationToken);
-            var codeBlocks = Regex.Matches(html, "<code[^>]*>(.*?)</code>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
-
-            foreach (Match match in codeBlocks)
-            {
-                var rawBlock = match.Groups[1].Value;
-                var withoutTags = Regex.Replace(rawBlock, "<[^>]+>", string.Empty);
-                var decoded = WebUtility.HtmlDecode(withoutTags);
-
-                if (!decoded.Contains("\"category\"", StringComparison.OrdinalIgnoreCase) || !decoded.Contains("\"option\"", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                var document = TryParseJson(decoded);
-                if (document is null)
-                {
-                    continue;
-                }
-
-                using (document)
-                {
-                    var tickers = ParseTickersFromDocument(document);
-                    if (tickers.Count > 0)
-                    {
-                        return tickers;
-                    }
-                }
-            }
-
-            return new List<OptionChainTicker>();
-        }
-        catch
-        {
-            return new List<OptionChainTicker>();
-        }
-    }
-
+ 
     private static JsonDocument? TryParseJson(string content)
     {
         try

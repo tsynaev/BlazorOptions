@@ -32,6 +32,19 @@ public sealed class PositionsController : ControllerBase, IPositionsPort
         return Ok(positions);
     }
 
+    [HttpGet("{positionId:guid}")]
+    public async Task<IActionResult> LoadPositionAsync(Guid positionId)
+    {
+        var userId = ResolveUserId();
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unauthorized");
+        }
+
+        var position = await _store.LoadPositionAsync(userId, positionId);
+        return Ok(position);
+    }
+
     [HttpPost]
     public async Task<IActionResult> SavePositionsAsync([FromBody] List<PositionModel> positions)
     {
@@ -80,6 +93,13 @@ public sealed class PositionsController : ControllerBase, IPositionsPort
 
         await _store.DeletePositionAsync(userId, positionId);
         return Ok();
+    }
+
+
+    async Task<PositionModel?> IPositionsPort.LoadPositionAsync(Guid positionId)
+    {
+        var userId = ResolveUserIdOrThrow();
+        return await _store.LoadPositionAsync(userId, positionId);
     }
 
     async Task<IReadOnlyList<PositionModel>> IPositionsPort.LoadPositionsAsync()

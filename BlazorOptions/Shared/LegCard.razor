@@ -46,13 +46,13 @@
           
         </MudStack>
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-            <MudText Typo="Typo.caption" Color="@(ViewModel.TempPnl >= 0 ? Color.Success : Color.Error)">
-                Temp P/L: @FormatPrice(ViewModel.TempPnl)
+            <MudText Typo="Typo.caption" Color="@(ViewModel.PnL >= 0 ? Color.Success : Color.Error)">
+                P/L: @FormatPrice(ViewModel.PnL)
             </MudText>
-            @if (ViewModel.TempPnlPercent.HasValue)
+            @if (ViewModel.PnLPercent.HasValue)
             {
                 <MudText Typo="Typo.caption">
-                    (@($"{ViewModel.TempPnlPercent.Value:0.00}%"))
+                    (@($"{ViewModel.PnLPercent.Value:0.00}%"))
                 </MudText>
             }
             @if (!ViewModel.IsLive && ViewModel.MarkPrice.HasValue)

@@ -91,7 +91,7 @@ public sealed class LegsParserService : ILegsParserService
         var tickers = _optionsChainService.GetTickersByBaseAsset(resolvedBaseAsset);
         if (tickers.Count == 0)
         {
-            await _optionsChainService.RefreshAsync(resolvedBaseAsset);
+            await _optionsChainService.UpdateTickersAsync(resolvedBaseAsset);
             tickers = _optionsChainService.GetTickersByBaseAsset(resolvedBaseAsset);
         }
 

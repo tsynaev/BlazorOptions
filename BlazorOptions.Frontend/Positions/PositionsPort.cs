@@ -1,8 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
-using BlazorOptions.API.Positions;
 using BlazorOptions.API.TradingHistory;
-using BlazorOptions.ViewModels;
 
 namespace BlazorOptions.Services;
 
@@ -25,6 +23,12 @@ public sealed class PositionsPort : IPositionsPort
         var response = await SendAsync(HttpMethod.Get, "api/positions");
         var items = await response.Content.ReadFromJsonAsync<PositionModel[]>(JsonOptions);
         return items ?? Array.Empty<PositionModel>();
+    }
+
+    public async Task<PositionModel?> LoadPositionAsync(Guid positionId)
+    {
+        var response = await SendAsync(HttpMethod.Get, $"api/positions/{positionId}");
+        return await response.Content.ReadFromJsonAsync<PositionModel>(JsonOptions);
     }
 
     public async Task SavePositionsAsync(IReadOnlyList<PositionModel> positions)

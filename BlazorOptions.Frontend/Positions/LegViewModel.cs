@@ -29,6 +29,7 @@ public sealed class LegViewModel : IDisposable
     private bool _suppressLegNotifications;
     private bool _pendingChartUpdate;
     private bool _pendingDataUpdate;
+    private bool _usedInitialLiveMarkSnapshot;
 
     // Keep chart updates tied only to leg fields that affect payoff calculations.
     private static readonly HashSet<string> ChartRelevantLegProperties = new(StringComparer.Ordinal)
@@ -88,7 +89,7 @@ public sealed class LegViewModel : IDisposable
 
     public decimal? ChainIv { get; private set; }
 
-    public decimal? TempPnl { get; private set; }
+    public decimal? PnL => ResolvePnlFromMarkPrice();
 
     public decimal? Delta { get; private set; }
 
@@ -100,7 +101,7 @@ public sealed class LegViewModel : IDisposable
 
     public string StatusMessage => _statusMessage ?? string.Empty;
 
-    public decimal? TempPnlPercent => ResolveTempPnlPercent();
+    public decimal? PnLPercent => ResolvePnlPercent();
 
     public IReadOnlyList<DateTime?> AvailableExpirations => _cachedExpirations;
 
@@ -119,6 +120,10 @@ public sealed class LegViewModel : IDisposable
             _currentPrice = value;
 
             CalculateLegTheoreticalProfit();
+            if (!_isLive)
+            {
+                Changed?.Invoke(LegsCollectionUpdateKind.PricingContextUpdated);
+            }
         }
     }
 
@@ -138,6 +143,7 @@ public sealed class LegViewModel : IDisposable
                 _subscriptionRegistration?.Dispose();
                 _subscriptionRegistration = null;
                 RefreshNonLiveMarketSnapshot();
+                Changed?.Invoke(LegsCollectionUpdateKind.ViewModelDataUpdated);
             }
             else
             {
@@ -160,6 +166,10 @@ public sealed class LegViewModel : IDisposable
             _valuationDate = value;
 
             CalculateLegTheoreticalProfit();
+            if (!_isLive)
+            {
+                Changed?.Invoke(LegsCollectionUpdateKind.PricingContextUpdated);
+            }
         }
     }
 
@@ -461,6 +471,7 @@ public sealed class LegViewModel : IDisposable
 
         if (!_isLive)
         {
+            RefreshNonLiveMarketSnapshot();
             return;
         }
 
@@ -494,14 +505,19 @@ public sealed class LegViewModel : IDisposable
 
     private Task HandleLinearTicker(ExchangePriceUpdate e)
     {
-        var nextPnl = ResolveFuturesPnl(e.Price);
-        if (TempPnl == nextPnl)
+        var changed = false;
+
+        var nextMark = ResolveLiveMarkPrice(e.Price, null);
+        if (MarkPrice != nextMark)
         {
-            return Task.CompletedTask;
+            MarkPrice = nextMark;
+            changed = true;
         }
 
-        TempPnl = nextPnl;
-        Changed?.Invoke(LegsCollectionUpdateKind.ViewModelDataUpdated);
+        if (changed)
+        {
+            Changed?.Invoke(LegsCollectionUpdateKind.ViewModelDataUpdated);
+        }
 
         return Task.CompletedTask;
     }
@@ -529,7 +545,7 @@ public sealed class LegViewModel : IDisposable
             changed = true;
         }
 
-        decimal? nextMark = ticker.MarkPrice > 0 ? ticker.MarkPrice : null;
+        decimal? nextMark = ResolveLiveMarkPrice(ticker.UnderlyingPrice, ticker);
         if (MarkPrice != nextMark)
         {
             MarkPrice = nextMark;
@@ -577,13 +593,6 @@ public sealed class LegViewModel : IDisposable
             }
         }
 
-        var nextPnl = ResolveOptionTempPnl(ticker.UnderlyingPrice);
-        if (TempPnl != nextPnl)
-        {
-            TempPnl = nextPnl;
-            changed = true;
-        }
-
         if (!changed)
         {
             return;
@@ -620,6 +629,8 @@ public sealed class LegViewModel : IDisposable
         }
 
         var tickers = _exchangeService.OptionsChain.GetTickersByBaseAsset(_collectionViewModel.BaseAsset, Leg.Type);
+
+        //TODO: _cachedExpirations _cachedStrikes must be replaced with IExchangeService.GetAvailableStrikes(Leg) and  IExchangeService.GetAvailableExpDates(Leg)
 
         _cachedExpirations = tickers.Select(ticker => (DateTime?)ticker.ExpirationDate.Date)
             .Distinct()
@@ -681,22 +692,16 @@ public sealed class LegViewModel : IDisposable
     {
         if (IsLive) return;
 
-        RefreshNonLiveMarketSnapshot();
-
-        if (_currentPrice == null)
+        if (!_usedInitialLiveMarkSnapshot)
         {
-            TempPnl = null;
-            return;
-        }
-
-        if (Leg.Type == LegType.Future)
-        {
-            TempPnl = ResolveFuturesPnl(_currentPrice);
+            MarkPrice = ResolveLiveMarkPrice();
+            _usedInitialLiveMarkSnapshot = true;
         }
         else
         {
-            TempPnl = _optionsService.CalculateLegTheoreticalProfit(Leg, _currentPrice.Value, ValuationDate);
+            MarkPrice = ResolveNonLiveMarkPrice();
         }
+
     }
 
     private void RefreshNonLiveMarketSnapshot()
@@ -712,6 +717,7 @@ public sealed class LegViewModel : IDisposable
             Bid = null;
             Ask = null;
             ChainIv = null;
+            ResetGreeks();
             return;
         }
 
@@ -723,6 +729,7 @@ public sealed class LegViewModel : IDisposable
             Bid = null;
             Ask = null;
             ChainIv = null;
+            ResetGreeks();
             return;
         }
 
@@ -733,46 +740,30 @@ public sealed class LegViewModel : IDisposable
             ?? NormalizeIv(ticker.AskIv);
 
         ChainIv = ivPercent;
+        Delta = ticker.Delta;
+        Gamma = ticker.Gamma;
+        Vega = ticker.Vega;
+        Theta = ticker.Theta;
 
-        var underlying = _currentPrice ?? ticker.UnderlyingPrice;
-        if (underlying.HasValue
-            && underlying.Value > 0
-            && Leg.Strike.HasValue
-            && Leg.ExpirationDate.HasValue
-            && ivPercent.HasValue
-            && ivPercent.Value > 0)
+        // Keep leg IV populated from option chain even in non-live mode.
+        if (ivPercent.HasValue && ivPercent.Value > 0
+            && (!Leg.ImpliedVolatility.HasValue || Leg.ImpliedVolatility.Value <= 0))
         {
-            MarkPrice = _blackScholes.CalculatePriceDecimal(
-                underlying.Value,
-                Leg.Strike.Value,
-                ivPercent.Value,
-                Leg.ExpirationDate.Value,
-                Leg.Type == LegType.Call,
-                ValuationDate);
-        }
-        else
-        {
-            MarkPrice = ticker.MarkPrice > 0 ? ticker.MarkPrice : null;
+            Leg.ImpliedVolatility = ivPercent.Value;
         }
     }
 
-    private decimal? ResolveFuturesPnl(decimal? price)
+    private decimal? ResolvePnlFromMarkPrice()
     {
-        if (price == null) return null;
-
-        var entryPrice = Leg.Price;
-
-        if (entryPrice.HasValue)
+        if (!Leg.Price.HasValue || !MarkPrice.HasValue)
         {
-            return (price.Value - entryPrice.Value) * Leg.Size;
+            return null;
         }
 
-        return null;
-
-
+        return (MarkPrice.Value - Leg.Price.Value) * Leg.Size;
     }
 
-    private decimal ResolveOptionTempPnl(decimal? underlyingPrice)
+    private decimal ResolveOrderExpectedPnl()
     {
         var closingPnl = ResolveClosingPnl();
         if (closingPnl.HasValue)
@@ -780,36 +771,8 @@ public sealed class LegViewModel : IDisposable
             return closingPnl.Value;
         }
 
-
-        var entryPrice = ResolveEntryPrice();
-        if (!IsLive)
-        {
-            if (!underlyingPrice.HasValue)
-            {
-                return 0;
-            }
-
-            var iv = Leg.ImpliedVolatility ?? ChainIv;
-            var calculationLeg = new LegModel
-            {
-                Type = Leg.Type,
-                Strike = Leg.Strike,
-                ExpirationDate = Leg.ExpirationDate,
-                Size = Leg.Size,
-                Price = entryPrice,
-                ImpliedVolatility = iv
-            };
-
-            return _optionsService.CalculateLegTheoreticalProfit(calculationLeg, underlyingPrice.Value, ValuationDate);
-        }
-
-        var marketPrice = GetMarketPrice();
-        if (!marketPrice.HasValue)
-        {
-            return 0;
-        }
-
-        return (marketPrice.Value - entryPrice) * Leg.Size;
+        // No matching opposite leg: execution at own order price means zero expected P/L.
+        return 0m;
     }
 
     private decimal? ResolveClosingPnl()
@@ -866,8 +829,13 @@ public sealed class LegViewModel : IDisposable
         return (currentEntry.Value - existingEntry.Value) * closingSize * Math.Sign(netSize);
     }
 
-    private decimal? ResolveTempPnlPercent()
+    private decimal? ResolvePnlPercent()
     {
+        if (Leg.Status == LegStatus.Missing)
+        {
+            return null;
+        }
+
         if (!Leg.Price.HasValue)
         {
             return null;
@@ -881,7 +849,7 @@ public sealed class LegViewModel : IDisposable
             return null;
         }
 
-        return TempPnl / Math.Abs(positionValue) * 100m;
+        return PnL / Math.Abs(positionValue) * 100m;
     }
 
     private decimal ResolveEntryPrice()
@@ -1050,6 +1018,139 @@ public sealed class LegViewModel : IDisposable
         }
 
         return Bid ?? markPrice ?? Ask;
+    }
+
+    private decimal? ResolveLiveMarkPrice(decimal? liveUnderlyingPrice = null, OptionChainTicker? optionTicker = null)
+    {
+        if (Leg.Status == LegStatus.Missing)
+        {
+            return ResolveMarkPriceFromMissingRealized();
+        }
+
+        if (Leg.Status == LegStatus.Order)
+        {
+            return ResolveOrderExecutionMarkPrice();
+        }
+
+        if (Leg.Type == LegType.Future)
+        {
+            return liveUnderlyingPrice ?? _currentPrice;
+        }
+
+        var ticker = optionTicker;
+        if (ticker is null)
+        {
+            var baseAsset = _collectionViewModel.Position?.Position.BaseAsset;
+            ticker = _exchangeService.OptionsChain.FindTickerForLeg(Leg, baseAsset);
+        }
+
+        if (ticker is null)
+        {
+            return null;
+        }
+
+        if (ticker.MarkPrice > 0)
+        {
+            return ticker.MarkPrice;
+        }
+
+        if (ticker.BidPrice > 0 && ticker.AskPrice > 0)
+        {
+            return (ticker.BidPrice + ticker.AskPrice) / 2m;
+        }
+
+        if (ticker.LastPrice > 0)
+        {
+            return ticker.LastPrice;
+        }
+
+        return null;
+    }
+
+    private decimal? ResolveNonLiveMarkPrice()
+    {
+        if (Leg.Status == LegStatus.Missing)
+        {
+            return ResolveMarkPriceFromMissingRealized();
+        }
+
+        if (Leg.Status == LegStatus.Order)
+        {
+            return ResolveOrderExecutionMarkPrice();
+        }
+
+        if (Leg.Type == LegType.Future)
+        {
+            return _currentPrice;
+        }
+
+        if (!_currentPrice.HasValue)
+        {
+            return null;
+        }
+
+        var iv = Leg.ImpliedVolatility ?? ChainIv;
+        if (!iv.HasValue || iv.Value <= 0 || !Leg.Strike.HasValue || !Leg.ExpirationDate.HasValue)
+        {
+            return ResolveLiveMarkPrice();
+        }
+
+        return _blackScholes.CalculatePriceDecimal(
+            _currentPrice.Value,
+            Leg.Strike.Value,
+            iv.Value,
+            Leg.ExpirationDate.Value,
+            Leg.Type == LegType.Call,
+            ValuationDate);
+    }
+
+    private decimal? ResolveOrderExecutionMarkPrice()
+    {
+        if (!Leg.Price.HasValue || Math.Abs(Leg.Size) < 0.0000001m)
+        {
+            return null;
+        }
+
+        var expectedPnl = ResolveOrderExpectedPnl();
+        return Leg.Price.Value + (expectedPnl / Leg.Size);
+    }
+
+    private decimal? ResolveMarkPriceFromMissingRealized()
+    {
+        if (!Leg.Price.HasValue || Math.Abs(Leg.Size) < 0.0000001m)
+        {
+            return null;
+        }
+
+        var realized = ResolveMissingRealizedPnl();
+        if (!realized.HasValue)
+        {
+            return null;
+        }
+
+        return Leg.Price.Value + (realized.Value / Leg.Size);
+    }
+
+    private decimal? ResolveMissingRealizedPnl()
+    {
+        var symbol = Leg.Symbol?.Trim();
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return null;
+        }
+
+        var closed = _collectionViewModel.Position?.Position?.Closed?.Positions;
+        if (closed is null || closed.Count == 0)
+        {
+            return null;
+        }
+
+        var net = closed
+            .Where(item => !string.IsNullOrWhiteSpace(item.Symbol)
+                && string.Equals(item.Symbol.Trim(), symbol, StringComparison.OrdinalIgnoreCase))
+            .Sum(item => item.Realized - item.FeeTotal);
+
+        return net;
     }
 
 

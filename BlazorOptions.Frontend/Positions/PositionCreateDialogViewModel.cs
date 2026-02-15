@@ -357,7 +357,7 @@ public sealed class PositionCreateDialogViewModel : Bindable
             return next.Value.Date;
         }
 
-        await _exchangeService.OptionsChain.RefreshAsync(baseAsset);
+        await _exchangeService.OptionsChain.UpdateTickersAsync(baseAsset);
         next = ResolveNextExpirationFromSnapshot(baseAsset);
         return next?.Date ?? DateTime.UtcNow.Date.AddDays(DefaultMinDaysOut);
     }

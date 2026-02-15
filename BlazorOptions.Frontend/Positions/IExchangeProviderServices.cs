@@ -27,9 +27,9 @@ public interface IOptionsChainService
 
     Task<IReadOnlyList<string>> GetAvailableQuoteAssetsAsync(string baseAsset, CancellationToken cancellationToken = default);
 
-    Task EnsureBaseAssetAsync(string baseAsset);
+    Task EnsureTickersForBaseAssetAsync(string baseAsset);
 
-    Task RefreshAsync(string? baseAsset = null, CancellationToken cancellationToken = default);
+    Task UpdateTickersAsync(string? baseAsset = null, CancellationToken cancellationToken = default);
 
     OptionChainTicker? FindTickerForLeg(LegModel leg, string? baseAsset = null);
 

@@ -118,7 +118,7 @@ public sealed class OpenInterestViewModel : Bindable
 
         try
         {
-            await _exchangeService.OptionsChain.RefreshAsync(BaseAsset);
+            await _exchangeService.OptionsChain.UpdateTickersAsync(BaseAsset);
             var tickers = _exchangeService.OptionsChain.GetTickersByBaseAsset(BaseAsset)
                 .Where(t => t.OpenInterest.HasValue && t.OpenInterest.Value > 0m)
                 .Where(t => MatchesQuote(t.Symbol, QuoteAsset))

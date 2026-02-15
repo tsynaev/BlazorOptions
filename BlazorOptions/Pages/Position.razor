@@ -1,6 +1,5 @@
 @page "/position/{PositionId:guid}"
-@page "/positions/{PositionId:guid}"
-@page "/positions"
+
 @implements IAsyncDisposable
 @inject PositionViewModel ViewModel
 @inject IDialogService DialogService
@@ -14,11 +13,11 @@
 
 <PageTitle>Position</PageTitle>
 
-@if (_routeErrorMessage is not null)
+@if (ViewModel.ErrorMessage is not null)
 {
     <MudStack Spacing="2" Class="route-error-panel">
         <MudAlert Severity="Severity.Error" Variant="Variant.Filled">
-            @_routeErrorMessage
+            @ViewModel.ErrorMessage
         </MudAlert>
         <MudStack Row="true" Spacing="1">
             <MudButton Color="Color.Primary" Variant="Variant.Filled" Href="/">Open dashboard</MudButton>
@@ -292,31 +291,49 @@ else
     private bool _viewModelReady;
     private bool _isRouteLoading = true;
     private Guid? _pendingRoutePositionId;
-    private string? _routeErrorMessage;
     private IJSObjectReference? _chartRangeModule;
     private string? _restoredChartRangeKey;
     private readonly object _liveRenderLock = new();
     private CancellationTokenSource? _liveRenderCts;
     private static readonly TimeSpan LiveRenderDebounce = TimeSpan.FromMilliseconds(120);
+
+
+
     [CascadingParameter] public bool IsDarkMode { get; set; }
     [Parameter] public Guid? PositionId { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
         _isRouteLoading = true;
-        ViewModel.OnChange += HandleViewModelChanged;
-        ViewModel.LivePriceChanged += HandleLivePriceChanged;
-        if (PositionId.HasValue && PositionId.Value != Guid.Empty)
+        try
         {
-            await ViewModel.InitializeAsync(PositionId);
+            ViewModel.ErrorMessage = null;
+
+            if (!PositionId.HasValue || PositionId.Value == Guid.Empty)
+            {
+                ViewModel.ErrorMessage = "Open a position from the dashboard.";
+                return;
+            }
+
+
+            ViewModel.OnChange += HandleViewModelChanged;
+            ViewModel.LivePriceChanged += HandleLivePriceChanged;
+
+            _isRouteLoading = true;
+            await InvokeAsync(StateHasChanged);
+
+            await ViewModel.InitializeAsync(PositionId.Value);
             _viewModelReady = true;
-            await ApplyRouteAsync(PositionId);
+
+
+            await InvokeAsync(StateHasChanged);
+
             await RestoreChartRangeIfMissingAsync();
             await RestoreChartTimeIntervalAsync();
+
         }
-        else
+        finally
         {
-            _routeErrorMessage = "Open a position from the dashboard.";
             _isRouteLoading = false;
         }
     }
@@ -333,28 +350,28 @@ else
         await ViewModel.DisposeAsync();
     }
 
-    protected override async Task OnParametersSetAsync()
-    {
-        await base.OnParametersSetAsync();
-        _isRouteLoading = true;
-        _pendingRoutePositionId = PositionId;
-        if (!_viewModelReady && PositionId.HasValue && PositionId.Value != Guid.Empty)
-        {
-            await ViewModel.InitializeAsync(PositionId);
-            _viewModelReady = true;
-        }
+    // protected override async Task OnParametersSetAsync()
+    // {
+    //     await base.OnParametersSetAsync();
+    //     _isRouteLoading = true;
+    //     _pendingRoutePositionId = PositionId;
+    //     if (!_viewModelReady && PositionId.HasValue && PositionId.Value != Guid.Empty)
+    //     {
+    //         await ViewModel.InitializeAsync(PositionId);
+    //         _viewModelReady = true;
+    //     }
 
-        if (_viewModelReady)
-        {
-            await ApplyRouteAsync(PositionId);
-            await InvokeAsync(StateHasChanged);
-        }
-        else
-        {
-            _routeErrorMessage = "Open a position from the dashboard.";
-            _isRouteLoading = false;
-        }
-    }
+    //     if (_viewModelReady)
+    //     {
+    //         await ApplyRouteAsync(PositionId);
+    //         await InvokeAsync(StateHasChanged);
+    //     }
+    //     else
+    //     {
+    //         ViewModel.ErrorMessage = "Open a position from the dashboard.";
+    //         _isRouteLoading = false;
+    //     }
+    // }
 
     private Task HandleChartPriceSelected(double? price)
     {
@@ -652,43 +669,7 @@ else
         return _chartRangeModule;
     }
 
-    private async Task ApplyRouteAsync(Guid? routePositionId)
-    {
-        _routeErrorMessage = null;
-
-        if (!routePositionId.HasValue)
-        {
-            _routeErrorMessage = "Open a position from the dashboard.";
-            _isRouteLoading = false;
-            return;
-        }
-
-        if (HasActivePosition && ViewModel.Position.Id == routePositionId.Value)
-        {
-            UpdateUrl(routePositionId.Value);
-            _isRouteLoading = false;
-            return;
-        }
-
-        _isRouteLoading = true;
-        await InvokeAsync(StateHasChanged);
-        try
-        {
-            if (!await ViewModel.LoadPositionAsync(routePositionId.Value))
-            {
-                _routeErrorMessage = $"Position {routePositionId.Value} not found.";
-                return;
-            }
-        }
-        finally
-        {
-            _isRouteLoading = false;
-        }
-
-        await InvokeAsync(StateHasChanged);
-        await RestoreChartRangeIfMissingAsync();
-        UpdateUrl(routePositionId.Value);
-    }
+  
 
     private ObservableCollection<StrategySeries> DisplayChartStrategies =>
         _isRouteLoading ? EmptyStrategies : ViewModel.ChartStrategies;
@@ -743,17 +724,6 @@ else
             _liveRenderCts.Cancel();
             _liveRenderCts.Dispose();
             _liveRenderCts = null;
-        }
-    }
-
-    private void UpdateUrl(Guid positionId)
-    {
-        var targetUri = $"/position/{positionId}";
-        var absoluteTarget = NavigationManager.ToAbsoluteUri(targetUri).ToString();
-
-        if (!string.Equals(NavigationManager.Uri, absoluteTarget, StringComparison.OrdinalIgnoreCase))
-        {
-            NavigationManager.NavigateTo(targetUri);
         }
     }
 

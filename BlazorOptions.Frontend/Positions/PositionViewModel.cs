@@ -1,12 +1,8 @@
-using BlazorOptions.API.Positions;
 using BlazorOptions.Diagnostics;
 using BlazorOptions.Services;
 using BlazorChart.Models;
-using System;
 using System.Collections.ObjectModel;
-using System.Collections.Specialized;
 using System.ComponentModel;
-using System.Linq;
 
 namespace BlazorOptions.ViewModels;
 
@@ -166,55 +162,52 @@ public sealed class PositionViewModel : IDisposable
     public int SelectedDayOffset { get; private set; }
     public string DaysToExpiryLabel => $"{SelectedDayOffset} days";
 
+
+    public string? ErrorMessage { get; set; }
+
     public event Action? OnChange;
     public event Action<decimal?>? LivePriceChanged;
 
-    public async Task InitializeAsync(Guid? positionId = null)
+    public async Task InitializeAsync(Guid positionId)
     {
         await _initializeLock.WaitAsync();
         try
         {
-            if (_position is not null)
+            var storedPosition = await _positionsPort.LoadPositionAsync(positionId);
+            if (storedPosition is null)
             {
-                if (positionId.HasValue && _position.Id != positionId.Value)
-                {
-                    await LoadPositionAsync(positionId.Value);
-                }
-
-                if (!_isInitialized)
-                {
-                    await InitializeRuntimeAsync();
-                    _ = ScheduleInitialChartUpdateAsync();
-                    _isInitialized = true;
-                }
-
+                ErrorMessage = $"Position {positionId} not found.";
                 return;
             }
 
-            var positions = await _positionsPort.LoadPositionsAsync();
-            var selected = positionId.HasValue
-                ? positions.FirstOrDefault(p => p.Id == positionId.Value)
-                : positions.FirstOrDefault();
+            Position = storedPosition;
 
-            if (selected is null)
-            {
-                return;
-            }
+            ResetPricingContextForPositionSwitch();
 
-            Position = selected;
-            _chartRangeOverride = selected.ChartRange;
+            UpdateDerivedState();
+            await TryHydrateSelectedPriceFromRecentCandleAsync();
+
+            await _exchangeService.OptionsChain.UpdateTickersAsync(Position.BaseAsset);
+
+
+
+
+            _ = EnsureLiveSubscriptionAsync();
+            _positionsSubscription = await _exchangeService.Positions.SubscribeAsync(HandleActivePositionsSnapshot);
+            _ordersSubscription = await _exchangeService.Orders.SubscribeAsync(HandleOpenOrdersSnapshot);
+
+            await ClosedPositions.InitializeAsync();
+            await RefreshExchangeMissingFlagsAsync();
+            _ = ScheduleInitialChartUpdateAsync();
+
+            _chartRangeOverride = storedPosition.ChartRange;
             _chartTimeRange = null;
             ChartCandles.Clear();
             _lastCandleBucketTime = null;
 
-            await _exchangeService.OptionsChain.EnsureBaseAssetAsync(selected.BaseAsset);
+            OnChange?.Invoke();
+            _isInitialized = true;
 
-            if (!_isInitialized)
-            {
-                await InitializeRuntimeAsync();
-                _ = ScheduleInitialChartUpdateAsync();
-                _isInitialized = true;
-            }
         }
         finally
         {
@@ -222,18 +215,7 @@ public sealed class PositionViewModel : IDisposable
         }
     }
 
-    private async Task InitializeRuntimeAsync()
-    {
-        UpdateDerivedState();
-        _ = TryHydrateSelectedPriceFromExchangeAsync();
 
-        _ = EnsureLiveSubscriptionAsync();
-        _positionsSubscription = await _exchangeService.Positions.SubscribeAsync(HandleActivePositionsSnapshot);
-        _ordersSubscription = await _exchangeService.Orders.SubscribeAsync(HandleOpenOrdersSnapshot);
-
-        await ClosedPositions.InitializeAsync();
-        await RefreshExchangeMissingFlagsAsync();
-    }
 
     public async Task AddCollectionAsync()
     {
@@ -334,7 +316,6 @@ public sealed class PositionViewModel : IDisposable
     {
         var updateChart = updateKind == LegsCollectionUpdateKind.LegModelChanged
             || updateKind == LegsCollectionUpdateKind.CollectionChanged;
-        var refreshTicker = updateKind == LegsCollectionUpdateKind.CollectionChanged;
         var persist = updateKind == LegsCollectionUpdateKind.LegModelChanged
             || updateKind == LegsCollectionUpdateKind.LegModelDataChanged
             || updateKind == LegsCollectionUpdateKind.CollectionChanged;
@@ -349,10 +330,7 @@ public sealed class PositionViewModel : IDisposable
         {
             await QueuePersistPositionsAsync(Position);
         }
-        if (refreshTicker)
-        {
-            RefreshLegTickerSubscription();
-        }
+
         if (!updateChart)
         {
             if (updateKind == LegsCollectionUpdateKind.PricingContextUpdated
@@ -375,39 +353,13 @@ public sealed class PositionViewModel : IDisposable
         await _positionsPort.SavePositionAsync(Position);
     }
 
-    public async Task<bool> LoadPositionAsync(Guid positionId)
-    {
-        if (Position is not null && Position.Id == positionId)
-        {
-            return true;
-        }
-
-        var storedPositions = await _positionsPort.LoadPositionsAsync();
-        var selected = storedPositions.FirstOrDefault(p => p.Id == positionId);
-        if (selected is null)
-        {
-            return false;
-        }
-
-        await StopTickerAsync();
-        ResetPricingContextForPositionSwitch();
-        ReplacePosition(selected);
-        UpdateDerivedState();
-        await _exchangeService.OptionsChain.EnsureBaseAssetAsync(selected.BaseAsset);
-        _ = TryHydrateSelectedPriceFromExchangeAsync();
-        UpdateChart();
-        RefreshLegTickerSubscription();
-        await EnsureLiveSubscriptionAsync();
-        OnChange?.Invoke();
-        return true;
-    }
+  
 
   
     public async Task UpdateNameAsync(PositionModel position, string name)
     {
         position.Name = name;
         await QueuePersistPositionsAsync(position);
-        RefreshLegTickerSubscription();
     }
 
     public void UpdateChartRange(ChartRange range)
@@ -464,7 +416,6 @@ public sealed class PositionViewModel : IDisposable
             return;
         }
 
-        RefreshLegTickerSubscription();
         SyncChartSelectedPrice();
         OnChange?.Invoke();
     }
@@ -858,7 +809,8 @@ public sealed class PositionViewModel : IDisposable
         return string.Empty;
     }
 
-    private async Task TryHydrateSelectedPriceFromExchangeAsync()
+
+    private async Task TryHydrateSelectedPriceFromRecentCandleAsync()
     {
         if (_isLive || _selectedPrice.HasValue)
         {
@@ -871,47 +823,24 @@ public sealed class PositionViewModel : IDisposable
             return;
         }
 
-        IDisposable? registration = null;
-        var priceTcs = new TaskCompletionSource<decimal?>(TaskCreationOptions.RunContinuationsAsynchronously);
-
         try
         {
-            registration = await _exchangeService.Tickers.SubscribeAsync(symbol, update =>
-            {
-                if (string.Equals(update.Symbol, symbol, StringComparison.OrdinalIgnoreCase))
-                {
-                    priceTcs.TrySetResult(update.Price);
-                }
-
-                return Task.CompletedTask;
-            });
-
-            var completed = await Task.WhenAny(priceTcs.Task, Task.Delay(InitialPriceFetchTimeout));
-            if (completed != priceTcs.Task)
+            var toUtc = DateTime.UtcNow;
+            var fromUtc = toUtc.AddHours(-2);
+            var candles = await _exchangeService.Tickers.GetCandlesWithVolumeAsync(symbol, fromUtc, toUtc, 60);
+            var last = candles
+                .OrderBy(c => c.Time)
+                .LastOrDefault();
+            if (last is null || last.Close <= 0)
             {
                 return;
             }
 
-            var fetchedPrice = await priceTcs.Task;
-            if (!fetchedPrice.HasValue || fetchedPrice.Value <= 0)
-            {
-                return;
-            }
-
-            if (!_isLive && !_selectedPrice.HasValue)
-            {
-                UpdateSelectedPrice(fetchedPrice.Value, refresh: false);
-            }
-
-            AppendTickerPrice(fetchedPrice, DateTime.UtcNow);
+            UpdateSelectedPrice((decimal)last.Close, refresh: false);
         }
         catch
         {
-            // Ignore fetch failures, the page can still function without a bootstrap price.
-        }
-        finally
-        {
-            registration?.Dispose();
+            // Keep page resilient if bootstrap candle request fails.
         }
     }
 
@@ -1308,35 +1237,8 @@ public sealed class PositionViewModel : IDisposable
         return null;
     }
 
-    private void UpdateLegTickerSubscription(bool refresh = true)
-    {
-        _ = UpdateLegTickerSubscriptionAsync(refresh);
-    }
 
-    private async Task UpdateLegTickerSubscriptionAsync(bool refresh)
-    {
-        if (Position is null)
-        {
-            return;
-        }
-
-        var baseAsset = Position.BaseAsset;
-        _exchangeService.OptionsChain.TrackLegs(EnumerateAllLegs(), baseAsset);
-
-        if (refresh)
-        {
-            await _exchangeService.OptionsChain.RefreshAsync(baseAsset);
-            _exchangeService.OptionsChain.TrackLegs(EnumerateAllLegs(), baseAsset);
-            UpdateChart();
-            OnChange?.Invoke();
-        }
-    }
-
-    public void RefreshLegTickerSubscription()
-    {
-        UpdateLegTickerSubscription();
-    }
-
+ 
     public async Task SetShowCandlesAsync(bool isEnabled)
     {
         if (ShowCandles == isEnabled)
@@ -1603,26 +1505,6 @@ public sealed class PositionViewModel : IDisposable
         return $"{baseAsset}{quoteAsset}".Replace(" ", string.Empty, StringComparison.OrdinalIgnoreCase).ToUpperInvariant();
     }
 
-    private void ReplacePosition(PositionModel position)
-    {
-        foreach (var collection in Collections)
-        {
-            collection.Updated -= HandleCollectionUpdatedAsync;
-            collection.Dispose();
-        }
-
-        Collections.Clear();
-        ClosedPositions.Model.PropertyChanged -= OnClosedPositionsChanged;
-        ClosedPositions.UpdatedCompleted -= OnClosedPositionsUpdated;
-        Position.PropertyChanged -= HandlePositionPropertyChanged;
-
-        _position = null!;
-        Position = position;
-        _chartRangeOverride = position.ChartRange;
-        _chartTimeRange = null;
-        ChartCandles.Clear();
-        _lastCandleBucketTime = null;
-    }
 
     private void ResetPricingContextForPositionSwitch()
     {

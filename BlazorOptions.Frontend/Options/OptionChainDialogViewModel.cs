@@ -271,7 +271,7 @@ public class OptionChainDialogViewModel : IDisposable
         IsRefreshing = true;
         OnChange?.Invoke();
 
-        await _exchangeService.OptionsChain.RefreshAsync(_baseAsset);
+        await _exchangeService.OptionsChain.UpdateTickersAsync(_baseAsset);
         _chainTickers = GetBaseAssetTickers();
         UpdateFilteredTickers();
         UpdateExpirations();
