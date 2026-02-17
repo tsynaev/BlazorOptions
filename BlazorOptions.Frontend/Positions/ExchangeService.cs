@@ -71,24 +71,40 @@ public sealed class ExchangeService : IExchangeService
             return null;
         }
 
+        var normalizedBase = string.IsNullOrWhiteSpace(baseAsset)
+            ? null
+            : baseAsset.Trim().ToUpperInvariant();
+        var normalizedSettle = string.IsNullOrWhiteSpace(settleAsset)
+            ? "USDT"
+            : settleAsset.Trim().ToUpperInvariant();
+        var settleSuffix = string.Equals(normalizedSettle, "USDC", StringComparison.OrdinalIgnoreCase)
+            ? string.Empty
+            : normalizedSettle;
+
         if (leg.Type == LegType.Future)
         {
-            if (leg.ExpirationDate.HasValue)
+            if (string.IsNullOrWhiteSpace(normalizedBase))
             {
-                return $"{baseAsset}{settleAsset}-{leg.ExpirationDate.Value.ToString("ddMMMyy", CultureInfo.InvariantCulture)}".ToUpper();
+                return null;
             }
 
-            return $"{baseAsset}{settleAsset}";
+            if (leg.ExpirationDate.HasValue)
+            {
+                return $"{normalizedBase}{settleSuffix}-{leg.ExpirationDate.Value.ToString("ddMMMyy", CultureInfo.InvariantCulture)}".ToUpper();
+            }
+
+            return $"{normalizedBase}{settleSuffix}";
         }
 
-        if (!leg.Strike.HasValue || !leg.ExpirationDate.HasValue)
+        if (!leg.Strike.HasValue || !leg.ExpirationDate.HasValue || string.IsNullOrWhiteSpace(normalizedBase))
         {
             return null;
         }
 
         var typeToken = leg.Type == LegType.Put ? "P" : "C";
+        var settleToken = string.IsNullOrWhiteSpace(settleSuffix) ? string.Empty : $"-{settleSuffix}";
 
-        return $"{baseAsset}-{leg.ExpirationDate.Value.ToString("dMMMyy", CultureInfo.InvariantCulture)}-{leg.Strike.Value:0.##}-{typeToken}".ToUpper();
+        return $"{normalizedBase}-{leg.ExpirationDate.Value.ToString("dMMMyy", CultureInfo.InvariantCulture)}-{leg.Strike.Value:0.##}-{typeToken}{settleToken}".ToUpper();
     }
 
     public bool TryParseSymbol(string symbol, out string baseAsset, out DateTime expiration, out decimal strike, out LegType type)

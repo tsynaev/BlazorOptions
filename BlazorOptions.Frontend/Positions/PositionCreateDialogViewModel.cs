@@ -135,7 +135,9 @@ public sealed class PositionCreateDialogViewModel : Bindable
         {
             foreach (var leg in initialLegs)
             {
-                collection.Legs.Add(leg.Clone());
+                var cloned = leg.Clone();
+                cloned.Symbol = ResolveLegSymbolForPosition(cloned, position);
+                collection.Legs.Add(cloned);
             }
         }
 
@@ -164,6 +166,17 @@ public sealed class PositionCreateDialogViewModel : Bindable
 
         position.Collections.Add(collection);
         return position;
+    }
+
+    private string? ResolveLegSymbolForPosition(LegModel leg, PositionModel position)
+    {
+        var formatted = _exchangeService.FormatSymbol(leg, position.BaseAsset, position.QuoteAsset);
+        if (!string.IsNullOrWhiteSpace(formatted))
+        {
+            return formatted;
+        }
+
+        return string.IsNullOrWhiteSpace(leg.Symbol) ? null : leg.Symbol.Trim().ToUpperInvariant();
     }
 
     public async Task UpdateBaseAssetAsync(string? baseAsset)
