@@ -38,7 +38,7 @@ else
             <MudStack Spacing="2">
                 <MudStack Spacing="1">
                     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
-                        <MudText Typo="Typo.h6">
+                        <MudText Typo="Typo.h6" Class="position-title">
                             @(!HasActivePosition
                                 ? "No position selected"
                                 : FormatPositionName(ViewModel.Position))
@@ -255,6 +255,12 @@ else
     .chart-controls-row {
         flex-wrap: wrap;
     }
+    .position-title {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
     .payoff-chart-reset {
         position: absolute;
         right: 10px;
@@ -262,8 +268,43 @@ else
         z-index: 2;
     }
     @@media (max-width: 600px) {
+        .position-title {
+            font-size: 1.45rem;
+            max-width: calc(100vw - 90px);
+        }
+        .position-summary-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+        .position-summary-row .mud-chip {
+            width: 100%;
+            justify-content: center;
+        }
+        .position-summary-row .mud-chip:first-child {
+            grid-column: 1 / -1;
+        }
         .chart-surface {
             padding: 8px 0;
+        }
+        .chart-controls-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            align-items: end;
+        }
+        .chart-controls-row .mud-spacer,
+        .chart-controls-row .ml-2 {
+            display: none;
+        }
+        .valuation-date-picker,
+        .temp-price-field {
+            min-width: 0;
+            max-width: none;
+            width: 100%;
+        }
+        .valuation-date-slider {
+            padding: 0 8px 8px;
         }
         .position-content {
             padding-left: 0;
@@ -276,6 +317,9 @@ else
         .position-grid > .mud-grid-item {
             padding-left: 0;
             padding-right: 0;
+        }
+        .notes-panel {
+            padding: 12px;
         }
     }
 </style>

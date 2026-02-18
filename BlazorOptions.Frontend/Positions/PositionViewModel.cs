@@ -1097,10 +1097,9 @@ public sealed class PositionViewModel : IDisposable
             return false;
         }
 
-        var direction = leg.Leg.Size >= 0 ? "Buy" : "Sell";
-        var symbol = string.IsNullOrWhiteSpace(leg.Leg.Symbol) ? leg.Leg.Type.ToString() : leg.Leg.Symbol!;
         var size = Math.Abs(leg.Leg.Size);
-        marker = new PriceMarker((double)price.Value, $"Order {direction} {size:0.##}: {symbol}", color);
+        var shortDirection = leg.Leg.Size >= 0 ? "B" : "S";
+        marker = new PriceMarker((double)price.Value, $"O {shortDirection}{size:0.##}", color);
         return true;
     }
 
@@ -1117,10 +1116,8 @@ public sealed class PositionViewModel : IDisposable
             return false;
         }
 
-        var symbol = string.IsNullOrWhiteSpace(leg.Leg.Symbol) ? leg.Leg.Type.ToString() : leg.Leg.Symbol!;
-        var pnlText = order.ExpectedPnl.HasValue
-            ? order.ExpectedPnl.Value.ToString("0.##", CultureInfo.InvariantCulture)
-            : "-";
+        var pnlText = order.ExpectedPnl.HasValue ? order.ExpectedPnl.Value.ToString("0.#", CultureInfo.InvariantCulture) : "-";
+        var sideShort = string.Equals(order.Side, "Sell", StringComparison.OrdinalIgnoreCase) ? "S" : "B";
         var markerColor = order.ExpectedPnl switch
         {
             > 0m => "#2ECC71",
@@ -1130,7 +1127,7 @@ public sealed class PositionViewModel : IDisposable
 
         marker = new PriceMarker(
             (double)price.Value,
-            $"Linked {order.Side} {order.Quantity:0.##}: {symbol} | Exp P/L {pnlText}",
+            $"L {sideShort}{order.Quantity:0.##} PnL {pnlText}",
             markerColor);
         return true;
     }

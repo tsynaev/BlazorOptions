@@ -92,4 +92,5 @@ See `doc/LegParsing.md` for the full parsing rules, defaults, and UI preview beh
 - Order legs are rendered on the payoff chart as vertical markers for quick placement context.
 - Non-order legs can show linked open orders (same symbol) inside the leg card with expected realized P/L at each order price.
 - Linked orders are also rendered as chart markers for visible collections; marker color is green/red based on expected P/L sign.
+- Mobile layout on the position page is optimized: compact chart markers, stacked valuation/index controls, responsive portfolio/closed-position action rows, and horizontally scrollable candidate chips.
 - The positions header includes a `Candles` switch chip to show/hide ticker candles on the payoff chart.

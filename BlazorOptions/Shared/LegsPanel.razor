@@ -7,15 +7,15 @@
 {
     <MudCard>
         <MudCardHeader>
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="flex-grow-1">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="flex-grow-1 legs-panel-header">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="legs-panel-title-row">
                     <MudCheckBox T="bool"
                                  Value="@ViewModel.IsVisible"
                                  ValueChanged="async visible => await ViewModel.SetVisibilityAsync(visible)"/>
                     <MudText Typo="Typo.h6" Style="@($"color:{ViewModel.Color};")">@ViewModel.Name</MudText>
                 </MudStack>
                 <MudSpacer/>
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="legs-panel-actions-row">
                     <MudTooltip Text="Duplicate portfolio">
                         <MudIconButton Icon="@Icons.Material.Filled.FileCopy"
                                        Color="Color.Default"
@@ -219,5 +219,29 @@
 
     .available-legs-group {
         margin-top: 10px;
+    }
+
+    @@media (max-width: 600px) {
+        .legs-panel-header {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .legs-panel-title-row {
+            justify-content: space-between;
+        }
+
+        .legs-panel-actions-row {
+            justify-content: space-between;
+            overflow-x: auto;
+            padding-bottom: 4px;
+        }
+
+        .available-legs-group {
+            display: flex;
+            overflow-x: auto;
+            white-space: nowrap;
+            padding-bottom: 4px;
+        }
     }
 </style>

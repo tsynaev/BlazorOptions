@@ -9,7 +9,7 @@
     <MudCard Class="closed-positions-card">
         <MudCardHeader>
             <MudStack Spacing="1" Class="flex-grow-1">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="closed-positions-header-row">
                     <MudCheckBox T="bool"
                                  Value="@ViewModel.Model.Include"
                                  ValueChanged="async value => await ViewModel.SetIncludeAsync(value)"
@@ -23,7 +23,7 @@
                     </MudText>
                     <MudSpacer />
                 </MudStack>
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="closed-positions-input-row">
                     <MudTextField T="string"
                                   @bind-Value="ViewModel.AddSymbolInput"
                                   Label="Add symbols"
@@ -157,5 +157,27 @@
     .closed-positions-since-time {
         width: 110px;
         min-width: 110px;
+    }
+
+    @@media (max-width: 600px) {
+        .closed-positions-header-row {
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .closed-positions-summary {
+            display: block;
+            width: 100%;
+        }
+
+        .closed-positions-input-row {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .closed-positions-symbol-input {
+            width: 100%;
+            min-width: 0;
+        }
     }
 </style>

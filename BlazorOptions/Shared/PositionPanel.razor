@@ -5,11 +5,12 @@
 {
     var collections = ViewModel.Collections ?? new ObservableCollection<LegsCollectionViewModel>();
     <MudStack Spacing="2">
-        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="position-panel-header">
             <MudText Typo="Typo.h6">Portfolios</MudText>
             <MudSpacer />
             <MudButton Variant="Variant.Filled"
                        Color="Color.Primary"
+                       Class="position-panel-add-button"
                        OnClick="async () => await ViewModel.AddCollectionAsync()">
                 Add portfolio
             </MudButton>
@@ -33,3 +34,16 @@
 @code {
     [Parameter, EditorRequired] public PositionViewModel? ViewModel { get; set; }
 }
+
+<style>
+    @@media (max-width: 600px) {
+        .position-panel-header {
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .position-panel-add-button {
+            width: 100%;
+        }
+    }
+</style>
