@@ -1,8 +1,22 @@
-# BlazorOptions Features
+# BlazorOptions Documentation
 
-This folder documents the main product features of the BlazorOptions app.
+This folder is split into two parts:
 
+- `doc/`: end-user feature descriptions (how to use the app).
+- `doc/dev/`: developer documentation (architecture, services, data flow, implementation details).
+
+## End-User Docs
+
+- [Home Dashboard](HomeDashboard.md)
 - [Positions](Positions.md)
+- [Closed Positions](ClosedPositions.md)
 - [Trading History](TradingHistory.md)
+- [Data Tools](Data.md)
+- [Volume Heatmap](VolumeHeatmap.md)
+- [Leg Parsing / Quick Add](LegParsing.md)
 - [Application Settings](ApplicationSettings.md)
-- [Sync & Events](SyncAndEvents.md)
+- [PWA](Pwa.md)
+
+## Developer Docs
+
+- [Developer Docs Index](dev/README.md)

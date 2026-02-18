@@ -50,4 +50,6 @@
 - When important decisions, constraints, conventions, or architectural points are discussed in issues, chats, or PRs, **AGENTS.md must be updated**.
 - AGENTS.md is the **source of truth** for agent behavior, assumptions, and project-wide rules.
 - If a discussion changes or invalidates an existing rule, the outdated entry must be **updated or removed**, not duplicated.
-- the documentation in the doc folder must be written from user point of view, no classes or variables.
+- Documentation structure:
+- End-user feature descriptions must be written in Markdown and stored under `doc/` (user point of view, no class/variable names).
+- Developer-facing implementation/architecture documentation must be stored under `doc/dev/` (technical details, classes, services, and code-level decisions are allowed).

@@ -1,40 +1,32 @@
 # Data Pages
 
+The Data section groups market analytics tools used for option/futures analysis.
+
 ## Routes
 
-- `/data`: entry page with links to data tools.
-- `/volume-heatmap`: existing weekday/hour heatmap.
-- `/open-interest`: 3D open-interest chart.
-- `/volatility-skew`: strike/price skew chart with expiration chip filtering.
+- `/data`: entry page with links to tools.
+- `/volume-heatmap`: weekday/hour heatmap.
+- `/open-interest`: open interest charts for calls and puts.
+- `/volatility-skew`: implied volatility skew with expiration filters.
 
 ## Open Interest
 
-- Source: `IExchangeService.OptionsChain` tickers.
-- Metric: `OptionChainTicker.OpenInterest` parsed from options ticker payload.
-- Charts:
-  - Calls
-  - Puts
-- Axes (for each chart):
-  - X: strike
-  - Y: expiration date
-  - Z: aggregated open interest (sum for strike + expiration)
-- Filters: base/quote selectors on page.
+- Shows separate charts for calls and puts.
+- Axes:
+- X: strike
+- Y: expiration date
+- Z/value: open interest
+- Uses selected instrument filters.
 
 ## Volatility Skew
 
-- Source: `IExchangeService.OptionsChain` tickers.
-- Axes:
-  - X: strike
-  - Y: IV %
-- Data:
-  - line = mark IV
-  - bid/ask triangles = bid IV / ask IV (only when exactly one expiration is selected)
-  - tooltip shows price and IV for mark/bid/ask
-  - additional 3D surface:
-    - X: strike
-    - Y: expiration date
-    - Z: IV %
-- Filters:
-  - instrument selector (`BASE/QUOTE`, from Bybit settings option base/quote lists)
-  - Call/Put switch
-  - expiration chips with add/remove behavior
+- Y-axis shows IV (%), X-axis shows strike.
+- Line shows mark IV.
+- Bid/ask markers are shown for single-expiration view.
+- Multiple selected expirations are displayed as separate lines.
+- Tooltips show IV and prices for mark/bid/ask.
+
+## Related Docs
+
+- [Volume Heatmap](VolumeHeatmap.md)
+- Developer details: `doc/dev/Data.md`

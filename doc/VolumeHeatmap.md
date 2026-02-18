@@ -4,21 +4,17 @@ Route: `/volume-heatmap`
 
 ## What It Does
 
-- Loads 1H klines with volume for the selected `base/quote` symbol.
-- Uses a selectable rolling interval from current UTC time.
-- Default interval is 6 months.
-- Supports metric switch:
-  - avg volume per hour
-  - avg absolute diff between open and close per hour
-- Aggregates total volume into a `7 x 24` matrix:
-- Aggregates average 1H volume into a `7 x 24` matrix:
-  - rows: weekday (`Mon..Sun`)
-  - columns: hour (`00..23`, UTC)
-- Marks the max-volume cell on the chart.
-- Renders with `MudChart` using `ChartType.HeatMap` and legend labels enabled (`ChartOptions.ShowLegendLabels = true`).
+- Loads 1-hour market data for the selected symbol.
+- Uses a rolling interval from current UTC time (default: last 6 months).
+- Lets you switch metric:
+- average volume per hour
+- average absolute difference between open and close per hour
+- Aggregates data into a `7 x 24` heatmap:
+- rows: weekdays (`Mon..Sun`)
+- columns: hours (`00..23`, UTC)
+- Highlights stronger activity areas with color intensity.
 
-## Data Source
+## Related Docs
 
-- Asset pairs come from `IFuturesInstrumentsService.GetTradingPairsAsync()`.
-- Candle volume comes from `ITickersService.GetCandlesWithVolumeAsync(...)`.
-- Both are accessed through `IExchangeService` in the view model.
+- [Data Pages](Data.md)
+- Developer details: `doc/dev/Data.md`
