@@ -3,6 +3,7 @@ using BlazorOptions.Services;
 using BlazorChart.Models;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 
 namespace BlazorOptions.ViewModels;
 
@@ -188,27 +189,47 @@ public sealed class PositionViewModel : IDisposable
 
             _ = _exchangeService.OptionsChain.UpdateTickersAsync(Position.BaseAsset);
 
-
-
-
-            _ = EnsureLiveSubscriptionAsync();
-            _positionsSubscription = await _exchangeService.Positions.SubscribeAsync(HandleActivePositionsSnapshot);
-            _ordersSubscription = await _exchangeService.Orders.SubscribeAsync(HandleOpenOrdersSnapshot);
-
-            await ClosedPositions.InitializeAsync();
-            await RefreshExchangeMissingFlagsAsync();
-            _ = ScheduleInitialChartUpdateAsync();
-
             _chartRangeOverride = storedPosition.ChartRange;
             _chartTimeRange = null;
             ChartCandles.Clear();
             _lastCandleBucketTime = null;
 
             OnChange?.Invoke();
+
+            // Avoid blocking page initialization on exchange snapshot/websocket bootstrap.
+            _ = InitializeExchangeContextAsync();
+            _ = ScheduleInitialChartUpdateAsync();
         }
         finally
         {
             _initializeLock.Release();
+        }
+    }
+
+    private async Task InitializeExchangeContextAsync()
+    {
+        if (_isDisposed)
+        {
+            return;
+        }
+
+        try
+        {
+            _ = EnsureLiveSubscriptionAsync();
+
+            _positionsSubscription?.Dispose();
+            _positionsSubscription = await _exchangeService.Positions.SubscribeAsync(HandleActivePositionsSnapshot);
+
+            _ordersSubscription?.Dispose();
+            _ordersSubscription = await _exchangeService.Orders.SubscribeAsync(HandleOpenOrdersSnapshot);
+
+            await ClosedPositions.InitializeAsync();
+            await RefreshExchangeMissingFlagsAsync();
+            NotifyStateChanged();
+        }
+        catch
+        {
+            // Keep page usable even if exchange bootstrap fails.
         }
     }
 
@@ -515,6 +536,7 @@ public sealed class PositionViewModel : IDisposable
         await MoveClosedExchangePositionsToClosedAsync(_lastPositionsSnapshot);
         await ApplyExchangeSnapshotsToCollectionsAsync();
         await UpdateExchangeMissingFlagsAsync(_lastPositionsSnapshot);
+        QueueChartUpdate();
     }
 
     private async Task HandleOpenOrdersSnapshot(IReadOnlyList<ExchangeOrder> orders)
@@ -522,6 +544,7 @@ public sealed class PositionViewModel : IDisposable
         _lastOrdersSnapshot = orders?.ToArray() ?? Array.Empty<ExchangeOrder>();
         UpdateCachedExchangeSnapshot(_lastPositionsSnapshot, _lastOrdersSnapshot);
         await ApplyExchangeSnapshotsToCollectionsAsync();
+        QueueChartUpdate();
     }
 
     private void ApplyActivePositionUpdate(ExchangePosition position)
@@ -1043,6 +1066,19 @@ public sealed class PositionViewModel : IDisposable
 
                 ChartMarkers.Add(marker);
             }
+
+            foreach (var linkedLeg in collection.Legs.Where(item => item.Leg.Status != LegStatus.Order && item.LinkedOrders.Count > 0))
+            {
+                foreach (var linkedOrder in linkedLeg.LinkedOrders)
+                {
+                    if (!TryCreateLinkedOrderMarker(linkedLeg, linkedOrder, collection.Color, out var marker))
+                    {
+                        continue;
+                    }
+
+                    ChartMarkers.Add(marker);
+                }
+            }
         }
 
         ChartSelectedPrice = displayPrice.HasValue ? (double)displayPrice.Value : null;
@@ -1065,6 +1101,37 @@ public sealed class PositionViewModel : IDisposable
         var symbol = string.IsNullOrWhiteSpace(leg.Leg.Symbol) ? leg.Leg.Type.ToString() : leg.Leg.Symbol!;
         var size = Math.Abs(leg.Leg.Size);
         marker = new PriceMarker((double)price.Value, $"Order {direction} {size:0.##}: {symbol}", color);
+        return true;
+    }
+
+    private static bool TryCreateLinkedOrderMarker(LegViewModel leg, LegLinkedOrderModel order, string fallbackColor, out PriceMarker marker)
+    {
+        marker = default!;
+
+        decimal? price = leg.Leg.Type == LegType.Future
+            ? order.Price ?? leg.Leg.Price
+            : leg.Leg.Strike;
+
+        if (!price.HasValue)
+        {
+            return false;
+        }
+
+        var symbol = string.IsNullOrWhiteSpace(leg.Leg.Symbol) ? leg.Leg.Type.ToString() : leg.Leg.Symbol!;
+        var pnlText = order.ExpectedPnl.HasValue
+            ? order.ExpectedPnl.Value.ToString("0.##", CultureInfo.InvariantCulture)
+            : "-";
+        var markerColor = order.ExpectedPnl switch
+        {
+            > 0m => "#2ECC71",
+            < 0m => "#E74C3C",
+            _ => fallbackColor
+        };
+
+        marker = new PriceMarker(
+            (double)price.Value,
+            $"Linked {order.Side} {order.Quantity:0.##}: {symbol} | Exp P/L {pnlText}",
+            markerColor);
         return true;
     }
 

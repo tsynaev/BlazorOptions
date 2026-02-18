@@ -78,6 +78,7 @@ See `doc/LegParsing.md` for the full parsing rules, defaults, and UI preview beh
 - Chart recalculation ignores pricing-context updates (live/selected price changes) to keep price selection responsive.
 - Pricing context updates (selected/live price, valuation date) are applied in a single batched pass per collection to keep the UI responsive.
 - Initial payoff chart rendering is deferred until after the first UI paint to keep page load snappy.
+- Position page bootstraps exchange subscriptions and missing-flags refresh in the background so navigation is not blocked by exchange snapshot/websocket startup latency.
 - Notes persist when the text field loses focus, instead of on every keystroke.
 - The positions header shows combined total P&L (temp + closed).
 - Position labels in the selector use the `{baseAsset}/{quoteAsset} - {name}` format.
@@ -89,4 +90,6 @@ See `doc/LegParsing.md` for the full parsing rules, defaults, and UI preview beh
 - Order chips are shown per exchange order (not collapsed by symbol), so multiple orders on one symbol remain selectable.
 - Legs created from open orders are added with `IsIncluded = false` and `LegStatus = Order`.
 - Order legs are rendered on the payoff chart as vertical markers for quick placement context.
+- Non-order legs can show linked open orders (same symbol) inside the leg card with expected realized P/L at each order price.
+- Linked orders are also rendered as chart markers for visible collections; marker color is green/red based on expected P/L sign.
 - The positions header includes a `Candles` switch chip to show/hide ticker candles on the payoff chart.

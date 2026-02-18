@@ -30,6 +30,7 @@ public sealed class LegViewModel : IDisposable
     private bool _pendingChartUpdate;
     private bool _pendingDataUpdate;
     private bool _usedInitialLiveMarkSnapshot;
+    private IReadOnlyList<LegLinkedOrderModel> _linkedOrders = Array.Empty<LegLinkedOrderModel>();
 
     // Keep chart updates tied only to leg fields that affect payoff calculations.
     private static readonly HashSet<string> ChartRelevantLegProperties = new(StringComparer.Ordinal)
@@ -104,6 +105,8 @@ public sealed class LegViewModel : IDisposable
     public decimal? Vega { get; private set; }
 
     public decimal? Theta { get; private set; }
+
+    public IReadOnlyList<LegLinkedOrderModel> LinkedOrders => _linkedOrders;
 
     public string StatusMessage => _statusMessage ?? string.Empty;
 
@@ -748,6 +751,116 @@ public sealed class LegViewModel : IDisposable
 
         // No matching opposite leg: execution at own order price means zero expected P/L.
         return 0m;
+    }
+
+    public bool UpdateLinkedOrders(IReadOnlyList<ExchangeOrder> orders)
+    {
+        if (Leg.Status == LegStatus.Order || string.IsNullOrWhiteSpace(Leg.Symbol) || orders.Count == 0)
+        {
+            if (_linkedOrders.Count == 0)
+            {
+                return false;
+            }
+
+            _linkedOrders = Array.Empty<LegLinkedOrderModel>();
+            return true;
+        }
+
+        var symbol = Leg.Symbol.Trim();
+        var linked = orders
+            .Where(order =>
+                !string.IsNullOrWhiteSpace(order.Symbol) &&
+                string.Equals(order.Symbol.Trim(), symbol, StringComparison.OrdinalIgnoreCase))
+            .Select(order =>
+            {
+                var qty = Math.Abs(order.Qty);
+                var expectedPnl = ResolveExpectedPnlForOrder(order);
+                var id = string.IsNullOrWhiteSpace(order.OrderId) ? symbol : order.OrderId.Trim();
+                return new LegLinkedOrderModel(id, order.Side, qty, order.Price, expectedPnl);
+            })
+            .OrderBy(order => order.Side, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(order => order.OrderId, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (AreSameLinkedOrders(_linkedOrders, linked))
+        {
+            return false;
+        }
+
+        _linkedOrders = linked;
+        return true;
+    }
+
+    private decimal? ResolveExpectedPnlForOrder(ExchangeOrder order)
+    {
+        if (!order.Price.HasValue || !Leg.Price.HasValue)
+        {
+            return null;
+        }
+
+        var orderSignedSize = DetermineSignedSize(order);
+        if (Math.Abs(orderSignedSize) < 0.0001m || Math.Abs(Leg.Size) < 0.0001m)
+        {
+            return null;
+        }
+
+        // Only opposite-side orders close part of this leg and produce expected realized P/L.
+        if (Math.Sign(orderSignedSize) == Math.Sign(Leg.Size))
+        {
+            return 0m;
+        }
+
+        var closeQty = Math.Min(Math.Abs(orderSignedSize), Math.Abs(Leg.Size));
+        var pnlPerUnit = order.Price.Value - Leg.Price.Value;
+        var legSide = Math.Sign(Leg.Size);
+        return pnlPerUnit * closeQty * legSide;
+    }
+
+    private static decimal DetermineSignedSize(ExchangeOrder order)
+    {
+        var magnitude = Math.Abs(order.Qty);
+        if (magnitude < 0.0001m)
+        {
+            return 0m;
+        }
+
+        if (!string.IsNullOrWhiteSpace(order.Side)
+            && (string.Equals(order.Side, "Sell", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(order.Side, "Short", StringComparison.OrdinalIgnoreCase)))
+        {
+            return -magnitude;
+        }
+
+        return magnitude;
+    }
+
+    private static bool AreSameLinkedOrders(IReadOnlyList<LegLinkedOrderModel> left, IReadOnlyList<LegLinkedOrderModel> right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return true;
+        }
+
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < left.Count; i++)
+        {
+            var l = left[i];
+            var r = right[i];
+            if (!string.Equals(l.OrderId, r.OrderId, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(l.Side, r.Side, StringComparison.OrdinalIgnoreCase)
+                || l.Quantity != r.Quantity
+                || l.Price != r.Price
+                || l.ExpectedPnl != r.ExpectedPnl)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private decimal? ResolveClosingPnl()

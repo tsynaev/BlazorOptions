@@ -30,6 +30,7 @@ public sealed class LegsCollectionViewModel : IDisposable
     private readonly object _dataUpdateLock = new();
     private CancellationTokenSource? _dataUpdateCts;
     private static readonly TimeSpan DataUpdateDebounce = TimeSpan.FromMilliseconds(120);
+    private IReadOnlyList<ExchangeOrder> _latestOrdersSnapshot = Array.Empty<ExchangeOrder>();
 
 
     private static readonly string[] PositionExpirationFormats = { "ddMMMyy", "ddMMMyyyy" };
@@ -400,8 +401,11 @@ public sealed class LegsCollectionViewModel : IDisposable
             return;
         }
 
-        var orderLegsChanged = SyncOrderLegsWithSnapshot(orders, positions, baseAsset);
-        var candidates = BuildAvailableCandidates(positions, orders, baseAsset);
+        var ordersSnapshot = orders ?? Array.Empty<ExchangeOrder>();
+        _latestOrdersSnapshot = ordersSnapshot;
+
+        var orderLegsChanged = SyncOrderLegsWithSnapshot(ordersSnapshot, positions, baseAsset);
+        var candidates = BuildAvailableCandidates(positions, ordersSnapshot, baseAsset);
         var candidatesChanged = !AreSameCandidates(_availableLegCandidates, candidates);
         if (candidatesChanged)
         {
@@ -412,6 +416,12 @@ public sealed class LegsCollectionViewModel : IDisposable
         {
             SyncLegViewModels();
             await RaiseUpdatedAsync(LegsCollectionUpdateKind.CollectionChanged);
+        }
+
+        var linkedOrdersChanged = UpdateLinkedOrdersForLegs();
+        if (linkedOrdersChanged)
+        {
+            await RaiseUpdatedAsync(LegsCollectionUpdateKind.ViewModelDataUpdated);
         }
 
         if (candidatesChanged)
@@ -1121,6 +1131,15 @@ public sealed class LegsCollectionViewModel : IDisposable
                 continue;
             }
 
+            // If order is already shown inside an existing leg (same symbol), do not duplicate it as a chip.
+            if (Collection.Legs.Any(item =>
+                    item.Status != LegStatus.Order
+                    && !string.IsNullOrWhiteSpace(item.Symbol)
+                    && string.Equals(item.Symbol.Trim(), leg.Symbol.Trim(), StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
             if (Collection.Legs.Any(item => item.Status == LegStatus.Order && string.Equals(item.Id, leg.Id, StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
@@ -1454,6 +1473,7 @@ public sealed class LegsCollectionViewModel : IDisposable
             viewModel.CurrentPrice = _currentPrice;
             viewModel.IsLive = _isLive;
             viewModel.ValuationDate = _valuationDate;
+            viewModel.UpdateLinkedOrders(_latestOrdersSnapshot);
             ordered.Add(viewModel);
             seen.Add(key);
         }
@@ -1476,6 +1496,17 @@ public sealed class LegsCollectionViewModel : IDisposable
         }
 
         RebuildLegGroups();
+    }
+
+    private bool UpdateLinkedOrdersForLegs()
+    {
+        var changed = false;
+        foreach (var legViewModel in _legs)
+        {
+            changed |= legViewModel.UpdateLinkedOrders(_latestOrdersSnapshot);
+        }
+
+        return changed;
     }
 
     private void AttachLegViewModel(LegViewModel viewModel)

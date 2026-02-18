@@ -78,6 +78,23 @@
                 Δ @FormatGreek(ViewModel.Delta) · Γ @FormatGreek(ViewModel.Gamma) · ν @FormatGreek(ViewModel.Vega) · Θ @FormatGreek(ViewModel.Theta)
             </MudText>
         }
+        @if (ViewModel.LinkedOrders.Count > 0)
+        {
+            <MudDivider Class="leg-orders-divider" />
+            <MudStack Spacing="1" Class="leg-orders-list">
+                @foreach (var order in ViewModel.LinkedOrders)
+                {
+                    <MudChip T="string"
+                             Variant="Variant.Outlined"
+                             Size="Size.Small"
+                             Color="@ResolvePnlColor(order.ExpectedPnl)"
+                             Class="leg-linked-order-chip">
+                        @order.Side @order.Quantity.ToString("0.####", CultureInfo.InvariantCulture) @@ @FormatPrice(order.Price)
+                        | Exp P/L: @FormatPrice(order.ExpectedPnl)
+                    </MudChip>
+                }
+            </MudStack>
+        }
         <MudStack Row="true" AlignItems="AlignItems.Center" Class="leg-card-actions">
             <MudSpacer />
             @if (!ViewModel.Leg.IsReadOnly)
@@ -209,6 +226,16 @@
             _ => Color.Default
         };
     }
+
+    private static Color ResolvePnlColor(decimal? pnl)
+    {
+        if (!pnl.HasValue)
+        {
+            return Color.Default;
+        }
+
+        return pnl.Value >= 0 ? Color.Success : Color.Error;
+    }
 }
 
 <style>
@@ -269,5 +296,21 @@
 
     .leg-card-actions {
         margin-top: 2px;
+    }
+
+    .leg-orders-divider {
+        margin-top: 2px;
+        margin-bottom: 2px;
+    }
+
+    .leg-orders-list {
+        max-height: 88px;
+        overflow-y: auto;
+        padding-right: 2px;
+    }
+
+    .leg-linked-order-chip {
+        max-width: 100%;
+        width: fit-content;
     }
 </style>
