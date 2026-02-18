@@ -7,7 +7,7 @@
 
 <PageTitle>Trading history</PageTitle>
 
-<MudStack Spacing="3">
+<MudStack Spacing="3" Class="trading-history-page">
     <MudText Typo="Typo.h4">Trading history</MudText>
     <MudText Typo="Typo.body2">
         Pull the latest transaction log entries and review recent activity.
@@ -30,10 +30,11 @@
                                 Select the date you registered on Bybit to backfill older history.
                             </MudText>
                         }
-                        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Class="th-controls-row">
                             <MudButton Variant="Variant.Filled"
                                        Color="Color.Primary"
                                        StartIcon="@Icons.Material.Filled.Download"
+                                       Class="th-control-button"
                                        Disabled="ViewModel.IsLoading"
                                        OnClick="LoadAsync">
                                 @(ViewModel.IsLoading ? "Loading..." : "Load")
@@ -41,6 +42,7 @@
                             <MudButton Variant="Variant.Outlined"
                                        Color="Color.Default"
                                        StartIcon="@Icons.Material.Filled.Autorenew"
+                                       Class="th-control-button"
                                        Disabled="ViewModel.IsLoading || ViewModel.IsLoadingOlder || ViewModel.TotalTransactionsCount == 0"
                                        OnClick="RecalculateAsync">
                                 Recalculate
@@ -48,6 +50,7 @@
                             <MudDatePicker Date="@_recalculateFromDate"
                                            DateChanged="OnRecalculateDateChanged"
                                            Label="Recalculate from"
+                                           Class="th-recalc-date"
                                            DateFormat="yyyy-MM-dd"
                                            Clearable="true"
                                            Disabled="ViewModel.IsLoading || ViewModel.IsLoadingOlder || ViewModel.TotalTransactionsCount == 0" />
@@ -61,7 +64,7 @@
                         <MudText Typo="Typo.caption">
                             Loads new entries since the last sync. If registration date is set, backfills from that date for: linear, inverse, spot, option.
                         </MudText>
-                        <MudText Typo="Typo.caption">
+                        <MudText Typo="Typo.caption" Class="th-endpoint-note">
                             Endpoint: https://bybit-exchange.github.io/docs/v5/account/transaction-log
                         </MudText>
                         @if (!string.IsNullOrWhiteSpace(ViewModel.ErrorMessage))
@@ -74,6 +77,7 @@
                 <MudPaper Class="pa-6" Elevation="1">
                     <MudStack Spacing="2">
                         <MudText Typo="Typo.h6">Recent transactions</MudText>
+                        <div class="th-desktop-only">
                             <MudDataGrid T="TradingHistoryEntry"
                                          @key="_gridVersion"
                                          VirtualizeServerData="ServerDataFunc"
@@ -94,28 +98,28 @@
                                     <TemplateColumn Title="Trade">
                                         <CellTemplate>
                                             <MudStack Spacing="0">
-                                        <MudText Typo="Typo.body2">
-                                            @context.Item.Side @context.Item.TransactionType @context.Item.Size
-                                            <MudLink OnClick="@(() => OpenSymbolDialogAsync(context.Item.Symbol, context.Item.Category))">
-                                                @context.Item.Symbol
-                                            </MudLink>
-                                        </MudText>
-                                    </MudStack>
-                                </CellTemplate>
-                            </TemplateColumn>
+                                                <MudText Typo="Typo.body2">
+                                                    @context.Item.Side @context.Item.TransactionType @context.Item.Size
+                                                    <MudLink OnClick="@(() => OpenSymbolDialogAsync(context.Item.Symbol, context.Item.Category))">
+                                                        @context.Item.Symbol
+                                                    </MudLink>
+                                                </MudText>
+                                            </MudStack>
+                                        </CellTemplate>
+                                    </TemplateColumn>
                                     <TemplateColumn Title="Price">
                                         <CellTemplate>
-                                @context.Item.Price
+                                            @context.Item.Price
                                         </CellTemplate>
                                     </TemplateColumn>
                                     <TemplateColumn Title="Value">
                                         <CellTemplate>
-                                @($"{FormatValue(context.Item.Size, context.Item.Price)} {context.Item.Currency}")
+                                            @($"{FormatValue(context.Item.Size, context.Item.Price)} {context.Item.Currency}")
                                         </CellTemplate>
                                     </TemplateColumn>
                                     <TemplateColumn Title="Fee">
                                         <CellTemplate>
-                                @($"{context.Item.Fee} {context.Item.Currency}")
+                                            @($"{context.Item.Fee} {context.Item.Currency}")
                                         </CellTemplate>
                                     </TemplateColumn>
                                     <PropertyColumn Property="x => x.Calculated.SizeAfter" Title="Size after" />
@@ -131,6 +135,33 @@
                                     </tr>
                                 </RowLoadingContent>
                             </MudDataGrid>
+                        </div>
+                        <div class="th-mobile-only">
+                            <MudStack Spacing="2">
+                                @foreach (var entry in _mobileRecentEntries)
+                                {
+                                    <MudPaper Elevation="0" Class="pa-3 th-mobile-entry" @key="entry.Id">
+                                        <MudStack Spacing="1">
+                                            <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                                                <MudText Typo="Typo.caption">@FormatTimestamp(entry.Timestamp)</MudText>
+                                                <MudText Typo="Typo.caption" Color="@(entry.Calculated.CumulativePnl >= 0 ? Color.Success : Color.Error)">
+                                                    Cumulative P/L: @entry.Calculated.CumulativePnl.ToString("0.##", CultureInfo.InvariantCulture)
+                                                </MudText>
+                                            </MudStack>
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@entry.TransactionType</MudText>
+                                            <MudText Typo="Typo.body2">
+                                                @entry.Side @entry.Size
+                                                <MudLink OnClick="@(() => OpenSymbolDialogAsync(entry.Symbol, entry.Category))">@entry.Symbol</MudLink>
+                                            </MudText>
+                                            <MudText Typo="Typo.caption">Price: @entry.Price</MudText>
+                                            <MudText Typo="Typo.caption">Value: @FormatValue(entry.Size, entry.Price) @entry.Currency</MudText>
+                                            <MudText Typo="Typo.caption">Fee: @entry.Fee @entry.Currency</MudText>
+                                            <MudText Typo="Typo.caption">Realized: @entry.Calculated.RealizedPnl.ToString("0.##", CultureInfo.InvariantCulture)</MudText>
+                                        </MudStack>
+                                    </MudPaper>
+                                }
+                            </MudStack>
+                        </div>
                     </MudStack>
                 </MudPaper>
             </MudStack>
@@ -164,7 +195,8 @@
                         }
                         else
                         {
-                            <MudTable Items="ViewModel.GetSummaryBySymbol()"
+                            <div class="th-desktop-only">
+                                <MudTable Items="ViewModel.GetSummaryBySymbol()"
                                       Hover="true"
                                       Dense="true"
                                       FixedHeader="true"
@@ -196,7 +228,26 @@
                                     <MudTd DataLabel="Fees" Style="text-align:right;">@context.TotalFees</MudTd>
                                     <MudTd DataLabel="Realized PnL" Style="text-align:right;">@context.RealizedPnl</MudTd>
                                 </RowTemplate>
-                            </MudTable>
+                                </MudTable>
+                            </div>
+                            <div class="th-mobile-only">
+                                <MudStack Spacing="2">
+                                    @foreach (var row in ViewModel.GetSummaryBySymbol())
+                                    {
+                                        <MudPaper Elevation="0" Class="pa-3 th-mobile-entry" @key="row.Symbol">
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@row.GroupKey</MudText>
+                                            <MudText Typo="Typo.subtitle2">
+                                                <MudLink OnClick="@(() => OpenSymbolDialogAsync(row.Symbol, row.Category))">@row.Symbol</MudLink>
+                                            </MudText>
+                                            <MudText Typo="Typo.caption">Trades: @row.Trades</MudText>
+                                            <MudText Typo="Typo.caption">Qty: @row.TotalQty</MudText>
+                                            <MudText Typo="Typo.caption">Value: @row.TotalValue</MudText>
+                                            <MudText Typo="Typo.caption">Fees: @row.TotalFees</MudText>
+                                            <MudText Typo="Typo.caption">PnL: @row.RealizedPnl</MudText>
+                                        </MudPaper>
+                                    }
+                                </MudStack>
+                            </div>
                         }
                     </MudStack>
                 </MudPaper>
@@ -210,7 +261,8 @@
                         }
                         else
                         {
-                            <MudTable Items="ViewModel.GetRealizedPnlBySettleCoin()"
+                            <div class="th-desktop-only">
+                                <MudTable Items="ViewModel.GetRealizedPnlBySettleCoin()"
                                       Hover="true"
                                       Dense="true"
                                       FixedHeader="true"
@@ -227,7 +279,21 @@
                                     <MudTd DataLabel="Fees" Style="text-align:right;">@context.Fees</MudTd>
                                     <MudTd DataLabel="Net PnL" Style="text-align:right;">@context.NetPnl</MudTd>
                                 </RowTemplate>
-                            </MudTable>
+                                </MudTable>
+                            </div>
+                            <div class="th-mobile-only">
+                                <MudStack Spacing="2">
+                                    @foreach (var row in ViewModel.GetRealizedPnlBySettleCoin())
+                                    {
+                                        <MudPaper Elevation="0" Class="pa-3 th-mobile-entry" @key="row.SettleCoin">
+                                            <MudText Typo="Typo.subtitle2">@row.SettleCoin</MudText>
+                                            <MudText Typo="Typo.caption">Realized: @row.RealizedPnl</MudText>
+                                            <MudText Typo="Typo.caption">Fees: @row.Fees</MudText>
+                                            <MudText Typo="Typo.caption">Net: @row.NetPnl</MudText>
+                                        </MudPaper>
+                                    }
+                                </MudStack>
+                            </div>
                         }
                     </MudStack>
                 </MudPaper>
@@ -241,6 +307,7 @@
     {
         ViewModel.OnChange += HandleViewModelChanged;
         await ViewModel.InitializeAsync();
+        await RefreshMobileRecentEntriesAsync();
     }
 
     public void Dispose()
@@ -289,12 +356,14 @@
     {
         await ViewModel.LoadLatestAsync();
         _gridVersion++;
+        await RefreshMobileRecentEntriesAsync();
     }
 
     private async Task RecalculateAsync()
     {
         await ViewModel.RecalculateAsync(_recalculateFromDate);
         _gridVersion++;
+        await RefreshMobileRecentEntriesAsync();
     }
 
     private Task OnRecalculateDateChanged(DateTime? date)
@@ -305,6 +374,13 @@
 
     private int _gridVersion;
     private DateTime? _recalculateFromDate;
+    private IReadOnlyList<TradingHistoryEntry> _mobileRecentEntries = Array.Empty<TradingHistoryEntry>();
+
+    private async Task RefreshMobileRecentEntriesAsync()
+    {
+        var result = await ViewModel.LoadEntriesAsync(null, 0, 30);
+        _mobileRecentEntries = result.Entries.ToArray();
+    }
     
     private static string FormatTimestamp(long? timestamp)
     {
@@ -336,3 +412,43 @@
             GroupName = "Category / Settle"
         };
 }
+
+<style>
+    .th-mobile-only {
+        display: none;
+    }
+
+    .th-mobile-entry {
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.01);
+    }
+
+    @@media (max-width: 768px) {
+        .trading-history-page {
+            gap: 12px !important;
+        }
+
+        .th-controls-row {
+            flex-direction: column !important;
+            align-items: stretch !important;
+        }
+
+        .th-control-button,
+        .th-recalc-date {
+            width: 100%;
+        }
+
+        .th-endpoint-note {
+            display: none;
+        }
+
+        .th-desktop-only {
+            display: none;
+        }
+
+        .th-mobile-only {
+            display: block;
+        }
+    }
+</style>
