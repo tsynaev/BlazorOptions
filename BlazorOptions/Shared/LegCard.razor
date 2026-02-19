@@ -88,6 +88,7 @@
                              Size="Size.Small"
                              Color="@ResolvePnlColor(order.ExpectedPnl)"
                              Class="leg-linked-order-chip">
+                        @(string.IsNullOrWhiteSpace(order.OrderKind) ? string.Empty : $"{order.OrderKind} ")
                         @order.Side @order.Quantity.ToString("0.####", CultureInfo.InvariantCulture) @@ @FormatPrice(order.Price)
                         @if (order.NewAverageEntryPrice.HasValue)
                         {

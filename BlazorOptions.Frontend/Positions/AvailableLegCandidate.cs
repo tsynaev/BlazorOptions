@@ -9,6 +9,7 @@ public enum AvailableLegSourceKind
 public sealed record AvailableLegCandidate(
     string Id,
     AvailableLegSourceKind Kind,
+    string? OrderKind,
     string Symbol,
     LegType Type,
     decimal Size,

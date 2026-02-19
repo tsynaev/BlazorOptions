@@ -88,17 +88,16 @@ public sealed class BybitOrderService : BybitApiService, IOrdersService
                     TryReadString(entry, "orderId", out var orderId);
                     TryReadString(entry, "side", out var side);
                     TryReadString(entry, "orderType", out var orderType);
+                    TryReadString(entry, "stopOrderType", out var stopOrderType);
                     var qty = ReadDecimal(entry, "qty");
                     if (qty == 0)
                     {
                         qty = ReadDecimal(entry, "leavesQty");
                     }
 
-                    var price = ReadNullableDecimal(entry, "price")
-                        ?? ReadNullableDecimal(entry, "avgPrice")
-                        ?? ReadNullableDecimal(entry, "triggerPrice");
+                    var price = ResolveOrderPrice(entry);
 
-                    orders.Add(new ExchangeOrder(orderId, symbol, side, category, orderType, orderStatus, qty, price));
+                    orders.Add(new ExchangeOrder(orderId, symbol, side, category, orderType, orderStatus, qty, price, stopOrderType));
                 }
             }
 
@@ -193,6 +192,31 @@ public sealed class BybitOrderService : BybitApiService, IOrdersService
             ? parsed
             : null;
     }
+
+    private static decimal? ResolveOrderPrice(JsonElement element)
+    {
+        return FirstPositive(
+            ReadNullableDecimal(element, "price"),
+            ReadNullableDecimal(element, "avgPrice"),
+            ReadNullableDecimal(element, "triggerPrice"),
+            ReadNullableDecimal(element, "takeProfit"),
+            ReadNullableDecimal(element, "stopLoss"),
+            ReadNullableDecimal(element, "tpLimitPrice"),
+            ReadNullableDecimal(element, "slLimitPrice"));
+    }
+
+    private static decimal? FirstPositive(params decimal?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (value.HasValue && value.Value > 0)
+            {
+                return value.Value;
+            }
+        }
+
+        return null;
+    }
 }
 
 public sealed record ExchangeOrder(
@@ -203,4 +227,5 @@ public sealed record ExchangeOrder(
     string OrderType,
     string OrderStatus,
     decimal Qty,
-    decimal? Price);
+    decimal? Price,
+    string? StopOrderType);

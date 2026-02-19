@@ -329,6 +329,7 @@ public sealed class ActiveOrdersService : IOrdersService, IAsyncDisposable
         TryReadString(entry, "side", out var side);
         TryReadString(entry, "category", out var category);
         TryReadString(entry, "orderType", out var orderType);
+        TryReadString(entry, "stopOrderType", out var stopOrderType);
         TryReadString(entry, "orderStatus", out var orderStatus);
 
         var qty = ReadDecimal(entry, "qty");
@@ -337,11 +338,9 @@ public sealed class ActiveOrdersService : IOrdersService, IAsyncDisposable
             qty = ReadDecimal(entry, "leavesQty");
         }
 
-        var price = ReadNullableDecimal(entry, "price")
-            ?? ReadNullableDecimal(entry, "avgPrice")
-            ?? ReadNullableDecimal(entry, "triggerPrice");
+        var price = ResolveOrderPrice(entry);
 
-        return new ExchangeOrder(orderId, symbol, side, category, orderType, orderStatus, qty, price);
+        return new ExchangeOrder(orderId, symbol, side, category, orderType, orderStatus, qty, price, stopOrderType);
     }
 
     private async Task ApplyUpdateAsync(ExchangeOrder update)
@@ -515,6 +514,31 @@ public sealed class ActiveOrdersService : IOrdersService, IAsyncDisposable
         return decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
             ? parsed
             : null;
+    }
+
+    private static decimal? ResolveOrderPrice(JsonElement element)
+    {
+        return FirstPositive(
+            ReadNullableDecimal(element, "price"),
+            ReadNullableDecimal(element, "avgPrice"),
+            ReadNullableDecimal(element, "triggerPrice"),
+            ReadNullableDecimal(element, "takeProfit"),
+            ReadNullableDecimal(element, "stopLoss"),
+            ReadNullableDecimal(element, "tpLimitPrice"),
+            ReadNullableDecimal(element, "slLimitPrice"));
+    }
+
+    private static decimal? FirstPositive(params decimal?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (value.HasValue && value.Value > 0)
+            {
+                return value.Value;
+            }
+        }
+
+        return null;
     }
 
     private void Unsubscribe(Func<IReadOnlyList<ExchangeOrder>, Task> handler)

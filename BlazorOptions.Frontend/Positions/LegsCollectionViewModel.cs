@@ -478,6 +478,9 @@ public sealed class LegsCollectionViewModel : IDisposable
 
     public string FormatAvailableCandidate(AvailableLegCandidate candidate)
     {
+        var orderPrefix = candidate.Kind == AvailableLegSourceKind.Order && !string.IsNullOrWhiteSpace(candidate.OrderKind)
+            ? $"{candidate.OrderKind} "
+            : string.Empty;
         var direction = candidate.Size >= 0 ? "Buy" : "Sell";
         var absSize = Math.Abs(candidate.Size);
         var typeLabel = candidate.Type switch
@@ -489,10 +492,10 @@ public sealed class LegsCollectionViewModel : IDisposable
 
         if (candidate.Type == LegType.Future)
         {
-            return $"{direction} {absSize:0.##} {typeLabel} @ {FormatChipPrice(candidate.Price)}";
+            return $"{orderPrefix}{direction} {absSize:0.##} {typeLabel} @ {FormatChipPrice(candidate.Price)}";
         }
 
-        return $"{direction} {absSize:0.##} {typeLabel} {FormatChipStrike(candidate.Strike)} @ {FormatChipPrice(candidate.Price)}";
+        return $"{orderPrefix}{direction} {absSize:0.##} {typeLabel} {FormatChipStrike(candidate.Strike)} @ {FormatChipPrice(candidate.Price)}";
     }
 
     private static string FormatChipStrike(decimal? strike)
@@ -607,6 +610,7 @@ public sealed class LegsCollectionViewModel : IDisposable
             var positionCandidate = new AvailableLegCandidate(
                 Id: $"position:{symbol}:{Math.Sign(leg.Size)}",
                 Kind: AvailableLegSourceKind.Position,
+                OrderKind: null,
                 Symbol: symbol,
                 Type: leg.Type,
                 Size: leg.Size,
@@ -634,6 +638,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         var orderCandidate = new AvailableLegCandidate(
             Id: orderId,
             Kind: AvailableLegSourceKind.Order,
+            OrderKind: null,
             Symbol: symbol,
             Type: leg.Type,
             Size: leg.Size,
@@ -1115,6 +1120,7 @@ public sealed class LegsCollectionViewModel : IDisposable
             candidates.Add(new AvailableLegCandidate(
                 Id: $"position:{symbol}:{Math.Sign(leg.Size)}",
                 Kind: AvailableLegSourceKind.Position,
+                OrderKind: null,
                 Symbol: symbol,
                 Type: leg.Type,
                 Size: leg.Size,
@@ -1148,6 +1154,7 @@ public sealed class LegsCollectionViewModel : IDisposable
             candidates.Add(new AvailableLegCandidate(
                 Id: leg.Id,
                 Kind: AvailableLegSourceKind.Order,
+                OrderKind: ResolveOrderKindLabel(order),
                 Symbol: leg.Symbol.Trim(),
                 Type: leg.Type,
                 Size: leg.Size,
@@ -1180,6 +1187,7 @@ public sealed class LegsCollectionViewModel : IDisposable
             var r = right[i];
             if (!string.Equals(l.Id, r.Id, StringComparison.Ordinal)
                 || l.Kind != r.Kind
+                || !string.Equals(l.OrderKind, r.OrderKind, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(l.Symbol, r.Symbol, StringComparison.OrdinalIgnoreCase)
                 || l.Type != r.Type
                 || l.Size != r.Size
@@ -1192,6 +1200,31 @@ public sealed class LegsCollectionViewModel : IDisposable
         }
 
         return true;
+    }
+
+    private static string? ResolveOrderKindLabel(ExchangeOrder order)
+    {
+        var stopOrderType = order.StopOrderType?.Trim();
+        if (!string.IsNullOrWhiteSpace(stopOrderType))
+        {
+            if (stopOrderType.Contains("TakeProfit", StringComparison.OrdinalIgnoreCase))
+            {
+                return "TP";
+            }
+
+            if (stopOrderType.Contains("StopLoss", StringComparison.OrdinalIgnoreCase)
+                || stopOrderType.Contains("Stop", StringComparison.OrdinalIgnoreCase))
+            {
+                return "SL";
+            }
+        }
+
+        if (string.Equals(order.OrderStatus, "Untriggered", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Conditional";
+        }
+
+        return null;
     }
 
     private static string BuildOrderCandidateId(ExchangeOrder order)

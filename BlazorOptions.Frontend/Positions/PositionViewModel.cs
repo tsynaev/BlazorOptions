@@ -1118,6 +1118,7 @@ public sealed class PositionViewModel : IDisposable
 
         var pnlText = order.ExpectedPnl.HasValue ? order.ExpectedPnl.Value.ToString("0.#", CultureInfo.InvariantCulture) : "-";
         var sideShort = string.Equals(order.Side, "Sell", StringComparison.OrdinalIgnoreCase) ? "S" : "B";
+        var kindPrefix = string.IsNullOrWhiteSpace(order.OrderKind) ? string.Empty : $"{order.OrderKind} ";
         var markerColor = order.ExpectedPnl switch
         {
             > 0m => "#2ECC71",
@@ -1127,7 +1128,7 @@ public sealed class PositionViewModel : IDisposable
 
         marker = new PriceMarker(
             (double)price.Value,
-            $"L {sideShort}{order.Quantity:0.##} PnL {pnlText}",
+            $"L {kindPrefix}{sideShort}{order.Quantity:0.##} PnL {pnlText}",
             markerColor);
         return true;
     }

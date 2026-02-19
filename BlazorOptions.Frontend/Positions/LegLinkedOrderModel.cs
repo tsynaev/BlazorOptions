@@ -2,6 +2,7 @@ namespace BlazorOptions.ViewModels;
 
 public sealed record LegLinkedOrderModel(
     string OrderId,
+    string? OrderKind,
     string Side,
     decimal Quantity,
     decimal? Price,

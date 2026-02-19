@@ -21,6 +21,7 @@ The Positions page is where you manage one position at a time and review its pay
 - See payoff curve, order markers, linked-order markers, and optional candles.
 - Review per-leg P/L, IV, Greeks, and linked-order expected P/L.
 - For same-side linked orders, the card also shows the expected new average entry price after execution.
+- Linked orders are labeled by kind when available: `TP`, `SL`, or `Conditional`.
 
 ## Chart And Controls
 

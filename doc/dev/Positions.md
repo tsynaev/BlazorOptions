@@ -61,3 +61,7 @@ Route: `/position/{positionId}`
 
 - Opposite-side linked orders show expected closing P/L contribution.
 - Same-side linked orders show projected weighted average entry after execution.
+- Order kind labels are inferred from exchange payload:
+- `TP` from `stopOrderType` containing `TakeProfit`
+- `SL` from `stopOrderType` containing `StopLoss`/`Stop`
+- `Conditional` when order status is `Untriggered` and no TP/SL tag is present

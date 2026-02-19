@@ -777,7 +777,8 @@ public sealed class LegViewModel : IDisposable
                 var expectedPnl = ResolveExpectedPnlForOrder(order);
                 var newAverageEntryPrice = ResolveExpectedAverageEntryPriceForOrder(order);
                 var id = string.IsNullOrWhiteSpace(order.OrderId) ? symbol : order.OrderId.Trim();
-                return new LegLinkedOrderModel(id, order.Side, qty, order.Price, expectedPnl, newAverageEntryPrice);
+                var kind = ResolveOrderKindLabel(order);
+                return new LegLinkedOrderModel(id, kind, order.Side, qty, order.Price, expectedPnl, newAverageEntryPrice);
             })
             .OrderBy(order => order.Side, StringComparer.OrdinalIgnoreCase)
             .ThenBy(order => order.OrderId, StringComparer.OrdinalIgnoreCase)
@@ -866,6 +867,31 @@ public sealed class LegViewModel : IDisposable
         return magnitude;
     }
 
+    private static string? ResolveOrderKindLabel(ExchangeOrder order)
+    {
+        var stopOrderType = order.StopOrderType?.Trim();
+        if (!string.IsNullOrWhiteSpace(stopOrderType))
+        {
+            if (stopOrderType.Contains("TakeProfit", StringComparison.OrdinalIgnoreCase))
+            {
+                return "TP";
+            }
+
+            if (stopOrderType.Contains("StopLoss", StringComparison.OrdinalIgnoreCase)
+                || stopOrderType.Contains("Stop", StringComparison.OrdinalIgnoreCase))
+            {
+                return "SL";
+            }
+        }
+
+        if (string.Equals(order.OrderStatus, "Untriggered", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Conditional";
+        }
+
+        return null;
+    }
+
     private static bool AreSameLinkedOrders(IReadOnlyList<LegLinkedOrderModel> left, IReadOnlyList<LegLinkedOrderModel> right)
     {
         if (ReferenceEquals(left, right))
@@ -883,6 +909,7 @@ public sealed class LegViewModel : IDisposable
             var l = left[i];
             var r = right[i];
             if (!string.Equals(l.OrderId, r.OrderId, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(l.OrderKind, r.OrderKind, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(l.Side, r.Side, StringComparison.OrdinalIgnoreCase)
                 || l.Quantity != r.Quantity
                 || l.Price != r.Price
