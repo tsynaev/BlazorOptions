@@ -755,7 +755,8 @@ public sealed class LegViewModel : IDisposable
 
     public bool UpdateLinkedOrders(IReadOnlyList<ExchangeOrder> orders)
     {
-        if (Leg.Status == LegStatus.Order || string.IsNullOrWhiteSpace(Leg.Symbol) || orders.Count == 0)
+        // Linked exchange orders are meaningful only for active exchange-backed legs.
+        if (Leg.Status != LegStatus.Active || string.IsNullOrWhiteSpace(Leg.Symbol) || orders.Count == 0)
         {
             if (_linkedOrders.Count == 0)
             {
