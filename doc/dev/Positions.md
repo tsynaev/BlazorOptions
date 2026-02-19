@@ -58,6 +58,7 @@ Route: `/position/{positionId}`
 - Linked order marker text switches by scenario:
 - closing/reducing order => `PnL`
 - opening/increasing order => projected `Avg` entry
+- Linked order simulation is user-toggleable per linked order (`IsActivated`); payoff calculations use simulated leg size/entry after applying only activated orders.
 - Selected price marker is `null` when no selected/live price is available.
 
 ## Linked Order Projection

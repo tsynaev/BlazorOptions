@@ -1121,7 +1121,7 @@ public sealed class PositionViewModel : IDisposable
 
         marker = new PriceMarker(
             (double)price.Value,
-            $"{price.Value:0.#}: Order {signedSide}{size:0.##} {legTypeText} {legStrikeText} @{orderPriceText}",
+            $"{FormatMarkerXPrice(price.Value, leg.Leg.Type == LegType.Future)}: Order {signedSide}{size:0.##} {legTypeText} {legStrikeText} @{orderPriceText}",
             color);
         return true;
     }
@@ -1169,10 +1169,17 @@ public sealed class PositionViewModel : IDisposable
         marker = new PriceMarker(
             (double)price.Value,
             order.NewAverageEntryPrice.HasValue
-                ? $"{price.Value:0.#}: Order {orderKind} {signedSide}{order.Quantity:0.##} {legTypeText} {legStrikeText} @{orderPriceText} Avg:{avgText}"
-                : $"{price.Value:0.#}: Order {orderKind} {signedSide}{order.Quantity:0.##} {legTypeText} {legStrikeText} @{orderPriceText} PnL:{pnlText}",
+                ? $"{FormatMarkerXPrice(price.Value, leg.Leg.Type == LegType.Future)}: Order {orderKind} {signedSide}{order.Quantity:0.##} {legTypeText} {legStrikeText} @{orderPriceText} Avg:{avgText}"
+                : $"{FormatMarkerXPrice(price.Value, leg.Leg.Type == LegType.Future)}: Order {orderKind} {signedSide}{order.Quantity:0.##} {legTypeText} {legStrikeText} @{orderPriceText} PnL:{pnlText}",
             markerColor);
         return true;
+    }
+
+    private static string FormatMarkerXPrice(decimal value, bool forceOneDecimal)
+    {
+        return forceOneDecimal
+            ? value.ToString("0.0", CultureInfo.InvariantCulture)
+            : value.ToString("0.#", CultureInfo.InvariantCulture);
     }
 
     private static string NormalizeOrderKindForMarker(string? orderKind)
@@ -1340,8 +1347,10 @@ public sealed class PositionViewModel : IDisposable
 
     private LegModel ResolveLegForCalculation(LegViewModel leg, string? baseAsset)
     {
-        var resolvedPrice = ResolveLegEntryPrice(leg);
+        var simulated = leg.ResolveSimulatedPosition();
+        var resolvedPrice = simulated.EntryPrice ?? ResolveLegEntryPrice(leg);
         var model = leg.Leg;
+        var resolvedSize = simulated.Size;
         var impliedVolatility = model.ImpliedVolatility;
         if (!impliedVolatility.HasValue || impliedVolatility.Value <= 0)
         {
@@ -1355,7 +1364,8 @@ public sealed class PositionViewModel : IDisposable
         var originalIv = model.ImpliedVolatility ?? 0m;
         var resolvedIv = impliedVolatility ?? 0m;
         var priceChanged = !model.Price.HasValue || Math.Abs(resolvedPrice - model.Price.Value) > 0.0001m;
-        if (!priceChanged && Math.Abs(resolvedIv - originalIv) < 0.0001m)
+        var sizeChanged = Math.Abs(resolvedSize - model.Size) > 0.0001m;
+        if (!priceChanged && !sizeChanged && Math.Abs(resolvedIv - originalIv) < 0.0001m)
         {
             return model;
         }
@@ -1367,7 +1377,7 @@ public sealed class PositionViewModel : IDisposable
             Type = model.Type,
             Strike = model.Strike,
             ExpirationDate = model.ExpirationDate,
-            Size = model.Size,
+            Size = resolvedSize,
             Price = resolvedPrice,
             ImpliedVolatility = impliedVolatility
         };

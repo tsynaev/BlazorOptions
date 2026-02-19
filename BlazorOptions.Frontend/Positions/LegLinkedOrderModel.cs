@@ -7,4 +7,5 @@ public sealed record LegLinkedOrderModel(
     decimal Quantity,
     decimal? Price,
     decimal? ExpectedPnl,
-    decimal? NewAverageEntryPrice);
+    decimal? NewAverageEntryPrice,
+    bool IsActivated);

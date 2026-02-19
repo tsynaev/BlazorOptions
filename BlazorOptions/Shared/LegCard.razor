@@ -84,12 +84,12 @@
                 @foreach (var order in ViewModel.LinkedOrders)
                 {
                     <MudChip T="string"
-                             Variant="Variant.Outlined"
+                             Variant="@(order.IsActivated ? Variant.Filled : Variant.Outlined)"
                              Size="Size.Small"
                              Color="@ResolvePnlColor(order.ExpectedPnl)"
+                             OnClick="@(() => ToggleLinkedOrder(order.OrderId))"
                              Class="leg-linked-order-chip">
-                        @(string.IsNullOrWhiteSpace(order.OrderKind) ? string.Empty : $"{order.OrderKind} ")
-                        @order.Side @order.Quantity.ToString("0.####", CultureInfo.InvariantCulture) @@ @FormatPrice(order.Price)
+                        @BuildLinkedOrderPrefix(order) @@ @FormatPrice(order.Price)
                         @if (order.NewAverageEntryPrice.HasValue)
                         {
                             <span> | New Avg: @FormatPrice(order.NewAverageEntryPrice)</span>
@@ -198,6 +198,33 @@
     private static string FormatGreek(decimal? value)
     {
         return value.HasValue ? value.Value.ToString("0.###", CultureInfo.InvariantCulture) : "-";
+    }
+
+    private string BuildLinkedOrderPrefix(LegLinkedOrderModel order)
+    {
+        var sideSign = string.Equals(order.Side, "Sell", StringComparison.OrdinalIgnoreCase) ? "-" : "+";
+        var kind = string.IsNullOrWhiteSpace(order.OrderKind) ? "Cond " : $"{order.OrderKind} ";
+        var type = ViewModel.Leg.Type switch
+        {
+            LegType.Call => "C",
+            LegType.Put => "P",
+            _ => "F"
+        };
+
+        if (ViewModel.Leg.Type == LegType.Future)
+        {
+            return $"Order {kind}{sideSign}{order.Quantity:0.####} {type}";
+        }
+
+        var strike = ViewModel.Leg.Strike.HasValue
+            ? Math.Round(ViewModel.Leg.Strike.Value).ToString("0", CultureInfo.InvariantCulture)
+            : "ATM";
+        return $"Order {kind}{sideSign}{order.Quantity:0.####} {type} {strike}";
+    }
+
+    private void ToggleLinkedOrder(string orderId)
+    {
+        ViewModel.ToggleLinkedOrderActivation(orderId);
     }
 
     private string GetCardClass()

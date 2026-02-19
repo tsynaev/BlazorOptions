@@ -24,6 +24,7 @@ The Positions page is where you manage one position at a time and review its pay
 - Review per-leg P/L, IV, Greeks, and linked-order expected P/L.
 - For same-side linked orders, the card also shows the expected new average entry price after execution.
 - Linked orders are labeled by kind when available: `TP`, `SL`, or `Conditional`.
+- Linked order chips can be toggled to simulate execution; chart and leg P/L use only activated linked orders.
 
 ## Chart And Controls
 

@@ -733,12 +733,13 @@ public sealed class LegViewModel : IDisposable
 
     private decimal? ResolvePnlFromMarkPrice()
     {
-        if (!Leg.Price.HasValue || !MarkPrice.HasValue)
+        var (effectiveSize, effectiveEntryPrice) = ResolveSimulatedPosition();
+        if (!effectiveEntryPrice.HasValue || !MarkPrice.HasValue || Math.Abs(effectiveSize) < 0.0000001m)
         {
             return null;
         }
 
-        return (MarkPrice.Value - Leg.Price.Value) * Leg.Size;
+        return (MarkPrice.Value - effectiveEntryPrice.Value) * effectiveSize;
     }
 
     private decimal ResolveOrderExpectedPnl()
@@ -768,6 +769,7 @@ public sealed class LegViewModel : IDisposable
         }
 
         var symbol = Leg.Symbol.Trim();
+        var previousActivation = _linkedOrders.ToDictionary(item => item.OrderId, item => item.IsActivated, StringComparer.OrdinalIgnoreCase);
         var linked = orders
             .Where(order =>
                 !string.IsNullOrWhiteSpace(order.Symbol) &&
@@ -779,7 +781,8 @@ public sealed class LegViewModel : IDisposable
                 var newAverageEntryPrice = ResolveExpectedAverageEntryPriceForOrder(order);
                 var id = string.IsNullOrWhiteSpace(order.OrderId) ? symbol : order.OrderId.Trim();
                 var kind = ResolveOrderKindLabel(order);
-                return new LegLinkedOrderModel(id, kind, order.Side, qty, order.Price, expectedPnl, newAverageEntryPrice);
+                var isActivated = previousActivation.TryGetValue(id, out var active) && active;
+                return new LegLinkedOrderModel(id, kind, order.Side, qty, order.Price, expectedPnl, newAverageEntryPrice, isActivated);
             })
             .OrderBy(order => order.Side, StringComparer.OrdinalIgnoreCase)
             .ThenBy(order => order.OrderId, StringComparer.OrdinalIgnoreCase)
@@ -792,6 +795,105 @@ public sealed class LegViewModel : IDisposable
 
         _linkedOrders = linked;
         return true;
+    }
+
+    public bool ToggleLinkedOrderActivation(string orderId)
+    {
+        if (string.IsNullOrWhiteSpace(orderId) || _linkedOrders.Count == 0)
+        {
+            return false;
+        }
+
+        var changed = false;
+        var updated = new LegLinkedOrderModel[_linkedOrders.Count];
+        for (var i = 0; i < _linkedOrders.Count; i++)
+        {
+            var order = _linkedOrders[i];
+            if (!string.Equals(order.OrderId, orderId, StringComparison.OrdinalIgnoreCase))
+            {
+                updated[i] = order;
+                continue;
+            }
+
+            updated[i] = order with { IsActivated = !order.IsActivated };
+            changed = true;
+        }
+
+        if (!changed)
+        {
+            return false;
+        }
+
+        _linkedOrders = updated;
+        Changed?.Invoke(LegsCollectionUpdateKind.LegModelChanged);
+        Changed?.Invoke(LegsCollectionUpdateKind.ViewModelDataUpdated);
+        return true;
+    }
+
+    public (decimal Size, decimal? EntryPrice) ResolveSimulatedPosition()
+    {
+        var size = Leg.Size;
+        decimal? entryPrice = Leg.Price;
+
+        if (_linkedOrders.Count == 0)
+        {
+            return (size, entryPrice);
+        }
+
+        foreach (var order in _linkedOrders.Where(item => item.IsActivated && item.Price.HasValue && item.Quantity > 0))
+        {
+            var orderSize = string.Equals(order.Side, "Sell", StringComparison.OrdinalIgnoreCase)
+                ? -Math.Abs(order.Quantity)
+                : Math.Abs(order.Quantity);
+            if (Math.Abs(orderSize) < 0.0000001m)
+            {
+                continue;
+            }
+
+            if (Math.Abs(size) < 0.0000001m)
+            {
+                size = orderSize;
+                entryPrice = order.Price;
+                continue;
+            }
+
+            if (Math.Sign(orderSize) == Math.Sign(size))
+            {
+                if (entryPrice.HasValue)
+                {
+                    var currentAbs = Math.Abs(size);
+                    var addAbs = Math.Abs(orderSize);
+                    var total = currentAbs + addAbs;
+                    if (total > 0.0000001m)
+                    {
+                        entryPrice = ((entryPrice.Value * currentAbs) + (order.Price!.Value * addAbs)) / total;
+                    }
+                }
+
+                size += orderSize;
+                continue;
+            }
+
+            var currentAbsSize = Math.Abs(size);
+            var orderAbsSize = Math.Abs(orderSize);
+            if (orderAbsSize < currentAbsSize - 0.0000001m)
+            {
+                size += orderSize;
+                continue;
+            }
+
+            if (Math.Abs(orderAbsSize - currentAbsSize) <= 0.0000001m)
+            {
+                size = 0m;
+                entryPrice = null;
+                continue;
+            }
+
+            size += orderSize;
+            entryPrice = order.Price;
+        }
+
+        return (size, entryPrice);
     }
 
     private decimal? ResolveExpectedPnlForOrder(ExchangeOrder order)
@@ -915,7 +1017,8 @@ public sealed class LegViewModel : IDisposable
                 || l.Quantity != r.Quantity
                 || l.Price != r.Price
                 || l.ExpectedPnl != r.ExpectedPnl
-                || l.NewAverageEntryPrice != r.NewAverageEntryPrice)
+                || l.NewAverageEntryPrice != r.NewAverageEntryPrice
+                || l.IsActivated != r.IsActivated)
             {
                 return false;
             }
@@ -985,14 +1088,13 @@ public sealed class LegViewModel : IDisposable
             return null;
         }
 
-        if (!Leg.Price.HasValue)
+        var (effectiveSize, effectiveEntryPrice) = ResolveSimulatedPosition();
+        if (!effectiveEntryPrice.HasValue || Math.Abs(effectiveSize) < 0.0000001m)
         {
             return null;
         }
 
- 
-        var entryPrice = ResolveEntryPrice();
-        var positionValue = entryPrice * Leg.Size;
+        var positionValue = effectiveEntryPrice.Value * effectiveSize;
         if (Math.Abs(positionValue) < 0.0001m)
         {
             return null;
