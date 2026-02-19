@@ -61,8 +61,8 @@ else
             </MudStack>
         </MudCardContent>
         <MudCardContent Class="position-content">
-            <MudGrid Spacing="2" Class="position-grid">
-                <MudItem xs="12" md="8">
+            <div class="position-desktop-shell">
+                <div class="position-chart-column">
                     <MudPaper Class="chart-surface" Elevation="0">
                         <MudStack Spacing="2">
                             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="position-summary-row">
@@ -84,7 +84,7 @@ else
                                     Candles: @(ViewModel.ShowCandles ? "On" : "Off")
                                 </MudChip>
                             </MudStack>
-                           
+
                             <PayoffChart Strategies="@DisplayChartStrategies"
                                          SelectedPrice="@DisplaySelectedPrice"
                                          SelectedPriceChanged="HandleChartPriceSelected"
@@ -98,63 +98,65 @@ else
                                          TimeRange="@ViewModel.ChartTimeRange"
                                          TimeRangeChanged="HandleChartTimeRangeChanged" />
 
-                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="chart-controls-row">
-                                    <MudText Typo="Typo.subtitle2">Valuation date</MudText>
-                                    <MudDatePicker Date="@ViewModel.ValuationDate"
-                                                   DateChanged="OnValuationDateChanged"
-                                                   DateFormat="yyyy-MM-dd"
-                                                   Clearable="true"
-                                                   MinDate="@DateTime.UtcNow.Date"
-                                                   MaxDate="@ViewModel.MaxExpiryDate"
-                                                   Class="valuation-date-picker" />
-                                    <MudText Typo="Typo.caption">@ViewModel.DaysToExpiryLabel</MudText>
-                                    <MudSpacer />
-                                    <MudText Typo="Typo.caption" Class="ml-2">Index Price</MudText>
-                                    <MudNumericField T="decimal?"
-                                                     Value="@ViewModel.SelectedPrice"
-                                                     ValueChanged="OnTemporaryPriceChanged"
-                                                     Immediate="true"
-                                                     Variant="Variant.Outlined"
-                                                     Margin="Margin.Dense"
-                                                     Adornment="Adornment.End"
-                                                     AdornmentText="USDT"
-                                                     Class="temp-price-field" />
-                                </MudStack>
-                                <MudSlider T="int"
-                                           Min="0"
-                                           Max="@ViewModel.MaxExpiryDays"
-                                           Step="1"
-                                           Value="@ViewModel.SelectedDayOffset"
-                                           ValueChanged="OnValuationDateOffsetChanged"
-                                           TickMarks="true"
-                                           Class="valuation-date-slider" />
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="chart-controls-row">
+                                <MudText Typo="Typo.subtitle2">Valuation date</MudText>
+                                <MudDatePicker Date="@ViewModel.ValuationDate"
+                                               DateChanged="OnValuationDateChanged"
+                                               DateFormat="yyyy-MM-dd"
+                                               Clearable="true"
+                                               MinDate="@DateTime.UtcNow.Date"
+                                               MaxDate="@ViewModel.MaxExpiryDate"
+                                               Class="valuation-date-picker" />
+                                <MudText Typo="Typo.caption">@ViewModel.DaysToExpiryLabel</MudText>
+                                <MudSpacer />
+                                <MudText Typo="Typo.caption" Class="ml-2">Index Price</MudText>
+                                <MudNumericField T="decimal?"
+                                                 Value="@ViewModel.SelectedPrice"
+                                                 ValueChanged="OnTemporaryPriceChanged"
+                                                 Immediate="true"
+                                                 Variant="Variant.Outlined"
+                                                 Margin="Margin.Dense"
+                                                 Adornment="Adornment.End"
+                                                 AdornmentText="USDT"
+                                                 Class="temp-price-field" />
+                            </MudStack>
+                            <MudSlider T="int"
+                                       Min="0"
+                                       Max="@ViewModel.MaxExpiryDays"
+                                       Step="1"
+                                       Value="@ViewModel.SelectedDayOffset"
+                                       ValueChanged="OnValuationDateOffsetChanged"
+                                       TickMarks="true"
+                                       Class="valuation-date-slider" />
                         </MudStack>
                     </MudPaper>
-                </MudItem>
-                @if (HasActivePosition)
-                {
-                    <MudItem xs="12" md="4">
+
+                    @if (HasActivePosition)
+                    {
                         <MudPaper Class="notes-panel" Elevation="0">
                             <MudText Typo="Typo.subtitle2">Notes</MudText>
                             <MudTextField T="string"
                                           @bind-Value="@ViewModel.Position.Notes"
-
                                           Variant="Variant.Outlined"
                                           Margin="Margin.Dense"
-                                          Lines="16"
+                                          Lines="8"
                                           FullWidth="true"
-                                          Placeholder="Write notes about this position..."/>
+                                          Placeholder="Write notes about this position..." />
                         </MudPaper>
-                    </MudItem>
+                    }
+                </div>
+
+                @if (HasActivePosition)
+                {
+                    <div class="position-details-column">
+                        <MudPaper Class="position-panel-surface" Elevation="0">
+                            <PositionPanel ViewModel="@ViewModel" />
+                        </MudPaper>
+                    </div>
                 }
-            </MudGrid>
+            </div>
         </MudCardContent>
     </MudCard>
-
-        @if (HasActivePosition)
-        {
-            <PositionPanel ViewModel="@ViewModel" />
-        }
 
     </MudStack>
 }
@@ -233,14 +235,10 @@ else
         padding: 24px;
     }
     .notes-panel {
-        height: 100%;
         padding: 16px;
         display: flex;
         flex-direction: column;
         gap: 12px;
-    }
-    .notes-panel .mud-input-root {
-        flex: 1;
     }
     .position-summary-row {
         flex-wrap: wrap;
@@ -249,8 +247,25 @@ else
     .position-content {
         padding-top: 8px;
     }
+    .position-desktop-shell {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+    .position-chart-column,
+    .position-details-column {
+        min-width: 0;
+    }
+    .position-details-column {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
     .chart-surface {
         padding: 16px;
+    }
+    .position-panel-surface {
+        padding: 0;
     }
     .chart-controls-row {
         flex-wrap: wrap;
@@ -266,6 +281,29 @@ else
         right: 10px;
         bottom: 10px;
         z-index: 2;
+    }
+    @@media (min-width: 961px) {
+        .position-desktop-shell {
+            flex-direction: row;
+            align-items: stretch;
+            gap: 16px;
+        }
+        .position-chart-column {
+            flex: 0 0 48%;
+            width: 48%;
+            position: sticky;
+            top: 72px;
+            align-self: flex-start;
+        }
+        .position-details-column {
+            flex: 1 1 auto;
+            height: calc(100vh - 140px);
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+        .chart-surface {
+            z-index: 10;
+        }
     }
     @@media (max-width: 600px) {
         .position-title {
@@ -310,16 +348,14 @@ else
             padding-left: 0;
             padding-right: 0;
         }
-        .position-grid {
-            margin-left: 0;
-            margin-right: 0;
-        }
-        .position-grid > .mud-grid-item {
-            padding-left: 0;
-            padding-right: 0;
+        .position-desktop-shell {
+            gap: 8px;
         }
         .notes-panel {
             padding: 12px;
+        }
+        .chart-surface {
+            position: static;
         }
     }
 </style>

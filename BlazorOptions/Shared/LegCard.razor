@@ -2,53 +2,57 @@
 @using BlazorOptions.ViewModels
 @using MudBlazor
 @inject IDialogService DialogService
+@inject INavigationService NavigationService
 
 <MudPaper Elevation="1" Class="@GetCardClass()">
     <MudStack Spacing="1">
-        <MudStack Row="true" AlignItems="AlignItems.Start" Spacing="1">
-            <MudStack Spacing="0">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                    <MudText Typo="Typo.caption" Class="leg-card-symbol">@GetSymbolLabel()</MudText>
-                    <MudChip T="string"
-                             Variant="Variant.Outlined"
-                             Size="Size.Small"
-                             Color="@ResolveStatusColor(ViewModel.Leg.Status)"
-                             Class="leg-status-chip">
-                        @ResolveStatusLabel(ViewModel.Leg.Status)
-                    </MudChip>
-                    @if (ViewModel.Leg.Status == LegStatus.Missing)
-                    {
-                        <MudTooltip Text="@ViewModel.StatusMessage">
-                            <MudIcon Icon="@Icons.Material.Filled.ReportProblem"
-                                     Color="Color.Warning"
-                                     Size="Size.Small"
-                                     Class="leg-card-warning" />
-                        </MudTooltip>
-                    }
-                </MudStack>
-                <MudText Typo="Typo.subtitle2">@BuildLegSummary()</MudText>
-                <MudText Typo="Typo.overline" Class="leg-card-subtitle">@BuildLegSubtitle()</MudText>
-            </MudStack>
-            <MudSpacer />
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
             <MudCheckBox T="bool"
                          Value="@ViewModel.Leg.IsIncluded"
                          ValueChanged="ViewModel.UpdateLegIncludedAsync"
                          Color="Color.Primary"
                          Class="leg-card-include" />
+            <MudText Typo="Typo.subtitle2">@BuildLegSummary()</MudText>
+            <MudSpacer />
+            <MudChip T="string"
+                     Variant="Variant.Outlined"
+                     Size="Size.Small"
+                     Color="@ResolveStatusColor(ViewModel.Leg.Status)"
+                     Class="leg-status-chip">
+                @ResolveStatusLabel(ViewModel.Leg.Status)
+            </MudChip>
+            @if (ViewModel.Leg.Status == LegStatus.Missing)
+            {
+                <MudTooltip Text="@ViewModel.StatusMessage">
+                    <MudIcon Icon="@Icons.Material.Filled.ReportProblem"
+                             Color="Color.Warning"
+                             Size="Size.Small"
+                             Class="leg-card-warning" />
+                </MudTooltip>
+            }
         </MudStack>
+        <MudText Typo="Typo.overline" Class="leg-card-subtitle">@BuildLegSubtitle()</MudText>
         <table class="leg-price-table">
+            <thead>
+                <tr class="leg-price-header-row">
+                    <th></th>
+                    <th>Price</th>
+                    <th>IV</th>
+                    <th>Volume</th>
+                </tr>
+            </thead>
             <tbody>
                 <tr>
                     <td>Entry</td>
                     <td>@FormatPrice(GetDisplayPrice())</td>
-                    <td>IV: @(ViewModel.Leg.Type == LegType.Future ? "-" : FormatIv(ViewModel.Leg.ImpliedVolatility))</td>
-                    <td>Value: @FormatPrice(CalculateValue(GetDisplayPrice(), ViewModel.Leg.Size))</td>
+                    <td>@(ViewModel.Leg.Type == LegType.Future ? "-" : FormatIv(ViewModel.Leg.ImpliedVolatility))</td>
+                    <td>@FormatPrice(CalculateValue(GetDisplayPrice(), ViewModel.Leg.Size))</td>
                 </tr>
                 <tr>
                     <td>Mark</td>
                     <td>@FormatPrice(ViewModel.MarkPrice)</td>
-                    <td>IV: @(ViewModel.Leg.Type == LegType.Future ? "-" : FormatIv(ViewModel.ChainIv ?? ViewModel.Leg.ImpliedVolatility))</td>
-                    <td>Value: @FormatPrice(CalculateValue(ViewModel.MarkPrice, ViewModel.Leg.Size))</td>
+                    <td>@(ViewModel.Leg.Type == LegType.Future ? "-" : FormatIv(ViewModel.ChainIv ?? ViewModel.Leg.ImpliedVolatility))</td>
+                    <td>@FormatPrice(CalculateValue(ViewModel.MarkPrice, ViewModel.Leg.Size))</td>
                 </tr>
             </tbody>
         </table>
@@ -79,30 +83,28 @@
         @if (ViewModel.LinkedOrders.Count > 0)
         {
             <div class="leg-mini-divider"><span>Orders</span></div>
-            <MudDivider Class="leg-orders-divider" />
             <MudStack Spacing="1" Class="leg-orders-list">
                 @foreach (var order in ViewModel.LinkedOrders)
                 {
                     <MudChip T="string"
                              Variant="@(order.IsActivated ? Variant.Filled : Variant.Outlined)"
-                             Size="Size.Small"
+                             Size="Size.Small" Label="true"
                              Color="@ResolvePnlColor(order.ExpectedPnl)"
                              OnClick="@(() => ToggleLinkedOrder(order.OrderId))"
                              Class="leg-linked-order-chip">
-                        @BuildLinkedOrderPrefix(order) @@ @FormatPrice(order.Price)
-                        @if (order.NewAverageEntryPrice.HasValue)
-                        {
-                            <span> | New Avg: @FormatPrice(order.NewAverageEntryPrice)</span>
-                        }
-                        else
-                        {
-                            <span> | Exp P/L: @FormatPrice(order.ExpectedPnl)</span>
-                        }
+                        <span class="linked-order-text">@BuildLinkedOrderText(order)</span>
                     </MudChip>
                 }
             </MudStack>
         }
         <MudStack Row="true" AlignItems="AlignItems.Center" Class="leg-card-actions">
+            <MudLink Typo="Typo.caption"
+                     Color="Color.Info"
+                     Underline="Underline.Hover"
+                     OnClick="OpenSymbolOrdersDialogAsync"
+                     Class="leg-symbol-link">
+                @GetSymbolLabel()
+            </MudLink>
             <MudSpacer />
             @if (!ViewModel.Leg.IsReadOnly)
             {
@@ -203,7 +205,7 @@
     private string BuildLinkedOrderPrefix(LegLinkedOrderModel order)
     {
         var sideSign = string.Equals(order.Side, "Sell", StringComparison.OrdinalIgnoreCase) ? "-" : "+";
-        var kind = string.IsNullOrWhiteSpace(order.OrderKind) ? "Cond " : $"{order.OrderKind} ";
+        var kind = $"{order.OrderKind} ".TrimStart();
         var type = ViewModel.Leg.Type switch
         {
             LegType.Call => "C",
@@ -213,18 +215,38 @@
 
         if (ViewModel.Leg.Type == LegType.Future)
         {
-            return $"Order {kind}{sideSign}{order.Quantity:0.####} {type}";
+            return $"{kind}{sideSign}{order.Quantity:0.####} {type}";
         }
 
         var strike = ViewModel.Leg.Strike.HasValue
             ? Math.Round(ViewModel.Leg.Strike.Value).ToString("0", CultureInfo.InvariantCulture)
             : "ATM";
-        return $"Order {kind}{sideSign}{order.Quantity:0.####} {type} {strike}";
+        return $"{kind}{sideSign}{order.Quantity:0.####} {type} {strike}";
     }
 
     private void ToggleLinkedOrder(string orderId)
     {
         ViewModel.ToggleLinkedOrderActivation(orderId);
+    }
+
+    private async Task OpenSymbolOrdersDialogAsync()
+    {
+        var symbol = ViewModel.Leg.Symbol?.Trim();
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return;
+        }
+
+        await NavigationService.NavigateToAsync<TradingSymbolDialogViewModel>(
+            vm => vm.LoadAsync(symbol, null, null));
+    }
+
+    private string BuildLinkedOrderText(LegLinkedOrderModel order)
+    {
+        var text = $"{BuildLinkedOrderPrefix(order)} @ {FormatPrice(order.Price)}";
+        return order.NewAverageEntryPrice.HasValue
+            ? $"{text} | Avg: {FormatPrice(order.NewAverageEntryPrice)}"
+            : $"{text} | P/L: {FormatPrice(order.ExpectedPnl)}";
     }
 
     private string GetCardClass()
@@ -350,37 +372,73 @@
     .leg-card-actions {
         margin-top: 2px;
     }
+    .leg-symbol-link {
+        max-width: calc(100% - 36px);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 0.72rem;
+        letter-spacing: 0.02em;
+    }
     .leg-price-table {
-        width: auto;
+        width: 100%;
         border-collapse: collapse;
+        table-layout: fixed;
         font-size: 0.75rem;
         line-height: 1.2;
-        display: inline-table;
-        max-width: 100%;
     }
+    .leg-price-table th,
     .leg-price-table td {
         padding: 1px 8px 1px 0;
         white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .leg-price-table th {
+        font-size: 0.58rem;
+        line-height: 1;
+        font-weight: 500;
+        letter-spacing: 0.03em;
+        opacity: 0.32;
+        color: rgba(255, 255, 255, 0.75);
+        text-align: right;
+        padding-bottom: 3px;
+    }
+    .leg-price-header-row th:first-child {
+        width: 34px;
+        padding-right: 2px;
+        text-align: left;
     }
     .leg-price-table td:first-child {
-        width: 40px;
+        width: 34px;
+        padding-right: 2px;
         color: rgba(255, 255, 255, 0.8);
     }
-
-    .leg-orders-divider {
-        margin-top: 2px;
-        margin-bottom: 2px;
+    .leg-price-table td:nth-child(2),
+    .leg-price-table td:nth-child(3),
+    .leg-price-table td:nth-child(4) {
+        text-align: right;
     }
 
+  
     .leg-orders-list {
-        max-height: 88px;
-        overflow-y: auto;
-        padding-right: 2px;
+        max-height: none;
+        overflow-y: visible;
+        overflow-x: hidden;
+        padding-right: 0;
     }
 
     .leg-linked-order-chip {
+        height: auto;
+        justify-content: flex-start;
+    }
+
+    .linked-order-text {
+        display: block;
         max-width: 100%;
-        width: fit-content;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        line-height: 1.2;
     }
 </style>
 
