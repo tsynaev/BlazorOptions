@@ -32,6 +32,7 @@ public sealed class PositionViewModel : IDisposable
     private readonly ClosedPositionsViewModelFactory _closedPositionsFactory;
     private readonly INotifyUserService _notifyUserService;
     private readonly IExchangeService _exchangeService;
+    private readonly BlackScholes _blackScholes;
     private decimal? _currentPrice;
     private DateTime _valuationDate = DateTime.UtcNow;
     private decimal? _selectedPrice;
@@ -74,7 +75,8 @@ public sealed class PositionViewModel : IDisposable
         LegsCollectionViewModelFactory collectionFactory,
         ClosedPositionsViewModelFactory closedPositionsFactory,
         INotifyUserService notifyUserService,
-        IExchangeService exchangeService)
+        IExchangeService exchangeService,
+        BlackScholes blackScholes)
     {
         _optionsService = optionsService;
         _positionsPort = positionsPort;
@@ -82,6 +84,7 @@ public sealed class PositionViewModel : IDisposable
         _closedPositionsFactory = closedPositionsFactory;
         _notifyUserService = notifyUserService;
         _exchangeService = exchangeService;
+        _blackScholes = blackScholes;
        
   
     }
@@ -1084,32 +1087,58 @@ public sealed class PositionViewModel : IDisposable
         ChartSelectedPrice = displayPrice.HasValue ? (double)displayPrice.Value : null;
     }
 
-    private static bool TryCreateOrderMarker(LegViewModel leg, string color, out PriceMarker marker)
+    private bool TryCreateOrderMarker(LegViewModel leg, string color, out PriceMarker marker)
     {
         marker = default!;
 
-        var price = leg.Leg.Type == LegType.Future
-            ? leg.Leg.Price
-            : leg.Leg.Strike;
+        decimal? price;
+        if (leg.Leg.Type == LegType.Future)
+        {
+            price = leg.Leg.Price;
+        }
+        else
+        {
+            price = ResolveUnderlyingPriceForOptionPrice(leg, leg.Leg.Price);
+        }
 
         if (!price.HasValue)
         {
             return false;
         }
 
+        var signedSide = leg.Leg.Size < 0 ? "-" : "+";
         var size = Math.Abs(leg.Leg.Size);
-        var shortDirection = leg.Leg.Size >= 0 ? "B" : "S";
-        marker = new PriceMarker((double)price.Value, $"O {shortDirection}{size:0.##}", color);
+        var orderPriceText = leg.Leg.Price.HasValue ? leg.Leg.Price.Value.ToString("0.#", CultureInfo.InvariantCulture) : "mkt";
+        var legTypeText = leg.Leg.Type switch
+        {
+            LegType.Call => "C",
+            LegType.Put => "P",
+            _ => "F"
+        };
+        var legStrikeText = leg.Leg.Type == LegType.Future
+            ? "-"
+            : (leg.Leg.Strike.HasValue ? Math.Round(leg.Leg.Strike.Value).ToString("0", CultureInfo.InvariantCulture) : "ATM");
+
+        marker = new PriceMarker(
+            (double)price.Value,
+            $"{price.Value:0.#}: Order {signedSide}{size:0.##} {legTypeText} {legStrikeText} @{orderPriceText}",
+            color);
         return true;
     }
 
-    private static bool TryCreateLinkedOrderMarker(LegViewModel leg, LegLinkedOrderModel order, string fallbackColor, out PriceMarker marker)
+    private bool TryCreateLinkedOrderMarker(LegViewModel leg, LegLinkedOrderModel order, string fallbackColor, out PriceMarker marker)
     {
         marker = default!;
 
-        decimal? price = leg.Leg.Type == LegType.Future
-            ? order.Price ?? leg.Leg.Price
-            : leg.Leg.Strike;
+        decimal? price;
+        if (leg.Leg.Type == LegType.Future)
+        {
+            price = order.Price ?? leg.Leg.Price;
+        }
+        else
+        {
+            price = ResolveUnderlyingPriceForOptionPrice(leg, order.Price);
+        }
 
         if (!price.HasValue)
         {
@@ -1117,8 +1146,19 @@ public sealed class PositionViewModel : IDisposable
         }
 
         var pnlText = order.ExpectedPnl.HasValue ? order.ExpectedPnl.Value.ToString("0.#", CultureInfo.InvariantCulture) : "-";
-        var sideShort = string.Equals(order.Side, "Sell", StringComparison.OrdinalIgnoreCase) ? "S" : "B";
-        var kindPrefix = string.IsNullOrWhiteSpace(order.OrderKind) ? string.Empty : $"{order.OrderKind} ";
+        var avgText = order.NewAverageEntryPrice.HasValue ? order.NewAverageEntryPrice.Value.ToString("0.#", CultureInfo.InvariantCulture) : "-";
+        var signedSide = string.Equals(order.Side, "Sell", StringComparison.OrdinalIgnoreCase) ? "-" : "+";
+        var orderKind = NormalizeOrderKindForMarker(order.OrderKind);
+        var orderPriceText = order.Price.HasValue ? order.Price.Value.ToString("0.#", CultureInfo.InvariantCulture) : "mkt";
+        var legTypeText = leg.Leg.Type switch
+        {
+            LegType.Call => "C",
+            LegType.Put => "P",
+            _ => "F"
+        };
+        var legStrikeText = leg.Leg.Type == LegType.Future
+            ? "-"
+            : (leg.Leg.Strike.HasValue ? Math.Round(leg.Leg.Strike.Value).ToString("0", CultureInfo.InvariantCulture) : "ATM");
         var markerColor = order.ExpectedPnl switch
         {
             > 0m => "#2ECC71",
@@ -1128,9 +1168,107 @@ public sealed class PositionViewModel : IDisposable
 
         marker = new PriceMarker(
             (double)price.Value,
-            $"L {kindPrefix}{sideShort}{order.Quantity:0.##} PnL {pnlText}",
+            order.NewAverageEntryPrice.HasValue
+                ? $"{price.Value:0.#}: Order {orderKind} {signedSide}{order.Quantity:0.##} {legTypeText} {legStrikeText} @{orderPriceText} Avg:{avgText}"
+                : $"{price.Value:0.#}: Order {orderKind} {signedSide}{order.Quantity:0.##} {legTypeText} {legStrikeText} @{orderPriceText} PnL:{pnlText}",
             markerColor);
         return true;
+    }
+
+    private static string NormalizeOrderKindForMarker(string? orderKind)
+    {
+        if (string.IsNullOrWhiteSpace(orderKind))
+        {
+            return "Cond";
+        }
+
+        if (orderKind.Equals("Conditional", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Cond";
+        }
+
+        return orderKind;
+    }
+
+    private decimal? ResolveUnderlyingPriceForOptionPrice(LegViewModel leg, decimal? optionOrderPrice)
+    {
+        if (!optionOrderPrice.HasValue
+            || optionOrderPrice.Value <= 0
+            || !leg.Leg.Strike.HasValue
+            || !leg.Leg.ExpirationDate.HasValue)
+        {
+            return null;
+        }
+
+        // Use live chain IV first because marker should represent expected execution in current market context.
+        var iv = leg.ChainIv ?? leg.Leg.ImpliedVolatility;
+        if (!iv.HasValue || iv.Value <= 0)
+        {
+            return null;
+        }
+
+        var strike = leg.Leg.Strike.Value;
+        var expiry = leg.Leg.ExpirationDate.Value;
+        var targetPrice = optionOrderPrice.Value;
+        var isCall = leg.Leg.Type == LegType.Call;
+
+        var low = 0.01m;
+        var high = Math.Max(strike * 2m, 1m);
+        var fLow = EvaluateOptionPriceDiff(low, strike, iv.Value, expiry, isCall, targetPrice);
+        var fHigh = EvaluateOptionPriceDiff(high, strike, iv.Value, expiry, isCall, targetPrice);
+
+        for (var i = 0; i < 24 && fLow * fHigh > 0; i++)
+        {
+            high *= 2m;
+            fHigh = EvaluateOptionPriceDiff(high, strike, iv.Value, expiry, isCall, targetPrice);
+        }
+
+        if (fLow * fHigh > 0)
+        {
+            return null;
+        }
+
+        for (var i = 0; i < 64; i++)
+        {
+            var mid = (low + high) / 2m;
+            var fMid = EvaluateOptionPriceDiff(mid, strike, iv.Value, expiry, isCall, targetPrice);
+            if (Math.Abs(fMid) <= 0.0001m)
+            {
+                return Math.Round(mid, 2, MidpointRounding.ToEven);
+            }
+
+            if (fLow * fMid > 0)
+            {
+                low = mid;
+                fLow = fMid;
+            }
+            else
+            {
+                high = mid;
+            }
+        }
+
+        return Math.Round((low + high) / 2m, 2, MidpointRounding.ToEven);
+    }
+
+    private decimal EvaluateOptionPriceDiff(
+        decimal underlying,
+        decimal strike,
+        decimal ivPercent,
+        DateTime expiration,
+        bool isCall,
+        decimal targetPrice)
+    {
+        var calculated = _blackScholes.CalculatePriceDecimal(
+            underlying,
+            strike,
+            ivPercent,
+            expiration,
+            isCall,
+            ValuationDate,
+            round: 8);
+
+        return calculated - targetPrice;
     }
 
     private static IReadOnlyList<PayoffPoint> BuildPayoffPoints(IReadOnlyList<decimal> prices, IReadOnlyList<decimal> profits)

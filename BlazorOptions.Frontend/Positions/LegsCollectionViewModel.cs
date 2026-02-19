@@ -471,7 +471,13 @@ public sealed class LegsCollectionViewModel : IDisposable
 
         Collection.Legs.Add(leg);
         RemoveAvailableCandidate(candidate);
+        if (candidate.Kind == AvailableLegSourceKind.Position && !string.IsNullOrWhiteSpace(leg.Symbol))
+        {
+            // Once active leg is added, same-symbol order chips should be represented as linked orders on that leg.
+            RemoveOrderCandidatesForSymbol(leg.Symbol);
+        }
         SyncLegViewModels();
+        _ = UpdateLinkedOrdersForLegs();
         await RaiseUpdatedAsync(LegsCollectionUpdateKind.CollectionChanged);
         await RaiseUpdatedAsync(LegsCollectionUpdateKind.ViewModelDataUpdated);
     }
@@ -568,6 +574,22 @@ public sealed class LegsCollectionViewModel : IDisposable
         _availableLegCandidates = updated;
     }
 
+    private void RemoveOrderCandidatesForSymbol(string symbol)
+    {
+        if (_availableLegCandidates.Count == 0 || string.IsNullOrWhiteSpace(symbol))
+        {
+            return;
+        }
+
+        var normalized = symbol.Trim();
+        _availableLegCandidates = _availableLegCandidates
+            .Where(item =>
+                item.Kind != AvailableLegSourceKind.Order
+                || string.IsNullOrWhiteSpace(item.Symbol)
+                || !string.Equals(item.Symbol.Trim(), normalized, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
     private void AddAvailableCandidateFromRemovedLeg(LegModel leg)
     {
         if (!leg.IsReadOnly || string.IsNullOrWhiteSpace(leg.Symbol))
@@ -585,6 +607,11 @@ public sealed class LegsCollectionViewModel : IDisposable
         }
 
         if (kind == AvailableLegSourceKind.Order && !IsOrderStillOpenInCache(leg, cachedSnapshot?.Orders))
+        {
+            return;
+        }
+
+        if (kind == AvailableLegSourceKind.Order && IsOrderLinkedToActiveLeg(symbol))
         {
             return;
         }
@@ -1146,6 +1173,11 @@ public sealed class LegsCollectionViewModel : IDisposable
                 continue;
             }
 
+            if (IsOrderLinkedToActiveLeg(leg.Symbol))
+            {
+                continue;
+            }
+
             if (Collection.Legs.Any(item => item.Status == LegStatus.Order && string.Equals(item.Id, leg.Id, StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
@@ -1167,6 +1199,20 @@ public sealed class LegsCollectionViewModel : IDisposable
             .OrderBy(item => item.Kind)
             .ThenBy(item => item.Symbol, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private bool IsOrderLinkedToActiveLeg(string? symbol)
+    {
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return false;
+        }
+
+        var normalized = symbol.Trim();
+        return _legs.Any(item =>
+            item.Leg.Status == LegStatus.Active
+            && !string.IsNullOrWhiteSpace(item.Leg.Symbol)
+            && string.Equals(item.Leg.Symbol.Trim(), normalized, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool AreSameCandidates(IReadOnlyList<AvailableLegCandidate> left, IReadOnlyList<AvailableLegCandidate> right)

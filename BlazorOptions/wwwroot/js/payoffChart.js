@@ -301,7 +301,7 @@ function applyMarkers(instance) {
             lineStyle: { color: selectedColor, width: 1, type: 'solid' },
             label: {
                 show: true,
-                formatter: `Futures ${formatPrice(selected)}`,
+                formatter: `Futures ${formatOneDecimal(selected)}`,
                 rotate: 90,
                 position: 'insideEndTop',
                 color: selectedColor,
@@ -386,6 +386,14 @@ export function dispose(instanceId) {
     zr.off('touchend');
     instance.chart.dispose();
     instances.delete(instanceId);
+}
+
+function formatOneDecimal(value) {
+    if (!Number.isFinite(value)) {
+        return '0';
+    }
+
+    return Number(value).toFixed(1);
 }
 
 export function resetAutoScale(instanceId, resetXy, resetTime) {

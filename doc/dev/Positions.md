@@ -55,6 +55,9 @@ Route: `/position/{positionId}`
 
 - Order legs: compact order markers.
 - Linked orders: compact markers with expected P/L and sign-based color.
+- Linked order marker text switches by scenario:
+- closing/reducing order => `PnL`
+- opening/increasing order => projected `Avg` entry
 - Selected price marker is `null` when no selected/live price is available.
 
 ## Linked Order Projection
@@ -65,3 +68,5 @@ Route: `/position/{positionId}`
 - `TP` from `stopOrderType` containing `TakeProfit`
 - `SL` from `stopOrderType` containing `StopLoss`/`Stop`
 - `Conditional` when order status is `Untriggered` and no TP/SL tag is present
+- Open-order chips are suppressed when the same order is already represented as a linked order on an active leg.
+- Option linked-order markers on payoff chart use an implied underlying-price solve (Black-Scholes inversion) from order option price.
