@@ -36,15 +36,22 @@
                          Color="Color.Primary"
                          Class="leg-card-include" />
         </MudStack>
-        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-            <MudText Typo="Typo.caption">
-                Price: @FormatPrice(GetDisplayPrice())
-            </MudText>
-            <MudText Typo="Typo.caption">
-                Value: @FormatPrice(CalculateValue(GetDisplayPrice(), ViewModel.Leg.Size))
-            </MudText>
-          
-        </MudStack>
+        <table class="leg-price-table">
+            <tbody>
+                <tr>
+                    <td>Entry</td>
+                    <td>@FormatPrice(GetDisplayPrice())</td>
+                    <td>IV: @(ViewModel.Leg.Type == LegType.Future ? "-" : FormatIv(ViewModel.Leg.ImpliedVolatility))</td>
+                    <td>Value: @FormatPrice(CalculateValue(GetDisplayPrice(), ViewModel.Leg.Size))</td>
+                </tr>
+                <tr>
+                    <td>Mark</td>
+                    <td>@FormatPrice(ViewModel.MarkPrice)</td>
+                    <td>IV: @(ViewModel.Leg.Type == LegType.Future ? "-" : FormatIv(ViewModel.ChainIv ?? ViewModel.Leg.ImpliedVolatility))</td>
+                    <td>Value: @FormatPrice(CalculateValue(ViewModel.MarkPrice, ViewModel.Leg.Size))</td>
+                </tr>
+            </tbody>
+        </table>
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
             <MudText Typo="Typo.caption" Color="@(ViewModel.PnL >= 0 ? Color.Success : Color.Error)">
                 P/L: @FormatPrice(ViewModel.PnL)
@@ -53,16 +60,6 @@
             {
                 <MudText Typo="Typo.caption">
                     (@($"{ViewModel.PnLPercent.Value:0.00}%"))
-                </MudText>
-            }
-            @if (!ViewModel.IsLive && ViewModel.MarkPrice.HasValue)
-            {
-                <MudText Typo="Typo.caption">
-                    Mark: @FormatPrice(ViewModel.MarkPrice) 
-                    @if (ViewModel.Leg.Type != LegType.Future)
-                    {                       
-                        <span class="ml-2">(IV: @FormatIv(ViewModel.Leg.ImpliedVolatility ?? ViewModel.ChainIv))</span>
-                    }
                 </MudText>
             }
             @if (ViewModel.IsLive && (ViewModel.Bid.HasValue || ViewModel.Ask.HasValue))
@@ -74,12 +71,14 @@
         </MudStack>
         @if (ViewModel.Leg.Type != LegType.Future)
         {
+            <div class="leg-mini-divider"><span>Greeks</span></div>
             <MudText Typo="Typo.caption" Class="leg-card-greeks">
                 Δ @FormatGreek(ViewModel.Delta) · Γ @FormatGreek(ViewModel.Gamma) · ν @FormatGreek(ViewModel.Vega) · Θ @FormatGreek(ViewModel.Theta)
             </MudText>
         }
         @if (ViewModel.LinkedOrders.Count > 0)
         {
+            <div class="leg-mini-divider"><span>Orders</span></div>
             <MudDivider Class="leg-orders-divider" />
             <MudStack Spacing="1" Class="leg-orders-list">
                 @foreach (var order in ViewModel.LinkedOrders)
@@ -288,6 +287,25 @@
         opacity: 0.8;
     }
 
+    .leg-mini-divider {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.58rem;
+        line-height: 1;
+        opacity: 0.32;
+        letter-spacing: 0.03em;
+        margin-top: 2px;
+        margin-bottom: 1px;
+    }
+
+    .leg-mini-divider::after {
+        content: "";
+        flex: 1;
+        border-top: 1px solid rgba(255, 255, 255, 0.2);
+        transform: translateY(1px);
+    }
+
     .leg-card-icon .mud-icon-button {
         padding: 4px;
     }
@@ -303,6 +321,22 @@
 
     .leg-card-actions {
         margin-top: 2px;
+    }
+    .leg-price-table {
+        width: auto;
+        border-collapse: collapse;
+        font-size: 0.75rem;
+        line-height: 1.2;
+        display: inline-table;
+        max-width: 100%;
+    }
+    .leg-price-table td {
+        padding: 1px 8px 1px 0;
+        white-space: nowrap;
+    }
+    .leg-price-table td:first-child {
+        width: 40px;
+        color: rgba(255, 255, 255, 0.8);
     }
 
     .leg-orders-divider {
@@ -321,3 +355,7 @@
         width: fit-content;
     }
 </style>
+
+
+
+
