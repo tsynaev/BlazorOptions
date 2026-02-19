@@ -90,7 +90,14 @@
                              Color="@ResolvePnlColor(order.ExpectedPnl)"
                              Class="leg-linked-order-chip">
                         @order.Side @order.Quantity.ToString("0.####", CultureInfo.InvariantCulture) @@ @FormatPrice(order.Price)
-                        | Exp P/L: @FormatPrice(order.ExpectedPnl)
+                        @if (order.NewAverageEntryPrice.HasValue)
+                        {
+                            <span> | New Avg: @FormatPrice(order.NewAverageEntryPrice)</span>
+                        }
+                        else
+                        {
+                            <span> | Exp P/L: @FormatPrice(order.ExpectedPnl)</span>
+                        }
                     </MudChip>
                 }
             </MudStack>

@@ -56,3 +56,8 @@ Route: `/position/{positionId}`
 - Order legs: compact order markers.
 - Linked orders: compact markers with expected P/L and sign-based color.
 - Selected price marker is `null` when no selected/live price is available.
+
+## Linked Order Projection
+
+- Opposite-side linked orders show expected closing P/L contribution.
+- Same-side linked orders show projected weighted average entry after execution.

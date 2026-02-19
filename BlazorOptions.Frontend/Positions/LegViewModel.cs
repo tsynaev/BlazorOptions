@@ -775,8 +775,9 @@ public sealed class LegViewModel : IDisposable
             {
                 var qty = Math.Abs(order.Qty);
                 var expectedPnl = ResolveExpectedPnlForOrder(order);
+                var newAverageEntryPrice = ResolveExpectedAverageEntryPriceForOrder(order);
                 var id = string.IsNullOrWhiteSpace(order.OrderId) ? symbol : order.OrderId.Trim();
-                return new LegLinkedOrderModel(id, order.Side, qty, order.Price, expectedPnl);
+                return new LegLinkedOrderModel(id, order.Side, qty, order.Price, expectedPnl, newAverageEntryPrice);
             })
             .OrderBy(order => order.Side, StringComparer.OrdinalIgnoreCase)
             .ThenBy(order => order.OrderId, StringComparer.OrdinalIgnoreCase)
@@ -814,6 +815,37 @@ public sealed class LegViewModel : IDisposable
         var pnlPerUnit = order.Price.Value - Leg.Price.Value;
         var legSide = Math.Sign(Leg.Size);
         return pnlPerUnit * closeQty * legSide;
+    }
+
+    private decimal? ResolveExpectedAverageEntryPriceForOrder(ExchangeOrder order)
+    {
+        if (!order.Price.HasValue || !Leg.Price.HasValue)
+        {
+            return null;
+        }
+
+        var orderSignedSize = DetermineSignedSize(order);
+        var currentSize = Leg.Size;
+        if (Math.Abs(orderSignedSize) < 0.0001m || Math.Abs(currentSize) < 0.0001m)
+        {
+            return null;
+        }
+
+        // Only same-side orders increase the existing position and change weighted entry.
+        if (Math.Sign(orderSignedSize) != Math.Sign(currentSize))
+        {
+            return null;
+        }
+
+        var currentAbs = Math.Abs(currentSize);
+        var addAbs = Math.Abs(orderSignedSize);
+        var total = currentAbs + addAbs;
+        if (total < 0.0001m)
+        {
+            return null;
+        }
+
+        return ((Leg.Price.Value * currentAbs) + (order.Price.Value * addAbs)) / total;
     }
 
     private static decimal DetermineSignedSize(ExchangeOrder order)
@@ -854,7 +886,8 @@ public sealed class LegViewModel : IDisposable
                 || !string.Equals(l.Side, r.Side, StringComparison.OrdinalIgnoreCase)
                 || l.Quantity != r.Quantity
                 || l.Price != r.Price
-                || l.ExpectedPnl != r.ExpectedPnl)
+                || l.ExpectedPnl != r.ExpectedPnl
+                || l.NewAverageEntryPrice != r.NewAverageEntryPrice)
             {
                 return false;
             }

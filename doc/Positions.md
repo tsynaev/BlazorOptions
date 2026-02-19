@@ -20,6 +20,7 @@ The Positions page is where you manage one position at a time and review its pay
 - Include closed symbols and shift chart by closed net P/L when needed.
 - See payoff curve, order markers, linked-order markers, and optional candles.
 - Review per-leg P/L, IV, Greeks, and linked-order expected P/L.
+- For same-side linked orders, the card also shows the expected new average entry price after execution.
 
 ## Chart And Controls
 

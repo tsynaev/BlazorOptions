@@ -5,5 +5,5 @@ public sealed record LegLinkedOrderModel(
     string Side,
     decimal Quantity,
     decimal? Price,
-    decimal? ExpectedPnl);
-
+    decimal? ExpectedPnl,
+    decimal? NewAverageEntryPrice);
