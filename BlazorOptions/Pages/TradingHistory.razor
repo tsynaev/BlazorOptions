@@ -234,7 +234,7 @@
                                 <MudStack Spacing="2">
                                     @foreach (var row in ViewModel.GetSummaryBySymbol())
                                     {
-                                        <MudPaper Elevation="0" Class="pa-3 th-mobile-entry" @key="row.Symbol">
+                                        <MudPaper Elevation="0" Class="pa-3 th-mobile-entry" @key="BuildSummaryRowKey(row)">
                                             <MudText Typo="Typo.caption" Color="Color.Secondary">@row.GroupKey</MudText>
                                             <MudText Typo="Typo.subtitle2">
                                                 <MudLink OnClick="@(() => OpenSymbolDialogAsync(row.Symbol, row.Category))">@row.Symbol</MudLink>
@@ -404,6 +404,11 @@
     private static string FormatValue(decimal qty, decimal price)
     {
         return (qty * price).ToString("0.##########", CultureInfo.InvariantCulture);
+    }
+
+    private static string BuildSummaryRowKey(TradingSummaryRow row)
+    {
+        return $"{row.GroupKey}|{row.Symbol}|{row.Category}";
     }
 
     private readonly TableGroupDefinition<TradingSummaryRow> _summaryGroupDefinition =
