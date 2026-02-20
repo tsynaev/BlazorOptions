@@ -12,6 +12,7 @@
                          ValueChanged="ViewModel.UpdateLegIncludedAsync"
                          Color="Color.Primary"
                          Class="leg-card-include" />
+            <MudText Typo="Typo.subtitle2" Color="@ResolveSideColor()">@ResolveSideLabel()</MudText>
             <MudText Typo="Typo.subtitle2">@BuildLegSummary()</MudText>
             <MudSpacer />
             <MudChip T="string"
@@ -165,18 +166,27 @@
 
     private string BuildLegSummary()
     {
-        var direction = ViewModel.Leg.Size >= 0 ? "Buy" : "Sell";
         var typeLabel = ViewModel.Leg.Type.ToString().ToUpperInvariant();
         var size = Math.Abs(ViewModel.Leg.Size);
         if (ViewModel.Leg.Type == LegType.Future)
         {
-            return $"{direction} {size:0.##} {typeLabel}";
+            return $"{size:0.##} {typeLabel}";
         }
 
         var strike = ViewModel.Leg.Strike.HasValue
             ? Math.Round(ViewModel.Leg.Strike.Value).ToString("0", CultureInfo.InvariantCulture)
             : "ATM";
-        return $"{direction} {size:0.##} {typeLabel} {strike}";
+        return $"{size:0.##} {typeLabel} {strike}";
+    }
+
+    private string ResolveSideLabel()
+    {
+        return ViewModel.Leg.Size >= 0 ? "Long" : "Short";
+    }
+
+    private Color ResolveSideColor()
+    {
+        return ViewModel.Leg.Size >= 0 ? Color.Success : Color.Error;
     }
 
     private string BuildLegSubtitle()
