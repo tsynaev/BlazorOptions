@@ -1,3 +1,27 @@
+:root {
+    --app-font-family: "IBM Plex Sans", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+html,
+body,
+button,
+input,
+textarea,
+select {
+    font-family: var(--app-font-family);
+}
+
+.mud-typography,
+.mud-button-root,
+.mud-input-root,
+.mud-chip,
+.mud-table-root,
+.mud-nav-link,
+.mud-tab,
+.mud-list-item {
+    font-family: var(--app-font-family) !important;
+}
+
 .valid.modified:not([type=checkbox]) {
     outline: 1px solid #26b050;
 }
