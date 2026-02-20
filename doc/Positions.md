@@ -13,6 +13,7 @@ The Positions page is where you manage one position at a time and review its pay
 - Manage multiple portfolios (collections) inside one position.
 - Add legs manually, with quick add, from active exchange positions, or from open orders.
 - When an active position chip is added as a leg, same-symbol open orders are automatically attached as linked orders to that leg.
+- If only a `New` leg exists for a symbol, same-symbol exchange orders stay as separate order chips (they are not auto-linked to the `New` leg).
 - Track leg statuses:
 - `New`: local editable leg
 - `Order`: open exchange order
@@ -22,6 +23,7 @@ The Positions page is where you manage one position at a time and review its pay
 - See payoff curve, order markers, linked-order markers, and optional candles.
 - Order markers show order average price (`@price`) and option-order markers are placed at implied underlying execution level.
 - Review per-leg P/L, IV, Greeks, and linked-order expected P/L.
+- `Order` status legs display current market mark values in the card.
 - For same-side linked orders, the card also shows the expected new average entry price after execution.
 - Linked orders are labeled by kind when available: `TP`, `SL`, or `Conditional`.
 - Linked order chips can be toggled to simulate execution; chart and leg P/L use only activated linked orders.

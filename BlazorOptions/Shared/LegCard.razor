@@ -59,7 +59,7 @@
         </table>
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
             <MudText Typo="Typo.caption" Color="@(ViewModel.PnL >= 0 ? Color.Success : Color.Error)">
-                P/L: @FormatPrice(ViewModel.PnL)
+                @(ViewModel.Leg.Status == LegStatus.Order ? "Diff" : "P/L"): @FormatPrice(ViewModel.PnL)
             </MudText>
             @if (ViewModel.PnLPercent.HasValue)
             {

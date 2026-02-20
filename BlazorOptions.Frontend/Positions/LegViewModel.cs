@@ -1278,11 +1278,6 @@ public sealed class LegViewModel : IDisposable
             return ResolveMarkPriceFromMissingRealized();
         }
 
-        if (Leg.Status == LegStatus.Order)
-        {
-            return ResolveOrderExecutionMarkPrice();
-        }
-
         if (Leg.Type == LegType.Future)
         {
             return liveUnderlyingPrice ?? _currentPrice;
@@ -1327,7 +1322,8 @@ public sealed class LegViewModel : IDisposable
 
         if (Leg.Status == LegStatus.Order)
         {
-            return ResolveOrderExecutionMarkPrice();
+            // Order legs should display current market mark, not execution-derived synthetic mark.
+            return ResolveLiveMarkPrice();
         }
 
         if (Leg.Type == LegType.Future)

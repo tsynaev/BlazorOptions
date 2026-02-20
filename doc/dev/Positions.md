@@ -42,6 +42,7 @@ Route: `/position/{positionId}`
 - If an order disappears and a matching position appears, the leg becomes `Active`.
 - Active position sync is processed separately from order sync to avoid status crossover.
 - Closed active positions are copied to closed positions, then marked `Missing` and excluded in active legs.
+- Same-symbol open orders are auto-linked only to `Active` legs; `New` legs do not consume order chips.
 
 ## Chart Behavior
 
@@ -71,3 +72,4 @@ Route: `/position/{positionId}`
 - `Conditional` when order status is `Untriggered` and no TP/SL tag is present
 - Open-order chips are suppressed when the same order is already represented as a linked order on an active leg.
 - Option linked-order markers on payoff chart use an implied underlying-price solve (Black-Scholes inversion) from order option price.
+- `Order` status leg cards show live/current market mark values (not execution-derived synthetic marks).

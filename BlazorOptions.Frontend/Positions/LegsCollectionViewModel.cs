@@ -1164,9 +1164,9 @@ public sealed class LegsCollectionViewModel : IDisposable
                 continue;
             }
 
-            // If order is already shown inside an existing leg (same symbol), do not duplicate it as a chip.
+            // Keep order chips visible for new/manual legs; hide only when an active leg already links that symbol.
             if (Collection.Legs.Any(item =>
-                    item.Status != LegStatus.Order
+                    item.Status == LegStatus.Active
                     && !string.IsNullOrWhiteSpace(item.Symbol)
                     && string.Equals(item.Symbol.Trim(), leg.Symbol.Trim(), StringComparison.OrdinalIgnoreCase)))
             {
