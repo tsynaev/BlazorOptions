@@ -22,6 +22,7 @@ builder.Services.AddHttpClient("App", client =>
     client.BaseAddress = new Uri(builder.HostEnvironment.BaseAddress);
 }).AddHttpMessageHandler<DeviceIdHeaderHandler>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<IHttpClientFactory>().CreateClient("App"));
+builder.Services.AddHttpClient("External");
 
 // register the options helper/service used by the chart page
 builder.Services.AddSingleton<BlackScholes>();
@@ -60,6 +61,7 @@ builder.Services.AddScoped<MainLayoutViewModel>();
 builder.Services.AddTransient<AccountSettingsViewModel>();
 builder.Services.AddTransient<BybitSettingsViewModel>();
 builder.Services.AddScoped<HomeDashboardViewModel>();
+builder.Services.AddScoped<DvolIndexService>();
 builder.Services.AddTransient<PositionViewModel>();
 builder.Services.AddScoped<INotifyUserService, NotifyUserService>();
 builder.Services.AddScoped<LegsCollectionViewModelFactory>();

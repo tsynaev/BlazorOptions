@@ -11,6 +11,7 @@ public sealed class HomeDashboardViewModel : Bindable
     private readonly IExchangeService _exchangeService;
     private readonly ILocalStorageService _localStorageService;
     private readonly INavigationService _navigationService;
+    private readonly DvolIndexService _dvolIndexService;
     private bool _isLoading;
     private string? _errorMessage;
     private IReadOnlyList<HomePositionCardModel> _positions = Array.Empty<HomePositionCardModel>();
@@ -23,13 +24,15 @@ public sealed class HomeDashboardViewModel : Bindable
         OptionsService optionsService,
         IExchangeService exchangeService,
         ILocalStorageService localStorageService,
-        INavigationService navigationService)
+        INavigationService navigationService,
+        DvolIndexService dvolIndexService)
     {
         _positionsPort = positionsPort;
         _optionsService = optionsService;
         _exchangeService = exchangeService;
         _localStorageService = localStorageService;
         _navigationService = navigationService;
+        _dvolIndexService = dvolIndexService;
     }
 
     public bool IsLoading
@@ -86,6 +89,7 @@ public sealed class HomeDashboardViewModel : Bindable
                 .ToArray();
             SetCards(cards);
             _ = WarmUpChartsAsync(models, pricesBySymbol, _chartLoadCts.Token);
+            _ = WarmUpDvolAsync(_chartLoadCts.Token);
         }
         catch (Exception ex)
         {
@@ -568,11 +572,20 @@ public sealed class HomeDashboardViewModel : Bindable
 
     private void SetCards(IReadOnlyList<HomePositionCardModel> cards)
     {
+        var existingDvolByGroup = Groups
+            .ToDictionary(group => group.AssetPair, group => group.DvolChart, StringComparer.OrdinalIgnoreCase);
+
         Positions = cards;
         Groups = cards
             .GroupBy(card => card.AssetPair, StringComparer.OrdinalIgnoreCase)
             .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
-            .Select(group => new HomePositionGroupModel(group.Key, group.ToArray()))
+            .Select(group =>
+            {
+                var dvol = existingDvolByGroup.TryGetValue(group.Key, out var existing)
+                    ? existing
+                    : HomeDvolChartModel.Loading(ResolveBaseAsset(group.Key));
+                return new HomePositionGroupModel(group.Key, group.ToArray(), dvol);
+            })
             .ToArray();
     }
 
@@ -592,6 +605,92 @@ public sealed class HomeDashboardViewModel : Bindable
 
         cards[index] = updatedCard;
         SetCards(cards);
+    }
+
+    private async Task WarmUpDvolAsync(CancellationToken cancellationToken)
+    {
+        var groups = Groups.ToArray();
+        foreach (var group in groups)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            var baseAsset = ResolveBaseAsset(group.AssetPair);
+            if (string.IsNullOrWhiteSpace(baseAsset))
+            {
+                ReplaceGroupDvol(group.AssetPair, HomeDvolChartModel.Unavailable(string.Empty));
+                continue;
+            }
+
+            var cachedChart = await _dvolIndexService.LoadCachedAsync(baseAsset);
+            if (cachedChart is not null)
+            {
+                ReplaceGroupDvol(group.AssetPair, BuildDvolModel(cachedChart));
+            }
+
+            var chart = await _dvolIndexService.RefreshChartAsync(baseAsset, cancellationToken);
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            if (chart is null || chart.Candles.Count == 0)
+            {
+                if (cachedChart is null)
+                {
+                    ReplaceGroupDvol(group.AssetPair, HomeDvolChartModel.Unavailable(baseAsset));
+                }
+                continue;
+            }
+
+            ReplaceGroupDvol(group.AssetPair, BuildDvolModel(chart));
+        }
+    }
+
+    private static HomeDvolChartModel BuildDvolModel(DvolChartData chart)
+    {
+        return HomeDvolChartModel.Ready(
+            chart.BaseAsset,
+            chart.XLabels,
+            chart.Candles,
+            chart.LatestValue,
+            chart.AverageLastYear);
+    }
+
+    private void ReplaceGroupDvol(string assetPair, HomeDvolChartModel dvolChart)
+    {
+        if (Groups.Count == 0)
+        {
+            return;
+        }
+
+        var groups = Groups.ToArray();
+        var index = Array.FindIndex(groups, group => string.Equals(group.AssetPair, assetPair, StringComparison.OrdinalIgnoreCase));
+        if (index < 0)
+        {
+            return;
+        }
+
+        groups[index] = groups[index] with { DvolChart = dvolChart };
+        Groups = groups;
+    }
+
+    private static string ResolveBaseAsset(string assetPair)
+    {
+        if (string.IsNullOrWhiteSpace(assetPair))
+        {
+            return string.Empty;
+        }
+
+        var separatorIndex = assetPair.IndexOf('/');
+        if (separatorIndex <= 0)
+        {
+            return assetPair.Trim().ToUpperInvariant();
+        }
+
+        return assetPair[..separatorIndex].Trim().ToUpperInvariant();
     }
 }
 
@@ -625,7 +724,50 @@ public sealed record HomeLegChipModel(
 
 public sealed record HomePositionGroupModel(
     string AssetPair,
-    IReadOnlyList<HomePositionCardModel> Positions);
+    IReadOnlyList<HomePositionCardModel> Positions,
+    HomeDvolChartModel DvolChart);
+
+public sealed record HomeDvolChartModel(
+    string BaseAsset,
+    IReadOnlyList<string> XLabels,
+    IReadOnlyList<DvolCandlePoint> Candles,
+    double? LatestValue,
+    double? AverageLastYear,
+    bool IsLoading,
+    bool IsAvailable)
+{
+    public static HomeDvolChartModel Loading(string baseAsset) => new(
+        baseAsset,
+        Array.Empty<string>(),
+        Array.Empty<DvolCandlePoint>(),
+        null,
+        null,
+        true,
+        false);
+
+    public static HomeDvolChartModel Unavailable(string baseAsset) => new(
+        baseAsset,
+        Array.Empty<string>(),
+        Array.Empty<DvolCandlePoint>(),
+        null,
+        null,
+        false,
+        false);
+
+    public static HomeDvolChartModel Ready(
+        string baseAsset,
+        IReadOnlyList<string> xLabels,
+        IReadOnlyList<DvolCandlePoint> candles,
+        double latestValue,
+        double averageLastYear) => new(
+        baseAsset,
+        xLabels,
+        candles,
+        latestValue,
+        averageLastYear,
+        false,
+        true);
+}
 
 public sealed record HomeMiniChartModel(
     IReadOnlyList<string> XLabels,

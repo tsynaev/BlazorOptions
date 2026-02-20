@@ -41,8 +41,45 @@
         @foreach (var positionGroup in ViewModel.Groups)
         {
             <MudStack Spacing="1">
-                <MudText Typo="Typo.h6">@positionGroup.AssetPair</MudText>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                    <MudText Typo="Typo.h6">@positionGroup.AssetPair</MudText>
+                    @if (positionGroup.DvolChart.IsAvailable && positionGroup.DvolChart.LatestValue.HasValue)
+                    {
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info">
+                            DVOL @positionGroup.DvolChart.BaseAsset: @positionGroup.DvolChart.LatestValue.Value.ToString("0.##")
+                        </MudChip>
+                    }
+                </MudStack>
                 <MudGrid Spacing="2">
+                    @if (positionGroup.DvolChart.IsLoading || positionGroup.DvolChart.IsAvailable)
+                    {
+                        <MudItem xs="12" md="12" lg="6" @key="@($"{positionGroup.AssetPair}-dvol")">
+                            <MudPaper Class="pa-3 home-position-card">
+                                <MudStack Spacing="1">
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                        <MudText Typo="Typo.subtitle1">DVOL @positionGroup.DvolChart.BaseAsset</MudText>
+                                        @if (positionGroup.DvolChart.LatestValue.HasValue)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="Color.Info">
+                                                IV: @positionGroup.DvolChart.LatestValue.Value.ToString("0.##")%
+                                            </MudChip>
+                                        }
+                                    </MudStack>
+                                    @if (positionGroup.DvolChart.IsLoading)
+                                    {
+                                        <MudSkeleton Height="300px" Width="100%" Animation="Animation.Wave" />
+                                    }
+                                    else if (positionGroup.DvolChart.IsAvailable)
+                                    {
+                                        <DvolChart Labels="@positionGroup.DvolChart.XLabels"
+                                                   Candles="@positionGroup.DvolChart.Candles"
+                                                   AverageValue="@positionGroup.DvolChart.AverageLastYear"
+                                                   IsDarkTheme="true" />
+                                    }
+                                </MudStack>
+                            </MudPaper>
+                        </MudItem>
+                    }
                     @foreach (var position in positionGroup.Positions)
                     {
                         <MudItem xs="12" md="6" lg="4" @key="position.Id">
@@ -281,6 +318,7 @@
         XAxisLabelPosition = XAxisLabelPosition.Bottom,
         YAxisLabelPosition = YAxisLabelPosition.Left
     };
+
 }
 
 <style>

@@ -6,6 +6,17 @@ Route: `/`
 
 - Home page now renders dashboard cards for all saved positions.
 - Cards are grouped by `base/quote` asset pair.
+- Each asset-pair group can show a DVOL chart (Deribit implied volatility index) for the group base asset when available.
+- DVOL is shown as the first card in each asset-pair group.
+- DVOL card includes:
+  - current IV chip
+  - candlestick chart
+  - interactive crosshair with date on x-axis
+  - dashed horizontal line for 1-year average IV
+- If DVOL is unavailable for a group base asset, the DVOL card is hidden for that group.
+- DVOL cache behavior:
+  - cached value is shown first when available
+  - fresh data is requested in background and replaces cached chart when loaded
 - Cards and non-chart data are shown first; mini charts are then rendered asynchronously one-by-one to keep initial page load responsive.
 - While a card chart is warming up, the card shows a chart skeleton placeholder.
 - Each card shows:
@@ -23,6 +34,7 @@ Route: `/`
     - orange: loss 20-30%
     - red: loss >= 30% (critical)
   - chip tooltip with leg details (type, size, entry, mark, PnL, PnL%)
+  - group-level DVOL latest value chip (for example `DVOL BTC`)
 
 ## Calculation Notes
 
@@ -35,3 +47,4 @@ Route: `/`
   - options: `Max loss for options (%)`
   - futures: `Max loss for futures (%)`
   - for negative PnL%, chips transition from yellow to orange and become red at/above max loss.
+- DVOL data uses 1D timeframe and is cached in browser local storage for a short period to reduce repeated requests and keep dashboard load fast.
