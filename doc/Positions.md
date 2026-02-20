@@ -21,6 +21,10 @@ The Positions page is where you manage one position at a time and review its pay
 - `Missing`: previously active leg no longer open on exchange
 - Include closed symbols and shift chart by closed net P/L when needed.
 - See payoff curve, order markers, linked-order markers, and optional candles.
+- See IV-based day range markers:
+- `Day Max = day open + ATM call extrinsic` (next 3-4 week expiry)
+- `Day Min = day open - ATM put extrinsic` (next 3-4 week expiry)
+- Marker labels include the corresponding call/put IV used for the range.
 - Order markers show order average price (`@price`) and option-order markers are placed at implied underlying execution level.
 - Review per-leg P/L, IV, Greeks, and linked-order expected P/L.
 - `Order` status legs display current market mark values in the card.
@@ -32,6 +36,8 @@ The Positions page is where you manage one position at a time and review its pay
 
 - Header shows combined total P/L (temporary + closed).
 - `Live` and `Candles` are switched with chips.
+- `Day Min/Max` chip toggles IV-based day range markers.
+- `Orders` chip toggles order and linked-order markers on the chart.
 - User-selected chart range and candle interval are remembered per position.
 - Default candles:
 - interval: `1H`

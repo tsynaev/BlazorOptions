@@ -83,6 +83,20 @@ else
                                          OnClick="ToggleCandles">
                                     Candles: @(ViewModel.ShowCandles ? "On" : "Off")
                                 </MudChip>
+                                <MudChip T="string"
+                                         Variant="Variant.Outlined"
+                                         Size="Size.Small"
+                                         Color="@(ViewModel.ShowDayMinMaxMarkers ? Color.Success : Color.Default)"
+                                         OnClick="ToggleDayMinMaxMarkers">
+                                    Day Min/Max: @(ViewModel.ShowDayMinMaxMarkers ? "On" : "Off")
+                                </MudChip>
+                                <MudChip T="string"
+                                         Variant="Variant.Outlined"
+                                         Size="Size.Small"
+                                         Color="@(ViewModel.ShowOrderMarkers ? Color.Info : Color.Default)"
+                                         OnClick="ToggleOrderMarkers">
+                                    Orders: @(ViewModel.ShowOrderMarkers ? "On" : "Off")
+                                </MudChip>
                             </MudStack>
 
                             <PayoffChart Strategies="@DisplayChartStrategies"
@@ -521,6 +535,18 @@ else
     {
         await ViewModel.SetIsLiveAsync(!ViewModel.IsLive);
         await InvokeAsync(StateHasChanged);
+    }
+
+    private Task ToggleDayMinMaxMarkers()
+    {
+        ViewModel.SetShowDayMinMaxMarkers(!ViewModel.ShowDayMinMaxMarkers);
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task ToggleOrderMarkers()
+    {
+        ViewModel.SetShowOrderMarkers(!ViewModel.ShowOrderMarkers);
+        return InvokeAsync(StateHasChanged);
     }
 
     private async Task HandleChartTimeRangeChanged(TimeRange range)

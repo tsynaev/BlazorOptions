@@ -56,6 +56,17 @@ Route: `/position/{positionId}`
 
 - Order legs: compact order markers.
 - Linked orders: compact markers with expected P/L and sign-based color.
+- Marker visibility toggles are controlled in `PositionViewModel`:
+- `ShowDayMinMaxMarkers` for IV day-range markers
+- `ShowOrderMarkers` for order + linked-order markers
+- IV day range markers are added when data is available:
+- day open is taken from first 1H candle of valuation day (or today for future valuation dates)
+- expiry is nearest in the 3-4 week window (fallback: nearest available)
+- ATM strike is selected from strikes that have both call and put
+- marker prices use extrinsic-only premium:
+- `Day Max = open + max(callPrice - intrinsicCall, 0)`
+- `Day Min = open - max(putPrice - intrinsicPut, 0)`
+- marker labels also show call/put IV from the selected ATM tickers.
 - Linked order marker text switches by scenario:
 - closing/reducing order => `PnL`
 - opening/increasing order => projected `Avg` entry

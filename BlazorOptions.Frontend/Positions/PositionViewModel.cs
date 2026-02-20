@@ -66,6 +66,14 @@ public sealed class PositionViewModel : IDisposable
     private long? _lastCandleBucketTime;
     private readonly object _candlesLoadLock = new();
     private CancellationTokenSource? _candlesLoadCts;
+    private readonly object _dayIvRangeLock = new();
+    private CancellationTokenSource? _dayIvRangeCts;
+    private DayIvRangeMarkerData? _dayIvRangeData;
+    private string? _dayIvRangeSymbol;
+    private DateTime _dayIvRangeDayUtc;
+    private DateTime _dayIvRangeUpdatedUtc;
+    private bool _dayIvRangeLoading;
+    private static readonly TimeSpan DayIvRangeCacheTtl = TimeSpan.FromMinutes(15);
     private readonly SemaphoreSlim _initializeLock = new(1, 1);
     private bool _isDisposed;
 
@@ -160,6 +168,8 @@ public sealed class PositionViewModel : IDisposable
     public ChartRange? ChartRange => _chartRangeOverride;
     public TimeRange? ChartTimeRange => _chartTimeRange;
     public bool ShowCandles { get; private set; }
+    public bool ShowDayMinMaxMarkers { get; private set; } = true;
+    public bool ShowOrderMarkers { get; private set; } = true;
     public DateTime MaxExpiryDate { get; private set; } = DateTime.UtcNow.Date;
     public int MaxExpiryDays { get; private set; }
     public int SelectedDayOffset { get; private set; }
@@ -170,6 +180,17 @@ public sealed class PositionViewModel : IDisposable
 
     public event Action? OnChange;
     public event Action<decimal?>? LivePriceChanged;
+
+    private sealed record DayIvRangeMarkerData(
+        decimal OpenPrice,
+        decimal Strike,
+        DateTime ExpirationDate,
+        decimal CallExtrinsic,
+        decimal PutExtrinsic,
+        decimal? CallIv,
+        decimal? PutIv,
+        decimal DayMaxPrice,
+        decimal DayMinPrice);
 
     public async Task InitializeAsync(Guid positionId)
     {
@@ -510,6 +531,7 @@ public sealed class PositionViewModel : IDisposable
         CancelAndDispose(ref _persistQueueCts, _persistQueueLock);
         CancelAndDispose(ref _chartUpdateCts, _chartUpdateLock);
         CancelAndDispose(ref _candlesLoadCts, _candlesLoadLock);
+        CancelAndDispose(ref _dayIvRangeCts, _dayIvRangeLock);
         _positionsSubscription?.Dispose();
         _positionsSubscription = null;
         _ordersSubscription?.Dispose();
@@ -1060,31 +1082,325 @@ public sealed class PositionViewModel : IDisposable
                 continue;
             }
 
-            foreach (var orderLeg in collection.Legs.Where(item => item.Leg.Status == LegStatus.Order))
+            if (ShowOrderMarkers)
             {
-                if (!TryCreateOrderMarker(orderLeg, collection.Color, out var marker))
+                foreach (var orderLeg in collection.Legs.Where(item => item.Leg.Status == LegStatus.Order))
                 {
-                    continue;
-                }
-
-                ChartMarkers.Add(marker);
-            }
-
-            foreach (var linkedLeg in collection.Legs.Where(item => item.Leg.Status != LegStatus.Order && item.LinkedOrders.Count > 0))
-            {
-                foreach (var linkedOrder in linkedLeg.LinkedOrders)
-                {
-                    if (!TryCreateLinkedOrderMarker(linkedLeg, linkedOrder, collection.Color, out var marker))
+                    if (!TryCreateOrderMarker(orderLeg, collection.Color, out var marker))
                     {
                         continue;
                     }
 
                     ChartMarkers.Add(marker);
                 }
+
+                foreach (var linkedLeg in collection.Legs.Where(item => item.Leg.Status != LegStatus.Order && item.LinkedOrders.Count > 0))
+                {
+                    foreach (var linkedOrder in linkedLeg.LinkedOrders)
+                    {
+                        if (!TryCreateLinkedOrderMarker(linkedLeg, linkedOrder, collection.Color, out var marker))
+                        {
+                            continue;
+                        }
+
+                        ChartMarkers.Add(marker);
+                    }
+                }
             }
         }
 
+        if (ShowDayMinMaxMarkers)
+        {
+            TryAddDayIvMarkers();
+            QueueDayIvMarkerRefreshIfRequired();
+        }
+
         ChartSelectedPrice = displayPrice.HasValue ? (double)displayPrice.Value : null;
+    }
+
+    private void TryAddDayIvMarkers()
+    {
+        var effectiveSymbol = GetCurrentSymbol();
+        if (string.IsNullOrWhiteSpace(effectiveSymbol))
+        {
+            return;
+        }
+
+        var targetDay = ResolveDayIvMarkerDayUtc();
+        DayIvRangeMarkerData? markerData;
+        lock (_dayIvRangeLock)
+        {
+            if (_dayIvRangeData is null
+                || !string.Equals(_dayIvRangeSymbol, effectiveSymbol, StringComparison.OrdinalIgnoreCase)
+                || _dayIvRangeDayUtc != targetDay)
+            {
+                return;
+            }
+
+            markerData = _dayIvRangeData;
+        }
+
+        ChartMarkers.Add(new PriceMarker(
+            (double)markerData.DayMaxPrice,
+            $"Day Max {markerData.DayMaxPrice:0.#} (Open {markerData.OpenPrice:0.#} + Cext {markerData.CallExtrinsic:0.#}, IV {FormatIv(markerData.CallIv)})",
+            "#2ECC71"));
+
+        ChartMarkers.Add(new PriceMarker(
+            (double)markerData.DayMinPrice,
+            $"Day Min {markerData.DayMinPrice:0.#} (Open {markerData.OpenPrice:0.#} - Pext {markerData.PutExtrinsic:0.#}, IV {FormatIv(markerData.PutIv)})",
+            "#E74C3C"));
+    }
+
+    private void QueueDayIvMarkerRefreshIfRequired()
+    {
+        if (_isDisposed || Position is null)
+        {
+            return;
+        }
+
+        var baseAsset = Position.BaseAsset?.Trim();
+        var symbol = GetCurrentSymbol();
+        if (string.IsNullOrWhiteSpace(baseAsset) || string.IsNullOrWhiteSpace(symbol))
+        {
+            return;
+        }
+
+        var targetDay = ResolveDayIvMarkerDayUtc();
+        var nowUtc = DateTime.UtcNow;
+
+        lock (_dayIvRangeLock)
+        {
+            if (_dayIvRangeLoading)
+            {
+                return;
+            }
+
+            if (_dayIvRangeData is not null
+                && string.Equals(_dayIvRangeSymbol, symbol, StringComparison.OrdinalIgnoreCase)
+                && _dayIvRangeDayUtc == targetDay
+                && nowUtc - _dayIvRangeUpdatedUtc < DayIvRangeCacheTtl)
+            {
+                return;
+            }
+
+            _dayIvRangeCts?.Cancel();
+            _dayIvRangeCts?.Dispose();
+            _dayIvRangeCts = new CancellationTokenSource();
+            _dayIvRangeLoading = true;
+            var token = _dayIvRangeCts.Token;
+            _ = LoadDayIvMarkersAsync(symbol, baseAsset, targetDay, token);
+        }
+    }
+
+    private async Task LoadDayIvMarkersAsync(string symbol, string baseAsset, DateTime targetDayUtc, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var dayOpen = await TryGetDayOpenPriceAsync(symbol, targetDayUtc, cancellationToken);
+            if (!dayOpen.HasValue || dayOpen.Value <= 0)
+            {
+                return;
+            }
+
+            await _exchangeService.OptionsChain.UpdateTickersAsync(baseAsset, cancellationToken);
+            var tickers = _exchangeService.OptionsChain.GetTickersByBaseAsset(baseAsset);
+            var markerData = BuildDayIvMarkerData(tickers, targetDayUtc, dayOpen.Value);
+            if (markerData is null)
+            {
+                return;
+            }
+
+            lock (_dayIvRangeLock)
+            {
+                _dayIvRangeData = markerData;
+                _dayIvRangeSymbol = symbol;
+                _dayIvRangeDayUtc = targetDayUtc;
+                _dayIvRangeUpdatedUtc = DateTime.UtcNow;
+            }
+
+            QueueChartUpdate();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch
+        {
+            // Keep chart responsive when exchange data for IV day range is unavailable.
+        }
+        finally
+        {
+            lock (_dayIvRangeLock)
+            {
+                _dayIvRangeLoading = false;
+            }
+        }
+    }
+
+    private async Task<decimal?> TryGetDayOpenPriceAsync(string symbol, DateTime dayUtc, CancellationToken cancellationToken)
+    {
+        var startUtc = dayUtc.Date;
+        var endUtc = startUtc.AddDays(1);
+        var candles = await _exchangeService.Tickers.GetCandlesWithVolumeAsync(
+            symbol,
+            startUtc,
+            endUtc,
+            60,
+            cancellationToken);
+
+        var first = candles
+            .OrderBy(c => c.Time)
+            .FirstOrDefault();
+
+        return first is null ? null : (decimal)first.Open;
+    }
+
+    private DayIvRangeMarkerData? BuildDayIvMarkerData(IReadOnlyList<OptionChainTicker> tickers, DateTime valuationDayUtc, decimal openDayPrice)
+    {
+        if (tickers.Count == 0)
+        {
+            return null;
+        }
+
+        var expiration = ResolveTargetIvExpiration(tickers, valuationDayUtc);
+        if (!expiration.HasValue)
+        {
+            return null;
+        }
+
+        var expiryTickers = tickers
+            .Where(t => t.ExpirationDate.Date == expiration.Value.Date)
+            .ToList();
+
+        if (expiryTickers.Count == 0)
+        {
+            return null;
+        }
+
+        var strike = ResolveAtmStrikeWithBothSides(expiryTickers, openDayPrice);
+        if (!strike.HasValue)
+        {
+            return null;
+        }
+
+        var callTicker = expiryTickers.FirstOrDefault(t =>
+            t.Type == LegType.Call
+            && t.Strike == strike.Value);
+        var putTicker = expiryTickers.FirstOrDefault(t =>
+            t.Type == LegType.Put
+            && t.Strike == strike.Value);
+
+        if (callTicker is null || putTicker is null)
+        {
+            return null;
+        }
+
+        var callPrice = ResolveTickerOptionPrice(callTicker);
+        var putPrice = ResolveTickerOptionPrice(putTicker);
+        if (!callPrice.HasValue || !putPrice.HasValue)
+        {
+            return null;
+        }
+
+        var callIntrinsic = Math.Max(openDayPrice - strike.Value, 0m);
+        var putIntrinsic = Math.Max(strike.Value - openDayPrice, 0m);
+        var callExtrinsic = Math.Max(callPrice.Value - callIntrinsic, 0m);
+        var putExtrinsic = Math.Max(putPrice.Value - putIntrinsic, 0m);
+        var callIv = NormalizeIv(callTicker.MarkIv);
+        var putIv = NormalizeIv(putTicker.MarkIv);
+
+        var dayMax = openDayPrice + callExtrinsic;
+        var dayMin = openDayPrice - putExtrinsic;
+
+        return new DayIvRangeMarkerData(
+            openDayPrice,
+            strike.Value,
+            expiration.Value,
+            callExtrinsic,
+            putExtrinsic,
+            callIv > 0 ? callIv : null,
+            putIv > 0 ? putIv : null,
+            dayMax,
+            dayMin);
+    }
+
+    private static decimal? ResolveAtmStrikeWithBothSides(IReadOnlyList<OptionChainTicker> tickers, decimal openDayPrice)
+    {
+        var callStrikes = tickers
+            .Where(t => t.Type == LegType.Call)
+            .Select(t => t.Strike)
+            .ToHashSet();
+        var putStrikes = tickers
+            .Where(t => t.Type == LegType.Put)
+            .Select(t => t.Strike)
+            .ToHashSet();
+
+        var sharedStrikes = callStrikes
+            .Where(putStrikes.Contains)
+            .OrderBy(strike => Math.Abs(strike - openDayPrice))
+            .ThenBy(strike => strike)
+            .ToList();
+
+        return sharedStrikes.Count == 0 ? null : sharedStrikes[0];
+    }
+
+    private static DateTime? ResolveTargetIvExpiration(IReadOnlyList<OptionChainTicker> tickers, DateTime valuationDayUtc)
+    {
+        var minimum = valuationDayUtc.Date.AddDays(21);
+        var maximum = valuationDayUtc.Date.AddDays(28);
+
+        var expirations = tickers
+            .Select(t => t.ExpirationDate.Date)
+            .Distinct()
+            .Where(date => date >= valuationDayUtc.Date)
+            .OrderBy(date => date)
+            .ToList();
+
+        if (expirations.Count == 0)
+        {
+            return null;
+        }
+
+        var inWindow = expirations
+            .Where(date => date >= minimum && date <= maximum)
+            .OrderBy(date => date)
+            .ToList();
+
+        if (inWindow.Count > 0)
+        {
+            return inWindow[0];
+        }
+
+        var target = valuationDayUtc.Date.AddDays(24);
+        return expirations
+            .OrderBy(date => Math.Abs((date - target).TotalDays))
+            .ThenBy(date => date)
+            .FirstOrDefault();
+    }
+
+    private static decimal? ResolveTickerOptionPrice(OptionChainTicker ticker)
+    {
+        if (ticker.MarkPrice > 0)
+        {
+            return ticker.MarkPrice;
+        }
+
+        if (ticker.BidPrice > 0 && ticker.AskPrice > 0)
+        {
+            return (ticker.BidPrice + ticker.AskPrice) / 2m;
+        }
+
+        if (ticker.LastPrice > 0)
+        {
+            return ticker.LastPrice;
+        }
+
+        return null;
+    }
+
+    private DateTime ResolveDayIvMarkerDayUtc()
+    {
+        var today = DateTime.UtcNow.Date;
+        return ValuationDate.Date <= today ? ValuationDate.Date : today;
     }
 
     private bool TryCreateOrderMarker(LegViewModel leg, string color, out PriceMarker marker)
@@ -1335,6 +1651,11 @@ public sealed class PositionViewModel : IDisposable
         return value <= 3m ? value * 100m : value;
     }
 
+    private static string FormatIv(decimal? iv)
+    {
+        return iv.HasValue ? $"{iv.Value:0.#}%" : "-";
+    }
+
     private decimal ResolveLegEntryPrice(LegViewModel leg)
     {
         if (leg.Leg.Type == LegType.Future && !leg.Leg.Price.HasValue)
@@ -1468,6 +1789,30 @@ public sealed class PositionViewModel : IDisposable
         }
 
         await LoadMissingCandlesForCurrentTimeRangeAsync();
+        OnChange?.Invoke();
+    }
+
+    public void SetShowDayMinMaxMarkers(bool isEnabled)
+    {
+        if (ShowDayMinMaxMarkers == isEnabled)
+        {
+            return;
+        }
+
+        ShowDayMinMaxMarkers = isEnabled;
+        UpdateChart();
+        OnChange?.Invoke();
+    }
+
+    public void SetShowOrderMarkers(bool isEnabled)
+    {
+        if (ShowOrderMarkers == isEnabled)
+        {
+            return;
+        }
+
+        ShowOrderMarkers = isEnabled;
+        UpdateChart();
         OnChange?.Invoke();
     }
 
@@ -1734,6 +2079,18 @@ public sealed class PositionViewModel : IDisposable
         MaxExpiryDate = DateTime.UtcNow.Date;
         MaxExpiryDays = 0;
         ChartSelectedPrice = null;
+
+        lock (_dayIvRangeLock)
+        {
+            _dayIvRangeCts?.Cancel();
+            _dayIvRangeCts?.Dispose();
+            _dayIvRangeCts = null;
+            _dayIvRangeData = null;
+            _dayIvRangeSymbol = null;
+            _dayIvRangeDayUtc = default;
+            _dayIvRangeUpdatedUtc = default;
+            _dayIvRangeLoading = false;
+        }
     }
 
     internal static LegModel? FindMatchingLeg(IEnumerable<LegModel> legs, LegModel candidate)
