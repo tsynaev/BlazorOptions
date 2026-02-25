@@ -29,6 +29,7 @@ The Positions page is where you manage one position at a time and review its pay
 - Linked-order markers are shown for active legs and include all linked orders for that leg.
 - Review per-leg P/L, IV, Greeks, and linked-order expected P/L.
 - `Order` status legs display current market mark values in the card.
+- `New` legs with both empty entry price and empty IV show no entry price in the card.
 - For same-side linked orders, the card also shows the expected new average entry price after execution.
 - Linked orders are labeled by kind when available: `TP`, `SL`, or `Conditional`.
 - Linked order chips can be toggled to simulate execution; chart and leg P/L use only activated linked orders.

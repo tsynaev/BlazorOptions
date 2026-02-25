@@ -139,12 +139,25 @@
 
     private decimal? GetDisplayPrice()
     {
+        if (ShouldHideEntryPriceForNewLeg())
+        {
+            return null;
+        }
+
         if (ViewModel.Leg.Type == LegType.Future && !ViewModel.Leg.Price.HasValue)
         {
             return ViewModel.CurrentPrice ?? ViewModel.PlaceholderPrice;
         }
 
         return ViewModel.Leg.Price ?? ViewModel.PlaceholderPrice;
+    }
+
+    private bool ShouldHideEntryPriceForNewLeg()
+    {
+        // Avoid showing synthetic entry suggestions for incomplete new legs.
+        return ViewModel.Leg.Status == LegStatus.New
+               && !ViewModel.Leg.Price.HasValue
+               && !ViewModel.Leg.ImpliedVolatility.HasValue;
     }
 
     private async Task OpenEditDialogAsync()
