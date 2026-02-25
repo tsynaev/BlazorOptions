@@ -1084,7 +1084,9 @@ public sealed class PositionViewModel : IDisposable
 
             if (ShowOrderMarkers)
             {
-                foreach (var orderLeg in collection.Legs.Where(item => item.Leg.Status == LegStatus.Order))
+                foreach (var orderLeg in collection.Legs.Where(item =>
+                             item.Leg.IsIncluded
+                             && (item.Leg.Status == LegStatus.Order || item.Leg.Status == LegStatus.New)))
                 {
                     if (!TryCreateOrderMarker(orderLeg, collection.Color, out var marker))
                     {
@@ -1094,7 +1096,7 @@ public sealed class PositionViewModel : IDisposable
                     ChartMarkers.Add(marker);
                 }
 
-                foreach (var linkedLeg in collection.Legs.Where(item => item.Leg.Status != LegStatus.Order && item.LinkedOrders.Count > 0))
+                foreach (var linkedLeg in collection.Legs.Where(item => item.Leg.Status == LegStatus.Active && item.LinkedOrders.Count > 0))
                 {
                     foreach (var linkedOrder in linkedLeg.LinkedOrders)
                     {
@@ -1668,10 +1670,9 @@ public sealed class PositionViewModel : IDisposable
 
     private LegModel ResolveLegForCalculation(LegViewModel leg, string? baseAsset)
     {
-        var simulated = leg.ResolveSimulatedPosition();
-        var resolvedPrice = simulated.EntryPrice ?? ResolveLegEntryPrice(leg);
         var model = leg.Leg;
-        var resolvedSize = simulated.Size;
+        var resolvedPrice = ResolveLegEntryPrice(leg);
+        var resolvedSize = model.Size;
         var impliedVolatility = model.ImpliedVolatility;
         if (!impliedVolatility.HasValue || impliedVolatility.Value <= 0)
         {
@@ -1704,12 +1705,74 @@ public sealed class PositionViewModel : IDisposable
         };
     }
 
+    private static decimal ResolveLinkedOrderSignedSize(LegLinkedOrderModel order)
+    {
+        var magnitude = Math.Abs(order.Quantity);
+        if (magnitude < 0.0000001m)
+        {
+            return 0m;
+        }
+
+        if (!string.IsNullOrWhiteSpace(order.Side)
+            && (string.Equals(order.Side, "Sell", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(order.Side, "Short", StringComparison.OrdinalIgnoreCase)))
+        {
+            return -magnitude;
+        }
+
+        return magnitude;
+    }
+
+    private IEnumerable<LegModel> ResolveActivatedLinkedOrderLegsForCalculation(
+        LegViewModel leg,
+        decimal? impliedVolatility)
+    {
+        if (leg.Leg.Status != LegStatus.Active || leg.LinkedOrders.Count == 0)
+        {
+            yield break;
+        }
+
+        var model = leg.Leg;
+        foreach (var linkedOrder in leg.LinkedOrders)
+        {
+            if (!linkedOrder.IsActivated || !linkedOrder.Price.HasValue)
+            {
+                continue;
+            }
+
+            var signedSize = ResolveLinkedOrderSignedSize(linkedOrder);
+            if (Math.Abs(signedSize) < 0.0000001m)
+            {
+                continue;
+            }
+
+            // Simulate activated linked orders as separate synthetic legs with their own entry prices.
+            yield return new LegModel
+            {
+                Id = $"{model.Id}:linked:{linkedOrder.OrderId}",
+                IsIncluded = model.IsIncluded,
+                Type = model.Type,
+                Strike = model.Strike,
+                ExpirationDate = model.ExpirationDate,
+                Size = signedSize,
+                Price = linkedOrder.Price.Value,
+                ImpliedVolatility = impliedVolatility
+            };
+        }
+    }
+
     private IEnumerable<LegModel> ResolveLegsForCalculation(IEnumerable<LegViewModel> legs)
     {
         var baseAsset = Position?.BaseAsset;
         foreach (var leg in legs)
         {
-            yield return ResolveLegForCalculation(leg, baseAsset);
+            var baseLeg = ResolveLegForCalculation(leg, baseAsset);
+            yield return baseLeg;
+
+            foreach (var linkedLeg in ResolveActivatedLinkedOrderLegsForCalculation(leg, baseLeg.ImpliedVolatility))
+            {
+                yield return linkedLeg;
+            }
         }
     }
 

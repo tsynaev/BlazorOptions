@@ -293,13 +293,21 @@ public sealed class LegViewModel : IDisposable
         var normalizedMessage = status == LegStatus.Missing
             ? (string.IsNullOrWhiteSpace(message) ? "Exchange position not found." : message)
             : string.Empty;
-        if (Leg.Status == status && string.Equals(_statusMessage, normalizedMessage, StringComparison.Ordinal))
+        var shouldClearLinkedOrders = status != LegStatus.Active && _linkedOrders.Count > 0;
+        if (Leg.Status == status
+            && string.Equals(_statusMessage, normalizedMessage, StringComparison.Ordinal)
+            && !shouldClearLinkedOrders)
         {
             return false;
         }
 
         Leg.Status = status;
         _statusMessage = normalizedMessage;
+        if (shouldClearLinkedOrders)
+        {
+            // Linked orders are valid only for active exchange-backed legs.
+            _linkedOrders = Array.Empty<LegLinkedOrderModel>();
+        }
         return true;
     }
 
@@ -799,7 +807,9 @@ public sealed class LegViewModel : IDisposable
 
     public bool ToggleLinkedOrderActivation(string orderId)
     {
-        if (string.IsNullOrWhiteSpace(orderId) || _linkedOrders.Count == 0)
+        if (Leg.Status != LegStatus.Active
+            || string.IsNullOrWhiteSpace(orderId)
+            || _linkedOrders.Count == 0)
         {
             return false;
         }
@@ -859,7 +869,12 @@ public sealed class LegViewModel : IDisposable
 
             if (Math.Sign(orderSize) == Math.Sign(size))
             {
-                if (entryPrice.HasValue)
+                if (!entryPrice.HasValue)
+                {
+                    // Use the first activated same-side order as baseline entry when exchange leg entry is unavailable.
+                    entryPrice = order.Price;
+                }
+                else
                 {
                     var currentAbs = Math.Abs(size);
                     var addAbs = Math.Abs(orderSize);
@@ -891,6 +906,16 @@ public sealed class LegViewModel : IDisposable
 
             size += orderSize;
             entryPrice = order.Price;
+        }
+
+        if (!entryPrice.HasValue)
+        {
+            // Keep simulated position anchored to an explicit linked-order price when leg entry is missing.
+            entryPrice = _linkedOrders
+                .Where(item => item.IsActivated)
+                .Select(item => item.Price)
+                .FirstOrDefault(price => price.HasValue)
+                ?? _linkedOrders.Select(item => item.Price).FirstOrDefault(price => price.HasValue);
         }
 
         return (size, entryPrice);

@@ -54,7 +54,7 @@ Route: `/position/{positionId}`
 
 ## Marker Rules
 
-- Order legs: compact order markers.
+- Included `Order` and `New` legs: compact order markers.
 - Linked orders: compact markers with expected P/L and sign-based color.
 - Marker visibility toggles are controlled in `PositionViewModel`:
 - `ShowDayMinMaxMarkers` for IV day-range markers
@@ -70,7 +70,10 @@ Route: `/position/{positionId}`
 - Linked order marker text switches by scenario:
 - closing/reducing order => `PnL`
 - opening/increasing order => projected `Avg` entry
-- Linked order simulation is user-toggleable per linked order (`IsActivated`); payoff calculations use simulated leg size/entry after applying only activated orders.
+- Linked-order markers are rendered for active legs and include all linked orders on those legs.
+- Linked order simulation is user-toggleable per linked order (`IsActivated`); payoff chart calculations include each activated linked order as a separate synthetic leg with its own entry price.
+- The original active leg is always calculated with its own entry price; linked-order activation does not replace that base leg entry.
+- Only `Active` legs may own linked orders. Transitioning a leg to `New`, `Order`, or `Missing` clears linked orders for that leg.
 - Selected price marker is `null` when no selected/live price is available.
 
 ## Linked Order Projection

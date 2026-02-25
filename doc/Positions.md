@@ -25,12 +25,15 @@ The Positions page is where you manage one position at a time and review its pay
 - `Day Max = day open + ATM call extrinsic` (next 3-4 week expiry)
 - `Day Min = day open - ATM put extrinsic` (next 3-4 week expiry)
 - Marker labels include the corresponding call/put IV used for the range.
-- Order markers show order average price (`@price`) and option-order markers are placed at implied underlying execution level.
+- Included `Order` and `New` legs show order markers (`@price`) on the chart; option markers are placed at implied underlying execution level.
+- Linked-order markers are shown for active legs and include all linked orders for that leg.
 - Review per-leg P/L, IV, Greeks, and linked-order expected P/L.
 - `Order` status legs display current market mark values in the card.
 - For same-side linked orders, the card also shows the expected new average entry price after execution.
 - Linked orders are labeled by kind when available: `TP`, `SL`, or `Conditional`.
 - Linked order chips can be toggled to simulate execution; chart and leg P/L use only activated linked orders.
+- Linked orders are available only on `Active` legs; `New`, `Order`, and `Missing` legs cannot keep linked orders.
+- In chart payoff simulation, activated linked orders are treated as additional legs with their own entry prices; the active leg keeps its own entry price.
 
 ## Chart And Controls
 
