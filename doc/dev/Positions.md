@@ -43,6 +43,8 @@ Route: `/position/{positionId}`
 - Active position sync is processed separately from order sync to avoid status crossover.
 - Closed active positions are copied to closed positions, then marked `Missing` and excluded in active legs.
 - Same-symbol open orders are auto-linked only to `Active` legs; `New` legs do not consume order chips.
+- Symbol is re-formatted on every editable leg field change to keep symbol text aligned with current leg state.
+- When symbol changes (for example futures expiry/perpetual switch), leg ticker subscription is refreshed so mark/placeholder price comes from that exact leg symbol.
 
 ## Chart Behavior
 
@@ -87,3 +89,5 @@ Route: `/position/{positionId}`
 - Open-order chips are suppressed when the same order is already represented as a linked order on an active leg.
 - Option linked-order markers on payoff chart use an implied underlying-price solve (Black-Scholes inversion) from order option price.
 - `Order` status leg cards show live/current market mark values (not execution-derived synthetic marks).
+- Leg edit dialog uses mark-based placeholders for cleared price/IV fields and uses `MudSelect` expiration editing for options and futures.
+- Expiration updates are validated in `LegViewModel` so only currently available expirations are accepted (`null` is allowed only for futures/perpetual).

@@ -18,48 +18,32 @@
             </MudSelect>
 
             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                @if (ViewModel.Leg.Type == LegType.Future)
-                {
-                    <MudSelect T="DateTime?"
-                               Label="Expiration"
-                               Value="@ViewModel.Leg.ExpirationDate"
-                               ValueChanged="ViewModel.UpdateLegExpirationAsync"
-                               Dense="true"
-                               Disabled="@ViewModel.Leg.IsReadOnly">
-                        @if (ViewModel.AvailableExpirations.Count == 0)
-                        {
-                            <MudSelectItem T="DateTime?" Value="@((DateTime?)null)">Perpetual</MudSelectItem>
-                        }
-                        else
-                        {
-                            @foreach (var expiration in ViewModel.AvailableExpirations)
-                            {
-                                <MudSelectItem T="DateTime?" Value="@expiration" @key="expiration">@FormatExpiration(expiration)</MudSelectItem>
-                            }
-                        }
-                    </MudSelect>
-                }
-                else
-                {
-                    <MudSelect T="DateTime?"
-                               Label="Expiration"
-                               Value="@ViewModel.Leg.ExpirationDate"
-                               ValueChanged="ViewModel.UpdateLegExpirationAsync"
-                               Dense="true"
-                               Disabled="@(ViewModel.Leg.IsReadOnly || ViewModel.AvailableExpirations.Count == 0)">
-                        @if (ViewModel.AvailableExpirations.Count == 0)
+                <MudSelect T="DateTime?"
+                           Label="Expiration"
+                           Value="@ViewModel.Leg.ExpirationDate"
+                           ValueChanged="ViewModel.UpdateLegExpirationAsync"
+                           Dense="true"
+                           Disabled="@ViewModel.Leg.IsReadOnly">
+                    @if (ViewModel.Leg.Type == LegType.Future)
+                    {
+                        <MudSelectItem T="DateTime?" Value="@((DateTime?)null)">Perpetual</MudSelectItem>
+                    }
+
+                    @if (ViewModel.AvailableExpirations.Count == 0)
+                    {
+                        @if (ViewModel.Leg.Type != LegType.Future)
                         {
                             <MudSelectItem T="DateTime?" Disabled="true">No expirations available</MudSelectItem>
                         }
-                        else
+                    }
+                    else
+                    {
+                        @foreach (var expiration in ViewModel.AvailableExpirations.Where(item => item.HasValue))
                         {
-                            @foreach (var expiration in ViewModel.AvailableExpirations)
-                            {
-                                <MudSelectItem T="DateTime?" Value="@expiration" @key="expiration">@FormatExpiration(expiration)</MudSelectItem>
-                            }
+                            <MudSelectItem T="DateTime?" Value="@expiration" @key="expiration">@FormatExpiration(expiration)</MudSelectItem>
                         }
-                    </MudSelect>
-                }
+                    }
+                </MudSelect>
 
                 @if (ViewModel.Leg.Type != LegType.Future)
                 {
@@ -93,10 +77,11 @@
                                      Label="Price"
                                      Value="@ViewModel.Leg.Price"
                                      ValueChanged="async value => await ViewModel.UpdateLegPriceAsync(value)"
+                                     Immediate="true"
                                      Margin="Margin.Dense"
                                      Adornment="Adornment.End"
                                      AdornmentText="USDT"
-                                     Placeholder="@FormatPrice(ViewModel.PlaceholderPrice)"
+                                     Placeholder="@FormatPrice(GetPricePlaceholder())"
                                      Disabled="@ViewModel.Leg.IsReadOnly" />
                 </MudItem>
             </MudGrid>
@@ -107,14 +92,18 @@
                                  Label="IV"
                                  Value="@ViewModel.Leg.ImpliedVolatility"
                                  ValueChanged="ViewModel.UpdateLegIvAsync"
+                                 Immediate="true"
                                  Margin="Margin.Dense"
                                  Adornment="Adornment.End"
                                  AdornmentText="%"
+                                 Placeholder="@FormatPrice(GetIvPlaceholder())"
                                  Disabled="@ViewModel.Leg.IsReadOnly" />
             }
         </MudStack>
     </DialogContent>
     <DialogActions>
+        <MudText Typo="Typo.caption" Class="leg-edit-symbol">@GetSymbolLabel()</MudText>
+        <MudSpacer />
         <MudButton OnClick="SaveAsync" Disabled="@ViewModel.Leg.IsReadOnly">Save</MudButton>
         <MudButton Color="Color.Secondary" OnClick="CancelAsync">Cancel</MudButton>
     </DialogActions>
@@ -151,14 +140,14 @@
         return Task.CompletedTask;
     }
 
-    private static string FormatExpiration(DateTime? date)
-    {
-        return date.HasValue ? date.Value.ToString("yyyy-MM-dd") : "Perpetual";
-    }
-
     private static string FormatPrice(decimal? price)
     {
         return price.HasValue ? price.Value.ToString("0.##", CultureInfo.InvariantCulture) : string.Empty;
+    }
+
+    private static string FormatExpiration(DateTime? date)
+    {
+        return date.HasValue ? date.Value.ToString("yyyy-MM-dd") : "Perpetual";
     }
 
     private void SyncEditableFields()
@@ -183,9 +172,31 @@
         }
     }
 
-    private static string FormatIv(decimal? iv)
+    private decimal? GetPricePlaceholder()
     {
-        return iv.HasValue ? $"{iv.Value:0.##}%" : string.Empty;
+        if (ViewModel.Leg.Price.HasValue)
+        {
+            return null;
+        }
+
+        return ViewModel.MarkPrice ?? ViewModel.PlaceholderPrice;
+    }
+
+    private decimal? GetIvPlaceholder()
+    {
+        if (ViewModel.Leg.ImpliedVolatility.HasValue)
+        {
+            return null;
+        }
+
+        return ViewModel.ChainIv;
+    }
+
+    private string GetSymbolLabel()
+    {
+        return string.IsNullOrWhiteSpace(ViewModel.Leg.Symbol)
+            ? "-"
+            : ViewModel.Leg.Symbol.ToUpperInvariant();
     }
 }
 
@@ -193,6 +204,11 @@
     .leg-edit-dialog .mud-dialog {
         width: 100%;
         max-width: 600px;
+    }
+
+    .leg-edit-symbol {
+        opacity: 0.7;
+        font-family: monospace;
     }
 
     @@media (max-width: 600px) {
