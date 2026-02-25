@@ -19,6 +19,7 @@ The Positions page is where you manage one position at a time and review its pay
 - `Order`: open exchange order
 - `Active`: active exchange position
 - `Missing`: previously active leg no longer open on exchange
+- Legs are displayed in status order: `Active`, `Order`, `New`, `Missing`.
 - Include closed symbols and shift chart by closed net P/L when needed.
 - See payoff curve, order markers, linked-order markers, and optional candles.
 - See IV-based day range markers:

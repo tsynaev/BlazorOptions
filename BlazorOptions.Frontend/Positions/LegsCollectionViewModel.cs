@@ -1685,13 +1685,28 @@ public sealed class LegsCollectionViewModel : IDisposable
             .Select(group =>
             {
                 var legs = group
-                    .OrderBy(leg => leg.Leg.Strike ?? decimal.MaxValue)
+                    .OrderBy(leg => ResolveLegStatusOrder(leg.Leg.Status))
+                    .ThenBy(leg => leg.Leg.Strike ?? decimal.MaxValue)
+                    .ThenBy(leg => leg.Leg.Symbol ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(leg => leg.Leg.Id ?? string.Empty, StringComparer.OrdinalIgnoreCase)
                     .ToList();
                 return new LegGroup(group.Key, legs);
             })
             .ToList();
 
         _groupedLegs = grouped;
+    }
+
+    private static int ResolveLegStatusOrder(LegStatus status)
+    {
+        return status switch
+        {
+            LegStatus.Active => 0,
+            LegStatus.Order => 1,
+            LegStatus.New => 2,
+            LegStatus.Missing => 3,
+            _ => 4
+        };
     }
 
     private void EnsureLegSymbol(LegModel leg)
