@@ -188,7 +188,11 @@ public sealed class LegViewModel : IDisposable
             return;
         }
 
-        RunLegUpdate(() => Leg.ImpliedVolatility = iv);
+        RunLegUpdate(() =>
+        {
+            Leg.ImpliedVolatility = iv;
+            SyncLegSymbol();
+        });
     }
 
 
@@ -244,7 +248,11 @@ public sealed class LegViewModel : IDisposable
             return;
         }
 
-        RunLegUpdate(() => Leg.Size = size);
+        RunLegUpdate(() =>
+        {
+            Leg.Size = size;
+            SyncLegSymbol();
+        });
     }
 
     public void UpdateLegExpirationAsync(DateTime? date)
@@ -252,6 +260,11 @@ public sealed class LegViewModel : IDisposable
         using var activity = ActivitySources.Telemetry.StartActivity("LegViewModel.UpdateExpiration");
 
         if (Leg.IsReadOnly)
+        {
+            return;
+        }
+
+        if (!IsAllowedExpiration(date))
         {
             return;
         }
@@ -274,7 +287,11 @@ public sealed class LegViewModel : IDisposable
             return;
         }
 
-        RunLegUpdate(() => Leg.Price = price);
+        RunLegUpdate(() =>
+        {
+            Leg.Price = price;
+            SyncLegSymbol();
+        });
     }
 
     public async Task RemoveLegAsync()
@@ -571,14 +588,6 @@ public sealed class LegViewModel : IDisposable
             changed = true;
         }
 
-        if (!Leg.ImpliedVolatility.HasValue || Leg.ImpliedVolatility.Value <= 0)
-        {
-            if (ChainIv.HasValue && ChainIv.Value > 0)
-            {
-                Leg.ImpliedVolatility = ChainIv.Value;
-            }
-        }
-
         if (!changed)
         {
             return;
@@ -590,7 +599,16 @@ public sealed class LegViewModel : IDisposable
     {
         var baseAsset = _collectionViewModel.Position?.Position.BaseAsset;
         var quoteAsset = _collectionViewModel.Position?.Position.QuoteAsset;
-        Leg.Symbol = _exchangeService.FormatSymbol(Leg, baseAsset, quoteAsset);
+        var nextSymbol = _exchangeService.FormatSymbol(Leg, baseAsset, quoteAsset);
+        if (string.Equals(Leg.Symbol, nextSymbol, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        Leg.Symbol = nextSymbol;
+        // Ensure leg mark/placeholder prices are sourced from ticker stream of the selected expiry/perpetual symbol.
+        _ = RefreshSubscriptionAsync();
+        RefreshNonLiveMarketSnapshot();
     }
 
 
@@ -631,6 +649,32 @@ public sealed class LegViewModel : IDisposable
             .ToList();
 
 
+    }
+
+    private bool IsAllowedExpiration(DateTime? date)
+    {
+        if (Leg.Type == LegType.Future)
+        {
+            if (!date.HasValue)
+            {
+                return true;
+            }
+
+            return _cachedExpirations
+                .Where(item => item.HasValue)
+                .Select(item => item!.Value.Date)
+                .Contains(date.Value.Date);
+        }
+
+        if (!date.HasValue)
+        {
+            return false;
+        }
+
+        return _cachedExpirations
+            .Where(item => item.HasValue)
+            .Select(item => item!.Value.Date)
+            .Contains(date.Value.Date);
     }
 
     public async Task EnsureFutureExpirationsLoadedAsync()
@@ -731,12 +775,6 @@ public sealed class LegViewModel : IDisposable
         Vega = ticker.Vega;
         Theta = ticker.Theta;
 
-        // Keep leg IV populated from option chain even in non-live mode.
-        if (ivPercent.HasValue && ivPercent.Value > 0
-            && (!Leg.ImpliedVolatility.HasValue || Leg.ImpliedVolatility.Value <= 0))
-        {
-            Leg.ImpliedVolatility = ivPercent.Value;
-        }
     }
 
     private decimal? ResolvePnlFromMarkPrice()

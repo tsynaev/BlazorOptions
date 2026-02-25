@@ -30,6 +30,11 @@ The Positions page is where you manage one position at a time and review its pay
 - Review per-leg P/L, IV, Greeks, and linked-order expected P/L.
 - `Order` status legs display current market mark values in the card.
 - `New` legs with both empty entry price and empty IV show no entry price in the card.
+- In leg edit dialog, clearing price or IV shows placeholders from current market mark values when available.
+- IV is not auto-filled into the leg when empty; market IV is shown as placeholder until user sets a value.
+- Expiration in leg edit dialog uses a combobox for both options and futures (futures include `Perpetual`).
+- Only existing expiration dates for the current base/quote context can be selected.
+- Leg edit dialog footer shows the resolved leg symbol for quick verification.
 - For same-side linked orders, the card also shows the expected new average entry price after execution.
 - Linked orders are labeled by kind when available: `TP`, `SL`, or `Conditional`.
 - Linked order chips can be toggled to simulate execution; chart and leg P/L use only activated linked orders.
