@@ -732,6 +732,40 @@ public sealed class LegViewModel : IDisposable
             MarkPrice = ResolveNonLiveMarkPrice();
         }
 
+        UpdateNonLiveGreeks();
+    }
+
+    private void UpdateNonLiveGreeks()
+    {
+        if (Leg.Type == LegType.Future)
+        {
+            ResetGreeks();
+            return;
+        }
+
+        if (!_currentPrice.HasValue || !Leg.Strike.HasValue || !Leg.ExpirationDate.HasValue)
+        {
+            return;
+        }
+
+        var ivPercent = Leg.ImpliedVolatility ?? ChainIv;
+        if (!ivPercent.HasValue || ivPercent.Value <= 0m)
+        {
+            return;
+        }
+
+        var greeks = _blackScholes.CalculateGreeksDecimal(
+            _currentPrice.Value,
+            Leg.Strike.Value,
+            ivPercent.Value,
+            Leg.ExpirationDate.Value,
+            Leg.Type == LegType.Call,
+            ValuationDate);
+
+        Delta = greeks.Delta;
+        Gamma = greeks.Gamma;
+        Vega = greeks.Vega;
+        Theta = greeks.Theta;
     }
 
     private void RefreshNonLiveMarketSnapshot()

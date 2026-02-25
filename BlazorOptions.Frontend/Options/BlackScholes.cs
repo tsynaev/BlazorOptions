@@ -44,6 +44,38 @@ public class BlackScholes
             : adjustedStrike * discountFactor * StandardNormalCdf(-d2) - adjustedUnderlying * StandardNormalCdf(-d1);
     }
 
+    public BlackScholesGreeks CalculateGreeksDecimal(
+        decimal underlyingPrice,
+        decimal strike,
+        decimal ivPercent,
+        DateTime expirationDate,
+        bool isCall,
+        DateTime? valuationDate = null)
+    {
+        var spot = (double)underlyingPrice;
+        var strikeValue = (double)strike;
+        var ivValue = (double)ivPercent;
+        var evaluationDate = valuationDate ?? DateTime.UtcNow;
+
+        var basePrice = CalculatePrice(spot, strikeValue, ivValue, expirationDate, isCall, evaluationDate);
+        var spotStep = Math.Max(0.25, spot * 0.001);
+        var upSpotPrice = CalculatePrice(spot + spotStep, strikeValue, ivValue, expirationDate, isCall, evaluationDate);
+        var downSpotPrice = CalculatePrice(Math.Max(1e-6, spot - spotStep), strikeValue, ivValue, expirationDate, isCall, evaluationDate);
+
+        var ivStep = 0.5;
+        var upIvPrice = CalculatePrice(spot, strikeValue, ivValue + ivStep, expirationDate, isCall, evaluationDate);
+        var downIvPrice = CalculatePrice(spot, strikeValue, Math.Max(1e-6, ivValue - ivStep), expirationDate, isCall, evaluationDate);
+
+        var nextValuation = evaluationDate.AddDays(1);
+        var thetaPrice = CalculatePrice(spot, strikeValue, ivValue, expirationDate, isCall, nextValuation);
+
+        return new BlackScholesGreeks(
+            (decimal)((upSpotPrice - downSpotPrice) / (2d * spotStep)),
+            (decimal)((upSpotPrice - (2d * basePrice) + downSpotPrice) / (spotStep * spotStep)),
+            (decimal)((upIvPrice - downIvPrice) / (2d * ivStep)),
+            (decimal)(thetaPrice - basePrice));
+    }
+
     private static double StandardNormalCdf(double x)
     {
         var sign = x < 0 ? -1 : 1;
@@ -62,3 +94,9 @@ public class BlackScholes
         return 0.5 * (1.0 + sign * y);
     }
 }
+
+public readonly record struct BlackScholesGreeks(
+    decimal Delta,
+    decimal Gamma,
+    decimal Vega,
+    decimal Theta);

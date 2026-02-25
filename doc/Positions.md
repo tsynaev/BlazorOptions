@@ -31,6 +31,7 @@ The Positions page is where you manage one position at a time and review its pay
 - Review per-leg P/L, IV, Greeks, and linked-order expected P/L.
 - Portfolio header shows only total Greeks for included legs.
 - Each non-futures leg card Greeks row includes a tiny unlabeled switch (with tooltip) to toggle between total leg Greek contribution and per-size Greek values.
+- In non-live mode, when a chart/temporary price is selected, option Greeks in leg cards and portfolio totals are recalculated for that selected underlying price and valuation date.
 - `Order` status legs display current market mark values in the card.
 - `New` legs with both empty entry price and empty IV show no entry price in the card.
 - In leg edit dialog, clearing price or IV shows placeholders from current market mark values when available.
