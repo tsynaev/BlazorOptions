@@ -13,8 +13,8 @@ Frontend code is organized by feature instead of layer. Feature folders (Account
 - Telemetry activities use `ActivitySources.Telemetry` and are enabled only when local storage contains the `telemetry` key with a value other than `false`.
 - Home dashboard DVOL loading is handled in `Home/DvolIndexService.cs`:
   - fetches Deribit volatility index (`get_volatility_index_data`) by base asset.
-  - requests 1D resolution data for a longer lookback window to keep chart readable.
-  - uses browser local storage cache key prefix `home.dvol.v1.` with short TTL to avoid repeated network calls.
+  - requests 1D resolution data for the last 3 months.
+  - uses browser local storage cache key prefix `home.dvol.v2.` with short TTL to avoid repeated network calls.
   - read flow is cache-first then refresh: cached chart can be rendered immediately, then updated after network response.
 - DVOL rendering uses `Shared/DvolChart.razor` + `wwwroot/js/dvolChart.js` (ECharts) to support:
   - larger chart area in dashboard group card,

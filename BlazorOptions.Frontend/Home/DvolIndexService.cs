@@ -6,9 +6,10 @@ namespace BlazorOptions.ViewModels;
 
 public sealed class DvolIndexService
 {
-    private const string CacheKeyPrefix = "home.dvol.v1.";
-    private static readonly TimeSpan Lookback = TimeSpan.FromDays(370);
+    private const string CacheKeyPrefix = "home.dvol.v2.";
+    private static readonly TimeSpan ChartWindow = TimeSpan.FromDays(92);
     private static readonly TimeSpan AverageWindow = TimeSpan.FromDays(365);
+    private static readonly TimeSpan FetchWindow = TimeSpan.FromDays(370);
     private const int ResolutionSeconds = 86400; // 1D timeframe
 
     private readonly IHttpClientFactory _httpClientFactory;
@@ -46,7 +47,7 @@ public sealed class DvolIndexService
         try
         {
             var now = DateTimeOffset.UtcNow;
-            var start = now - Lookback;
+            var start = now - FetchWindow;
             var url =
                 $"https://www.deribit.com/api/v2/public/get_volatility_index_data?currency={currency}&start_timestamp={start.ToUnixTimeMilliseconds()}&end_timestamp={now.ToUnixTimeMilliseconds()}&resolution={ResolutionSeconds}";
             var httpClient = _httpClientFactory.CreateClient("External");
@@ -62,11 +63,20 @@ public sealed class DvolIndexService
                 return null;
             }
 
-            var labels = BuildLabels(points, ResolutionSeconds);
-            var candles = points
+            var chartWindowStart = now - ChartWindow;
+            var chartPoints = points
+                .Where(point => DateTimeOffset.FromUnixTimeMilliseconds(point.Timestamp) >= chartWindowStart)
+                .ToArray();
+            if (chartPoints.Length == 0)
+            {
+                return null;
+            }
+
+            var labels = BuildLabels(chartPoints, ResolutionSeconds);
+            var candles = chartPoints
                 .Select(point => new DvolCandlePoint(point.Open, point.Close, point.Low, point.High))
                 .ToArray();
-            var latest = points[^1].Close;
+            var latest = chartPoints[^1].Close;
             var averageWindowStart = DateTimeOffset.UtcNow - AverageWindow;
             var averageSource = points
                 .Where(point => DateTimeOffset.FromUnixTimeMilliseconds(point.Timestamp) >= averageWindowStart)

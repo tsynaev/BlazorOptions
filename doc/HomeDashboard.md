@@ -48,3 +48,4 @@ Route: `/`
   - futures: `Max loss for futures (%)`
   - for negative PnL%, chips transition from yellow to orange and become red at/above max loss.
 - DVOL data uses 1D timeframe and is cached in browser local storage for a short period to reduce repeated requests and keep dashboard load fast.
+- DVOL chart window shows the last 3 months.
