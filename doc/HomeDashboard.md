@@ -25,6 +25,7 @@ Route: `/`
   - P/L percent from entry value
   - mini line chart (payoff snapshot)
   - mini chart includes both expiry P/L and temp/theoretical P/L lines
+  - total Greeks (Delta, Gamma, Vega, Theta) below the mini chart
   - included legs in quick-add style
   - notes
   - leg chips with loss-severity colors:

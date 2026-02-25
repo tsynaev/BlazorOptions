@@ -107,25 +107,33 @@
 
                                     <MudGrid Spacing="1">
                                         <MudItem xs="12" md="6">
-                                            <div class="home-mini-chart">
-                                                @if (position.IsChartReady)
-                                                {
-                                                    <MudChart ChartType="ChartType.Line"
-                                                              Width="100%"
-                                                              Height="180px"
-                                                              XAxisLabels="@position.Chart.XLabels.ToArray()"
-                                                              ChartOptions="@_miniChartOptions"
-                                                              ChartSeries="@BuildSeries(position.Chart)" />
-                                                    @if (position.CurrentPricePercent.HasValue)
+                                            <MudStack Spacing="1">
+                                                <div class="home-mini-chart">
+                                                    @if (position.IsChartReady)
                                                     {
-                                                        <div class="home-current-price-line" style="@BuildCurrentPriceLineStyle(position.CurrentPricePercent.Value)"></div>
+                                                        <MudChart ChartType="ChartType.Line"
+                                                                  Width="100%"
+                                                                  Height="180px"
+                                                                  XAxisLabels="@position.Chart.XLabels.ToArray()"
+                                                                  ChartOptions="@_miniChartOptions"
+                                                                  ChartSeries="@BuildSeries(position.Chart)" />
+                                                        @if (position.CurrentPricePercent.HasValue)
+                                                        {
+                                                            <div class="home-current-price-line" style="@BuildCurrentPriceLineStyle(position.CurrentPricePercent.Value)"></div>
+                                                        }
                                                     }
-                                                }
-                                                else
-                                                {
-                                                    <MudSkeleton Height="180px" Width="100%" Animation="Animation.Wave" />
-                                                }
-                                            </div>
+                                                    else
+                                                    {
+                                                        <MudSkeleton Height="180px" Width="100%" Animation="Animation.Wave" />
+                                                    }
+                                                </div>
+                                                <MudStack Row="true" Spacing="1" Class="home-greeks-row">
+                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Δ @FormatGreek(position.GreekSummary.TotalDelta)</MudChip>
+                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Γ @FormatGamma(position.GreekSummary.TotalGamma)</MudChip>
+                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">ν @FormatGreek(position.GreekSummary.TotalVega)</MudChip>
+                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Θ @FormatGreek(position.GreekSummary.TotalTheta)</MudChip>
+                                                </MudStack>
+                                            </MudStack>
                                         </MudItem>
                                         <MudItem xs="12" md="6">
                                             <MudStack Spacing="1">
@@ -309,6 +317,16 @@
         return value.HasValue ? $"{value.Value:+0.##;-0.##;0}%" : "n/a";
     }
 
+    private static string FormatGreek(decimal value)
+    {
+        return value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatGamma(decimal value)
+    {
+        return value.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
     private readonly ChartOptions _miniChartOptions = new()
     {
         ChartPalette = ["#3b82f6", "#22d3ee", "#f8fafc"],
@@ -338,6 +356,10 @@
 
     .home-legs-group-title {
         opacity: 0.8;
+    }
+
+    .home-greeks-row {
+        flex-wrap: wrap;
     }
 
     .home-position-card-clickable {

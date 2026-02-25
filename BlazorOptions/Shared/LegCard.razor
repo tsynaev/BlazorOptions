@@ -77,9 +77,23 @@
         @if (ViewModel.Leg.Type != LegType.Future)
         {
             <div class="leg-mini-divider"><span>Greeks</span></div>
-            <MudText Typo="Typo.caption" Class="leg-card-greeks">
-                Δ @FormatGreek(ViewModel.Delta) · Γ @FormatGreek(ViewModel.Gamma) · ν @FormatGreek(ViewModel.Vega) · Θ @FormatGreek(ViewModel.Theta)
-            </MudText>
+
+            <MudStack Row="true" AlignItems="AlignItems.Center" StretchItems="StretchItems.Start">
+               <MudText Typo="Typo.caption" Class="leg-card-greeks">
+                    Δ&nbsp;@FormatLegGreek(ViewModel.Delta) ·
+                    Γ&nbsp;@FormatLegGamma(ViewModel.Gamma) ·
+                    ν&nbsp;@FormatLegGreek(ViewModel.Vega) ·
+                    Θ&nbsp;@FormatLegGreek(ViewModel.Theta)
+
+                </MudText>
+                 <MudTooltip Text="@BuildGreekModeTooltip()">
+                    <MudSwitch T="bool"
+                               Value="@_showGreeksPerSize"
+                               ValueChanged="value => _showGreeksPerSize = value"
+                               Color="Color.Default"
+                               Class="leg-greeks-mini-switch" />
+                </MudTooltip>
+             </MudStack>
         }
         @if (ViewModel.LinkedOrders.Count > 0)
         {
@@ -125,7 +139,9 @@
 </MudPaper>
 
 @code {
-    [Parameter, EditorRequired] public LegViewModel ViewModel { get; set; } = default!;
+    [Parameter, EditorRequired] public LegViewModel ViewModel { get; set; }
+
+    private bool _showGreeksPerSize;
 
     private static string FormatPrice(decimal? price)
     {
@@ -220,9 +236,45 @@
         return value.HasValue ? $"{value.Value:0.##}%" : "-";
     }
 
-    private static string FormatGreek(decimal? value)
+    
+    private string FormatLegGreek(decimal? raw)
     {
-        return value.HasValue ? value.Value.ToString("0.###", CultureInfo.InvariantCulture) : "-";
+        if (!raw.HasValue)
+        {
+            return "-";
+        }
+
+        var value = ResolveDisplayedGreekValue(raw.Value);
+        return value.ToString("0.###", CultureInfo.InvariantCulture);
+    }
+
+    private string FormatLegGamma(decimal? raw)
+    {
+        if (!raw.HasValue)
+        {
+            return "-";
+        }
+
+        var value = ResolveDisplayedGreekValue(raw.Value);
+        return value.ToString("0.######", CultureInfo.InvariantCulture);
+    }
+
+    private decimal ResolveDisplayedGreekValue(decimal rawValue)
+    {
+        if (_showGreeksPerSize)
+        {
+            var sign = Math.Sign(ViewModel.Leg.Size);
+            return sign == 0 ? rawValue : rawValue * sign;
+        }
+
+        return rawValue * ViewModel.Leg.Size;
+    }
+
+    private string BuildGreekModeTooltip()
+    {
+        return _showGreeksPerSize
+            ? "Greeks per size. Click to show total leg contribution."
+            : "Total leg Greek contribution. Click to show per-size Greeks.";
     }
 
     private string BuildLinkedOrderPrefix(LegLinkedOrderModel order)
@@ -358,6 +410,8 @@
 
     .leg-card-greeks {
         opacity: 0.8;
+        font-size: 0.6rem;
+        line-height: 1;
     }
 
     .leg-mini-divider {
@@ -377,6 +431,14 @@
         flex: 1;
         border-top: 1px solid rgba(255, 255, 255, 0.2);
         transform: translateY(1px);
+    }
+
+    .leg-greeks-mini-switch {
+        transform: scale(0.55);
+        transform-origin: right center;
+        margin-top: -7px;
+        margin-bottom: -7px;
+        margin-right: -8px;
     }
 
     .leg-card-icon .mud-icon-button {
@@ -464,6 +526,7 @@
         line-height: 1.2;
     }
 </style>
+
 
 
 

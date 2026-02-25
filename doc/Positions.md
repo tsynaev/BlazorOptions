@@ -29,6 +29,8 @@ The Positions page is where you manage one position at a time and review its pay
 - Included `Order` and `New` legs show order markers (`@price`) on the chart; option markers are placed at implied underlying execution level.
 - Linked-order markers are shown for active legs and include all linked orders for that leg.
 - Review per-leg P/L, IV, Greeks, and linked-order expected P/L.
+- Portfolio header shows only total Greeks for included legs.
+- Each non-futures leg card Greeks row includes a tiny unlabeled switch (with tooltip) to toggle between total leg Greek contribution and per-size Greek values.
 - `Order` status legs display current market mark values in the card.
 - `New` legs with both empty entry price and empty IV show no entry price in the card.
 - In leg edit dialog, clearing price or IV shows placeholders from current market mark values when available.
@@ -45,6 +47,7 @@ The Positions page is where you manage one position at a time and review its pay
 ## Chart And Controls
 
 - Header shows combined total P/L (temporary + closed).
+- Header total P/L also shows portfolio P/L percent, using included non-futures leg entry value as denominator.
 - `Live` and `Candles` are switched with chips.
 - `Day Min/Max` chip toggles IV-based day range markers.
 - `Orders` chip toggles order and linked-order markers on the chart.

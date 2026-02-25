@@ -220,6 +220,8 @@ public sealed class LegsCollectionViewModel : IDisposable
 
     public decimal TotalTheta => SumGreek(static leg => leg.Theta);
 
+    public PortfolioGreekSummary GreekSummary => BuildGreekSummary();
+
     public decimal? TotalTempPnl => SumTempPnl();
 
     public bool IsLoadingAvailableLegs => _isLoadingAvailableLegs;
@@ -1854,4 +1856,76 @@ public sealed class LegsCollectionViewModel : IDisposable
 
         return hasValue ? total : null;
     }
+
+    private PortfolioGreekSummary BuildGreekSummary()
+    {
+        decimal totalDelta = 0m;
+        decimal totalGamma = 0m;
+        decimal totalVega = 0m;
+        decimal totalTheta = 0m;
+        decimal grossSize = 0m;
+
+        foreach (var leg in _legs)
+        {
+            if (!leg.Leg.IsIncluded)
+            {
+                continue;
+            }
+
+            grossSize += Math.Abs(leg.Leg.Size);
+
+            if (leg.Leg.Type == LegType.Future)
+            {
+                totalDelta += leg.Leg.Size;
+                continue;
+            }
+
+            if (leg.Delta.HasValue)
+            {
+                totalDelta += leg.Delta.Value * leg.Leg.Size;
+            }
+
+            if (leg.Gamma.HasValue)
+            {
+                totalGamma += leg.Gamma.Value * leg.Leg.Size;
+            }
+
+            if (leg.Vega.HasValue)
+            {
+                totalVega += leg.Vega.Value * leg.Leg.Size;
+            }
+
+            if (leg.Theta.HasValue)
+            {
+                totalTheta += leg.Theta.Value * leg.Leg.Size;
+            }
+        }
+
+        var perDelta = grossSize > 0m ? totalDelta / grossSize : 0m;
+        var perGamma = grossSize > 0m ? totalGamma / grossSize : 0m;
+        var perVega = grossSize > 0m ? totalVega / grossSize : 0m;
+        var perTheta = grossSize > 0m ? totalTheta / grossSize : 0m;
+
+        return new PortfolioGreekSummary(
+            totalDelta,
+            totalGamma,
+            totalVega,
+            totalTheta,
+            grossSize,
+            perDelta,
+            perGamma,
+            perVega,
+            perTheta);
+    }
 }
+
+public sealed record PortfolioGreekSummary(
+    decimal TotalDelta,
+    decimal TotalGamma,
+    decimal TotalVega,
+    decimal TotalTheta,
+    decimal GrossSize,
+    decimal DeltaPerOneSize,
+    decimal GammaPerOneSize,
+    decimal VegaPerOneSize,
+    decimal ThetaPerOneSize);

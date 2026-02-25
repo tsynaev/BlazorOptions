@@ -67,7 +67,7 @@ else
                         <MudStack Spacing="2">
                             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="position-summary-row">
                                 <MudChip T="string" Variant="Variant.Filled" Size="Size.Small" Color="@ResolvePnlColor(ResolveTotalCombinedPnl())">
-                                    Total P/L: @FormatPrice(ResolveTotalCombinedPnl())
+                                    Total P/L: @FormatPrice(ResolveTotalCombinedPnl()) (@FormatPercent(ResolveTotalCombinedPnlPercent()))
                                 </MudChip>
                                 <MudChip T="string"
                                          Variant="Variant.Outlined"
@@ -912,6 +912,59 @@ else
         }
 
         return (temp ?? 0m) + (closed ?? 0m);
+    }
+
+    private decimal ResolvePortfolioEntryValue()
+    {
+        if (!HasActivePosition)
+        {
+            return 0m;
+        }
+
+        decimal total = 0m;
+        foreach (var collection in ViewModel.Collections)
+        {
+            if (!collection.Collection.IsVisible)
+            {
+                continue;
+            }
+
+            foreach (var leg in collection.Legs)
+            {
+                if (!leg.Leg.IsIncluded || leg.Leg.Type == LegType.Future || !leg.Leg.Price.HasValue)
+                {
+                    continue;
+                }
+
+                total += Math.Abs(leg.Leg.Size * leg.Leg.Price.Value);
+            }
+        }
+
+        return total;
+    }
+
+    private decimal? ResolveTotalCombinedPnlPercent()
+    {
+        var totalPnl = ResolveTotalCombinedPnl();
+        if (!totalPnl.HasValue)
+        {
+            return null;
+        }
+
+        var entryValue = ResolvePortfolioEntryValue();
+        if (entryValue <= 0m)
+        {
+            return null;
+        }
+
+        return totalPnl.Value / entryValue * 100m;
+    }
+
+    private static string FormatPercent(decimal? value)
+    {
+        return value.HasValue
+            ? $"{value.Value:+0.00;-0.00;0.00}%"
+            : "-";
     }
 
 }

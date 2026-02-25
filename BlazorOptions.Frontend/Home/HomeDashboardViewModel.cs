@@ -171,6 +171,7 @@ public sealed class HomeDashboardViewModel : Bindable
         var chart = withChart
             ? BuildChart(legs, model.ChartRange, realizedPnl, tempOffset)
             : HomeMiniChartModel.Empty;
+        var greekSummary = BuildGreekSummary(legs, model.BaseAsset);
         var totalPnl = tempPnl + realizedPnl;
         var pnlPercent = entryValue > 0m ? (totalPnl / entryValue) * 100m : (decimal?)null;
         var currentPricePercent = withChart
@@ -189,9 +190,55 @@ public sealed class HomeDashboardViewModel : Bindable
                 .ToArray(),
             model.Notes,
             chart,
+            greekSummary,
             exchangePrice,
             currentPricePercent,
             withChart);
+    }
+
+    private HomeGreekSummary BuildGreekSummary(IReadOnlyList<LegModel> legs, string? baseAsset)
+    {
+        decimal totalDelta = 0m;
+        decimal totalGamma = 0m;
+        decimal totalVega = 0m;
+        decimal totalTheta = 0m;
+
+        foreach (var leg in legs)
+        {
+            if (leg.Type == LegType.Future)
+            {
+                totalDelta += leg.Size;
+                continue;
+            }
+
+            var ticker = _exchangeService.OptionsChain.FindTickerForLeg(leg, baseAsset);
+            if (ticker is null)
+            {
+                continue;
+            }
+
+            if (ticker.Delta.HasValue)
+            {
+                totalDelta += ticker.Delta.Value * leg.Size;
+            }
+
+            if (ticker.Gamma.HasValue)
+            {
+                totalGamma += ticker.Gamma.Value * leg.Size;
+            }
+
+            if (ticker.Vega.HasValue)
+            {
+                totalVega += ticker.Vega.Value * leg.Size;
+            }
+
+            if (ticker.Theta.HasValue)
+            {
+                totalTheta += ticker.Theta.Value * leg.Size;
+            }
+        }
+
+        return new HomeGreekSummary(totalDelta, totalGamma, totalVega, totalTheta);
     }
 
     private HomeMiniChartModel BuildChart(
@@ -704,9 +751,16 @@ public sealed record HomePositionCardModel(
     IReadOnlyList<HomeLegChipModel> QuickAddLegs,
     string Notes,
     HomeMiniChartModel Chart,
+    HomeGreekSummary GreekSummary,
     decimal? CurrentPrice,
     double? CurrentPricePercent,
     bool IsChartReady);
+
+public sealed record HomeGreekSummary(
+    decimal TotalDelta,
+    decimal TotalGamma,
+    decimal TotalVega,
+    decimal TotalTheta);
 
 public sealed record HomeLegChipModel(
     string Text,

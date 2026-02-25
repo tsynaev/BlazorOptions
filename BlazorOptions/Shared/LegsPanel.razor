@@ -7,50 +7,58 @@
 {
     <MudCard>
         <MudCardHeader>
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="flex-grow-1 legs-panel-header">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="legs-panel-title-row">
-                    <MudCheckBox T="bool"
-                                 Value="@ViewModel.IsVisible"
-                                 ValueChanged="async visible => await ViewModel.SetVisibilityAsync(visible)"/>
-                    <MudText Typo="Typo.h6" Style="@($"color:{ViewModel.Color};")">@ViewModel.Name</MudText>
+            <MudStack Spacing="1" Class="flex-grow-1">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="legs-panel-header">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="legs-panel-title-row">
+                        <MudCheckBox T="bool"
+                                     Value="@ViewModel.IsVisible"
+                                     ValueChanged="async visible => await ViewModel.SetVisibilityAsync(visible)"/>
+                        <MudText Typo="Typo.h6" Style="@($"color:{ViewModel.Color};")">@ViewModel.Name</MudText>
+                    </MudStack>
+                    <MudSpacer/>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="legs-panel-actions-row">
+                        <MudTooltip Text="Duplicate portfolio">
+                            <MudIconButton Icon="@Icons.Material.Filled.FileCopy"
+                                           Color="Color.Default"
+                                           OnClick="async () => await ViewModel.DuplicateCollectionAsync()"/>
+                        </MudTooltip>
+                        <MudTooltip Text="Copy symbols to closed positions">
+                            <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
+                                           Color="Color.Default"
+                                           Disabled="@(ViewModel.Legs.Count == 0)"
+                                           OnClick="async () => await ViewModel.CopySymbolsToClosedPositionsAsync()"/>
+                        </MudTooltip>
+                        <MudTooltip Text="Load exchange positions">
+                            <MudIconButton Icon="@Icons.Material.Filled.CloudDownload"
+                                           Color="Color.Default"
+                                           OnClick="async () => await ViewModel.LoadBybitPositionsAsync()"/>
+                        </MudTooltip>
+                        <MudTooltip Text="Add leg">
+                            <MudIconButton Icon="@Icons.Material.Filled.AddCircle"
+                                           Color="Color.Primary"
+                                           OnClick="async () => await ViewModel.AddLegAsync()"/>
+                        </MudTooltip>
+                        <MudTooltip Text="Portfolio settings">
+                            <MudIconButton Icon="@Icons.Material.Filled.MoreVert"
+                                           Color="Color.Default"
+                                           OnClick="async () => await ViewModel.OpenSettingsAsync()"/>
+                        </MudTooltip>
+                    </MudStack>
                 </MudStack>
-                <MudSpacer/>
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="legs-panel-actions-row">
-                    <MudTooltip Text="Duplicate portfolio">
-                        <MudIconButton Icon="@Icons.Material.Filled.FileCopy"
-                                       Color="Color.Default"
-                                       OnClick="async () => await ViewModel.DuplicateCollectionAsync()"/>
-                    </MudTooltip>
-                    <MudTooltip Text="Copy symbols to closed positions">
-                        <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
-                                       Color="Color.Default"
-                                       Disabled="@(ViewModel.Legs.Count == 0)"
-                                       OnClick="async () => await ViewModel.CopySymbolsToClosedPositionsAsync()"/>
-                    </MudTooltip>
-                    <MudTooltip Text="Load exchange positions">
-                        <MudIconButton Icon="@Icons.Material.Filled.CloudDownload"
-                                       Color="Color.Default"
-                                       OnClick="async () => await ViewModel.LoadBybitPositionsAsync()"/>
-                    </MudTooltip>
-                    <MudTooltip Text="Add leg">
-                        <MudIconButton Icon="@Icons.Material.Filled.AddCircle"
-                                       Color="Color.Primary"
-                                       OnClick="async () => await ViewModel.AddLegAsync()"/>
-                    </MudTooltip>
-                    <MudTooltip Text="Portfolio settings">
-                        <MudIconButton Icon="@Icons.Material.Filled.MoreVert"
-                                       Color="Color.Default"
-                                       OnClick="async () => await ViewModel.OpenSettingsAsync()"/>
-                    </MudTooltip>
+                @{
+                    var headerGreeks = ViewModel.GreekSummary;
+                }
+                <MudStack Row="true" Spacing="1" Class="leg-greeks-chip-row">
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Delta @FormatGreek(headerGreeks.TotalDelta)</MudChip>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Gamma @FormatGamma(headerGreeks.TotalGamma)</MudChip>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Vega @FormatGreek(headerGreeks.TotalVega)</MudChip>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Theta @FormatGreek(headerGreeks.TotalTheta)</MudChip>
                 </MudStack>
             </MudStack>
-
         </MudCardHeader>
         <MudCardContent>
             <MudStack Spacing="2">
-                <MudText Typo="Typo.caption" Class="leg-greeks-total">
-                    Δ @FormatGreek(ViewModel.TotalDelta) · Γ @FormatGreek(ViewModel.TotalGamma) · ν @FormatGreek(ViewModel.TotalVega) · Θ @FormatGreek(ViewModel.TotalTheta)
-                </MudText>
+
                 @foreach (var group in BuildDisplayGroups())
                 {
                     var groupCandidates = GetCandidatesForGroup(group.ExpirationDate);
@@ -153,6 +161,11 @@
         return value.ToString("0.###", CultureInfo.InvariantCulture);
     }
 
+    private static string FormatGamma(decimal value)
+    {
+        return value.ToString("0.######", CultureInfo.InvariantCulture);
+    }
+
 }
 
 <style>
@@ -213,10 +226,6 @@
         width: 100%;
     }
 
-    .leg-greeks-total {
-        opacity: 0.8;
-    }
-
     .available-legs-group {
         margin-top: 10px;
     }
@@ -245,3 +254,5 @@
         }
     }
 </style>
+
+
