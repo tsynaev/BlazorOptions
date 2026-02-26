@@ -20,12 +20,14 @@ Route: `/`
   - fresh data is requested in background and replaces cached chart when loaded
 - Cards and non-chart data are shown first; mini charts are then rendered asynchronously one-by-one to keep initial page load responsive.
 - While a card chart is warming up, the card shows a chart skeleton placeholder.
+- Break-even values are calculated independently and shown even while the mini chart is still loading.
 - Each card shows:
   - position name in `base/quote - name` format
   - total P/L
   - P/L percent from entry value
   - mini line chart (payoff snapshot)
   - mini chart includes both expiry P/L and temp/theoretical P/L lines
+  - expiry break-even values shown under the mini chart
   - total Greeks (Delta, Gamma, Vega, Theta) below the mini chart
   - included legs in quick-add style
   - notes

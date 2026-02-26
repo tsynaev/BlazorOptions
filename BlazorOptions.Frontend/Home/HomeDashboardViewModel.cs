@@ -171,6 +171,7 @@ public sealed class HomeDashboardViewModel : Bindable
         var chart = withChart
             ? BuildChart(legs, model.ChartRange, realizedPnl, tempOffset)
             : HomeMiniChartModel.Empty;
+        var breakEvens = BuildBreakEvensOnly(legs, model.ChartRange, realizedPnl);
         var greekSummary = BuildGreekSummary(legs, model.BaseAsset);
         var totalPnl = tempPnl + realizedPnl;
         var pnlPercent = entryValue > 0m ? (totalPnl / entryValue) * 100m : (decimal?)null;
@@ -190,10 +191,37 @@ public sealed class HomeDashboardViewModel : Bindable
                 .ToArray(),
             model.Notes,
             chart,
+            breakEvens,
             greekSummary,
             exchangePrice,
             currentPricePercent,
             withChart);
+    }
+
+    private IReadOnlyList<decimal> BuildBreakEvensOnly(
+        IReadOnlyList<LegModel> legs,
+        BlazorChart.Models.ChartRange? range,
+        decimal pnlShift)
+    {
+        var (xs, profits, _) = _optionsService.GeneratePosition(
+            legs,
+            // Use denser sampling because BE can be missed on coarse grids.
+            points: 120,
+            xMinOverride: range?.XMin,
+            xMaxOverride: range?.XMax);
+
+        var breakEvens = ResolveBreakEvens(xs, profits, pnlShift);
+        if (breakEvens.Count > 0)
+        {
+            return breakEvens;
+        }
+
+        // If the current chart range does not cross zero P/L, search full auto-range.
+        var (fullXs, fullProfits, _) = _optionsService.GeneratePosition(
+            legs,
+            points: 240);
+
+        return ResolveBreakEvens(fullXs, fullProfits, pnlShift);
     }
 
     private HomeGreekSummary BuildGreekSummary(IReadOnlyList<LegModel> legs, string? baseAsset)
@@ -263,8 +291,88 @@ public sealed class HomeDashboardViewModel : Bindable
         var tempValues = theoreticalProfits
             .Select(value => (double)(value + pnlShift + tempOffset))
             .ToArray();
+        var breakEvens = ResolveBreakEvens(xs, profits, pnlShift);
 
-        return new HomeMiniChartModel(sparseLabels, values, tempValues, (double)xs[0], (double)xs[^1]);
+        return new HomeMiniChartModel(sparseLabels, values, tempValues, (double)xs[0], (double)xs[^1], breakEvens);
+    }
+
+    private static IReadOnlyList<decimal> ResolveBreakEvens(IReadOnlyList<decimal> xs, IReadOnlyList<decimal> profits, decimal pnlShift)
+    {
+        var result = new List<decimal>();
+        if (xs.Count == 0 || profits.Count == 0)
+        {
+            return result;
+        }
+
+        var count = Math.Min(xs.Count, profits.Count);
+        var step = count > 1
+            ? Math.Abs(xs[count - 1] - xs[0]) / (count - 1)
+            : 1m;
+        var epsilonX = Math.Max(0.01m, step * 0.5m);
+
+        var maxAbsY = 0m;
+        for (var i = 0; i < count; i++)
+        {
+            var y = Math.Abs(profits[i] + pnlShift);
+            if (y > maxAbsY)
+            {
+                maxAbsY = y;
+            }
+        }
+
+        // Relative epsilon keeps BE detection stable for both small and large P/L scales.
+        var epsilonY = Math.Max(0.01m, maxAbsY * 0.0005m);
+
+        for (var i = 0; i < count - 1; i++)
+        {
+            var x0 = xs[i];
+            var x1 = xs[i + 1];
+            var y0 = profits[i] + pnlShift;
+            var y1 = profits[i + 1] + pnlShift;
+
+            if (Math.Abs(y0) <= epsilonY)
+            {
+                AddDistinctBreakEven(result, x0, epsilonX);
+                continue;
+            }
+
+            if (Math.Abs(y1) <= epsilonY)
+            {
+                AddDistinctBreakEven(result, x1, epsilonX);
+                continue;
+            }
+
+            if ((y0 < 0m && y1 > 0m) || (y0 > 0m && y1 < 0m))
+            {
+                var slope = y1 - y0;
+                if (Math.Abs(slope) < 0.0000001m)
+                {
+                    continue;
+                }
+
+                var t = -y0 / slope;
+                var breakeven = x0 + (x1 - x0) * t;
+                AddDistinctBreakEven(result, breakeven, epsilonX);
+            }
+        }
+
+        return result
+            .OrderBy(value => value)
+            .ToArray();
+    }
+
+    private static void AddDistinctBreakEven(List<decimal> list, decimal value, decimal epsilonX)
+    {
+        var rounded = decimal.Round(value, 2);
+        for (var i = 0; i < list.Count; i++)
+        {
+            if (Math.Abs(list[i] - rounded) <= epsilonX)
+            {
+                return;
+            }
+        }
+
+        list.Add(rounded);
     }
 
     private static decimal ResolveCurrentPrice(HomeMiniChartModel chart, BlazorChart.Models.ChartRange? range)
@@ -751,6 +859,7 @@ public sealed record HomePositionCardModel(
     IReadOnlyList<HomeLegChipModel> QuickAddLegs,
     string Notes,
     HomeMiniChartModel Chart,
+    IReadOnlyList<decimal> BreakEvens,
     HomeGreekSummary GreekSummary,
     decimal? CurrentPrice,
     double? CurrentPricePercent,
@@ -828,12 +937,14 @@ public sealed record HomeMiniChartModel(
     IReadOnlyList<double> Values,
     IReadOnlyList<double> TempValues,
     double XMin,
-    double XMax)
+    double XMax,
+    IReadOnlyList<decimal> BreakEvens)
 {
     public static HomeMiniChartModel Empty { get; } = new(
         Array.Empty<string>(),
         Array.Empty<double>(),
         Array.Empty<double>(),
         0d,
-        0d);
+        0d,
+        Array.Empty<decimal>());
 }

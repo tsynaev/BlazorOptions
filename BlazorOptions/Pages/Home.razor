@@ -136,6 +136,24 @@
                                                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">ν @FormatGreek(position.GreekSummary.TotalVega)</MudChip>
                                                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Θ @FormatGreek(position.GreekSummary.TotalTheta)</MudChip>
                                                 </MudStack>
+                                                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" AlignItems="AlignItems.Center" Class="home-break-even-row">
+                                                    <MudText Typo="Typo.caption" Class="home-break-even-label">BE</MudText>
+                                                    @if (position.BreakEvens.Count == 0)
+                                                    {
+                                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Class="home-break-even-chip">
+                                                            n/a
+                                                        </MudChip>
+                                                    }
+                                                    else
+                                                    {
+                                                        @foreach (var breakEven in position.BreakEvens)
+                                                        {
+                                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Class="home-break-even-chip">
+                                                                @FormatBreakEven(breakEven)
+                                                            </MudChip>
+                                                        }
+                                                    }
+                                                </MudStack>
                                             </MudStack>
                                         </MudItem>
                                         <MudItem xs="12" md="6">
@@ -330,6 +348,11 @@
         return value.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture);
     }
 
+    private static string FormatBreakEven(decimal value)
+    {
+        return value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
     private readonly ChartOptions _miniChartOptions = new()
     {
         ChartPalette = ["#3b82f6", "#22d3ee", "#f8fafc"],
@@ -363,6 +386,19 @@
 
     .home-greeks-row {
         flex-wrap: wrap;
+    }
+
+    .home-break-even-row {
+        opacity: 0.9;
+    }
+
+    .home-break-even-label {
+        opacity: 0.85;
+        margin-right: 2px;
+    }
+
+    .home-break-even-chip {
+        font-size: 0.72rem;
     }
 
     .home-position-card-clickable {
