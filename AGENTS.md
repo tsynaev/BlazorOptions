@@ -6,6 +6,7 @@
 - Try to keep child ViewModels independent from parent ViewModels. Use event to notify parent about changes. 
   The changes can be raised after some operation after user action or system event. 
   You have to avoid calling viewmodel event on every property changes.
+- Preserve user-authored code structure and logic when applying fixes. Make minimal targeted changes on top of existing implementation; do not refactor user code unless explicitly requested.
 - For responsiveness, apply pricing-context updates in a single batched pass per collection instead of updating each leg immediately.
 - For performance, avoid heavy LINQ in Razor; precompute grouped or sorted data in view models.
 - For list rendering stability, add `@key` to repeated items when possible.

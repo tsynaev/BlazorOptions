@@ -67,17 +67,17 @@
                                      @key="_sizeFieldKey"
                                      Label="Size"
                                      @bind-Value="SizeValue"
-                                     Immediate="true"
-                                     Format="0.########"
+                                     Format="0.##"
                                      Margin="Margin.Dense"
                                      Disabled="@ViewModel.Leg.IsReadOnly" />
                 </MudItem>
                 <MudItem xs="12" sm="6">
                     <MudNumericField T="decimal?"
+                                     @key="_priceFieldKey"
                                      Label="Price"
                                      Value="@ViewModel.Leg.Price"
-                                     ValueChanged="async value => await ViewModel.UpdateLegPriceAsync(value)"
-                                     Immediate="true"
+                                     ValueChanged="OnPriceChangedAsync"
+                                     Format="0.##"
                                      Margin="Margin.Dense"
                                      Adornment="Adornment.End"
                                      AdornmentText="USDT"
@@ -115,6 +115,7 @@
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
     private decimal _sizeValue;
     private string _sizeFieldKey = string.Empty;
+    private string _priceFieldKey = string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
@@ -153,8 +154,10 @@
     private void SyncEditableFields()
     {
         _sizeValue = ViewModel.Leg.Size;
+
         // Key forces a clean MudNumericField state when the edited leg changes.
         _sizeFieldKey = $"{ViewModel.Leg.ReferenceId ?? ViewModel.Leg.Symbol ?? "leg"}:{ViewModel.Leg.Size.ToString(CultureInfo.InvariantCulture)}";
+        _priceFieldKey = $"{ViewModel.Leg.ReferenceId ?? ViewModel.Leg.Symbol ?? "leg"}:{(ViewModel.Leg.Price.HasValue ? ViewModel.Leg.Price.Value.ToString(CultureInfo.InvariantCulture) : "null")}";
     }
 
     private decimal SizeValue
@@ -179,7 +182,31 @@
             return null;
         }
 
+        if (ViewModel.Leg.Type == LegType.Future)
+        {
+            // Futures placeholder should reflect current underlying mark when entry is empty.
+            return ViewModel.CurrentPrice ?? ViewModel.MarkPrice ?? ViewModel.PlaceholderPrice;
+        }
+
         return ViewModel.MarkPrice ?? ViewModel.PlaceholderPrice;
+    }
+
+    private async Task OnPriceChangedAsync(decimal? value)
+    {
+        if (ViewModel.Leg.Type == LegType.Future
+            && !ViewModel.Leg.Price.HasValue
+            && value.HasValue
+            )
+        {
+            var placeholder = GetPricePlaceholder();
+            if (placeholder.HasValue && Math.Abs(value.Value - placeholder.Value) < 0.0001m)
+            {
+                // Keep empty entry for futures; current price should stay a placeholder hint only.
+                return;
+            }
+        }
+
+        await ViewModel.UpdateLegPriceAsync(value);
     }
 
     private decimal? GetIvPlaceholder()

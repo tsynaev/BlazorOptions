@@ -1131,8 +1131,8 @@ public sealed class PositionViewModel : IDisposable
             if (ShowOrderMarkers)
             {
                 foreach (var orderLeg in collection.Legs.Where(item =>
-                             item.Leg.IsIncluded
-                             && (item.Leg.Status == LegStatus.Order || item.Leg.Status == LegStatus.New)))
+                             (item.Leg.Status == LegStatus.Order || item.Leg.Status == LegStatus.New)
+                             && item.Leg.Price.HasValue))
                 {
                     if (!TryCreateOrderMarker(orderLeg, collection.Color, out var marker))
                     {
