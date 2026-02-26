@@ -170,6 +170,7 @@ public sealed class PositionViewModel : IDisposable
     public bool ShowCandles { get; private set; }
     public bool ShowDayMinMaxMarkers { get; private set; } = true;
     public bool ShowOrderMarkers { get; private set; } = true;
+    public bool ShowSkewShift { get; private set; }
     public DateTime MaxExpiryDate { get; private set; } = DateTime.UtcNow.Date;
     public int MaxExpiryDays { get; private set; }
     public int SelectedDayOffset { get; private set; }
@@ -191,6 +192,9 @@ public sealed class PositionViewModel : IDisposable
         decimal? PutIv,
         decimal DayMaxPrice,
         decimal DayMinPrice);
+
+    private sealed record SkewContext(
+        IReadOnlyDictionary<(LegType Type, DateTime Expiry), (decimal Strike, decimal Iv)[]> SurfaceByExpiryAndType);
 
     public async Task InitializeAsync(Guid positionId)
     {
@@ -1051,11 +1055,12 @@ public sealed class PositionViewModel : IDisposable
         foreach (var collection in collections)
         {
             var collectionLegs = ResolveLegsForCalculation(collection.Legs).Where(leg => leg.IsIncluded).ToList();
+            var skewContext = BuildSkewContext(collectionLegs);
             var profits = xs
                 .Select(price => CalculateExpiryProfitForChartPrice(collectionLegs, price, valuationDate, displayPrice))
                 .ToArray();
             var theoreticalProfits = xs
-                .Select(price => CalculateTempProfitForChartPrice(collectionLegs, price, valuationDate, displayPrice))
+                .Select(price => CalculateTempProfitForChartPrice(collectionLegs, price, valuationDate, displayPrice, skewContext))
                 .ToArray();
 
             if (Math.Abs(closedPositionsTotal) > 0.0001m)
@@ -1129,7 +1134,8 @@ public sealed class PositionViewModel : IDisposable
         IReadOnlyList<LegModel> legs,
         decimal curvePrice,
         DateTime valuationDate,
-        decimal? selectedPrice)
+        decimal? selectedPrice,
+        SkewContext? skewContext)
     {
         decimal total = 0m;
         foreach (var leg in legs)
@@ -1142,10 +1148,130 @@ public sealed class PositionViewModel : IDisposable
                 continue;
             }
 
-            total += _optionsService.CalculateLegTheoreticalProfit(leg, curvePrice, valuationDate);
+            var effectiveLeg = ResolveSkewAdjustedLeg(leg, curvePrice, skewContext);
+            total += _optionsService.CalculateLegTheoreticalProfit(effectiveLeg, curvePrice, valuationDate);
         }
 
         return total;
+    }
+
+    private SkewContext? BuildSkewContext(IReadOnlyList<LegModel> legs)
+    {
+        if (!ShowSkewShift || Position is null)
+        {
+            return null;
+        }
+
+        var baseAsset = Position.BaseAsset?.Trim();
+        if (string.IsNullOrWhiteSpace(baseAsset))
+        {
+            return null;
+        }
+
+        var relevantKeys = legs
+            .Where(leg => leg.Type is LegType.Call or LegType.Put)
+            .Where(leg => leg.ExpirationDate.HasValue)
+            .Select(leg => (Type: leg.Type, Expiry: leg.ExpirationDate!.Value.Date))
+            .Distinct()
+            .ToHashSet();
+        if (relevantKeys.Count == 0)
+        {
+            return null;
+        }
+
+        var grouped = _exchangeService.OptionsChain.GetTickersByBaseAsset(baseAsset)
+            .Where(ticker => relevantKeys.Contains((ticker.Type, ticker.ExpirationDate.Date)))
+            .Select(ticker => new
+            {
+                ticker.Type,
+                Expiry = ticker.ExpirationDate.Date,
+                ticker.Strike,
+                Iv = ResolveTickerIvPercent(ticker)
+            })
+            .Where(item => item.Iv.HasValue && item.Iv.Value > 0m)
+            .GroupBy(item => (item.Type, item.Expiry))
+            .ToDictionary(
+                group => group.Key,
+                group => group
+                    .OrderBy(item => item.Strike)
+                    .Select(item => (item.Strike, item.Iv!.Value))
+                    .ToArray());
+
+        return grouped.Count == 0 ? null : new SkewContext(grouped);
+    }
+
+    private LegModel ResolveSkewAdjustedLeg(LegModel leg, decimal curvePrice, SkewContext? skewContext)
+    {
+        if (skewContext is null
+            || leg.Type is not (LegType.Call or LegType.Put)
+            || !leg.ExpirationDate.HasValue)
+        {
+            return leg;
+        }
+
+        if (!skewContext.SurfaceByExpiryAndType.TryGetValue((leg.Type, leg.ExpirationDate.Value.Date), out var surface)
+            || surface.Length == 0)
+        {
+            return leg;
+        }
+
+        var shiftedIv = ResolveNearestIv(surface, curvePrice);
+        if (!shiftedIv.HasValue || shiftedIv.Value <= 0m)
+        {
+            return leg;
+        }
+
+        var currentIv = leg.ImpliedVolatility ?? 0m;
+        if (Math.Abs(currentIv - shiftedIv.Value) < 0.0001m)
+        {
+            return leg;
+        }
+
+        var adjusted = leg.Clone();
+        adjusted.ImpliedVolatility = shiftedIv.Value;
+        return adjusted;
+    }
+
+    private static decimal? ResolveNearestIv((decimal Strike, decimal Iv)[] surface, decimal targetStrike)
+    {
+        if (surface.Length == 0)
+        {
+            return null;
+        }
+
+        var closest = surface[0];
+        var closestDistance = Math.Abs(closest.Strike - targetStrike);
+        for (var i = 1; i < surface.Length; i++)
+        {
+            var candidate = surface[i];
+            var distance = Math.Abs(candidate.Strike - targetStrike);
+            if (distance >= closestDistance)
+            {
+                continue;
+            }
+
+            closest = candidate;
+            closestDistance = distance;
+        }
+
+        return closest.Iv;
+    }
+
+    private static decimal? ResolveTickerIvPercent(OptionChainTicker ticker)
+    {
+        var value = ticker.MarkIv > 0m
+            ? ticker.MarkIv
+            : ticker.BidIv > 0m
+                ? ticker.BidIv
+                : ticker.AskIv > 0m
+                    ? ticker.AskIv
+                    : 0m;
+        if (value <= 0m)
+        {
+            return null;
+        }
+
+        return value <= 3m ? value * 100m : value;
     }
 
     private decimal CalculateExpiryProfitForChartPrice(
@@ -1939,6 +2065,18 @@ public sealed class PositionViewModel : IDisposable
         }
 
         ShowOrderMarkers = isEnabled;
+        UpdateChart();
+        OnChange?.Invoke();
+    }
+
+    public void SetShowSkewShift(bool isEnabled)
+    {
+        if (ShowSkewShift == isEnabled)
+        {
+            return;
+        }
+
+        ShowSkewShift = isEnabled;
         UpdateChart();
         OnChange?.Invoke();
     }

@@ -100,6 +100,13 @@ else
                                          OnClick="ToggleOrderMarkers">
                                     Orders: @(ViewModel.ShowOrderMarkers ? "On" : "Off")
                                 </MudChip>
+                                <MudChip T="string"
+                                         Variant="Variant.Outlined"
+                                         Size="Size.Small"
+                                         Color="@(ViewModel.ShowSkewShift ? Color.Warning : Color.Default)"
+                                         OnClick="ToggleSkewShift">
+                                    Skew: @(ViewModel.ShowSkewShift ? "On" : "Off")
+                                </MudChip>
                             </MudStack>
 
                             <PayoffChart Strategies="@DisplayChartStrategies"
@@ -551,6 +558,12 @@ else
     private Task ToggleOrderMarkers()
     {
         ViewModel.SetShowOrderMarkers(!ViewModel.ShowOrderMarkers);
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task ToggleSkewShift()
+    {
+        ViewModel.SetShowSkewShift(!ViewModel.ShowSkewShift);
         return InvokeAsync(StateHasChanged);
     }
 

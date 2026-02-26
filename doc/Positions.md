@@ -54,6 +54,9 @@ The Positions page is where you manage one position at a time and review its pay
 - `Live` and `Candles` are switched with chips.
 - `Day Min/Max` chip toggles IV-based day range markers.
 - `Orders` chip toggles order and linked-order markers on the chart.
+- `Skew` chip toggles skew-shift mode for temp line pricing:
+- `Off`: temp line uses each leg's own IV (`sticky-strike`).
+- `On`: temp line remaps IV by strike nearest to simulated underlying for same expiry/type (`skew-shift`).
 - Valuation date/time is set with a full-width timeline bar from `now` to latest included-leg expiration.
 - Expiration dates are shown as thick vertical markers with short labels.
 - Clicking/tapping the bar selects valuation date/time at that point; `X` resets selection to now.
