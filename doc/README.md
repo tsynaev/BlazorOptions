@@ -13,6 +13,7 @@ This folder is split into two parts:
 - [Trading History](TradingHistory.md)
 - [Data Tools](Data.md)
 - [Straddle Fair Value](StraddleFairValue.md)
+- [Block Trades](BlockTrades.md)
 - [Volume Heatmap](VolumeHeatmap.md)
 - [Leg Parsing / Quick Add](LegParsing.md)
 - [Application Settings](ApplicationSettings.md)

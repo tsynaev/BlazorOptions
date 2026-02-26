@@ -1,0 +1,321 @@
+@page "/block-trades"
+@implements IDisposable
+@inject BlockTradesViewModel ViewModel
+@inject NavigationManager NavigationManager
+@using BlazorChart.Models
+@using System.Globalization
+
+<PageTitle>Block Trades</PageTitle>
+
+<MudStack Spacing="2">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+        <MudText Typo="Typo.h4">Block Trades</MudText>
+        <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+            <MudTextField T="string"
+                          Label="Start"
+                          Variant="Variant.Outlined"
+                          InputType="InputType.DateTimeLocal"
+                          Immediate="true"
+                          Value="@_startLocalText"
+                          ValueChanged="OnStartChanged" />
+            <MudTextField T="string"
+                          Label="End"
+                          Variant="Variant.Outlined"
+                          InputType="InputType.DateTimeLocal"
+                          Immediate="true"
+                          Value="@_endLocalText"
+                          ValueChanged="OnEndChanged" />
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Primary"
+                       Disabled="ViewModel.IsLoading || !IsRangeValid"
+                       OnClick="ReloadAsync">
+                @(ViewModel.IsLoading ? "Loading..." : "Load")
+            </MudButton>
+        </MudStack>
+    </MudStack>
+
+    @if (!IsRangeValid)
+    {
+        <MudAlert Severity="Severity.Warning">Start date/time must be earlier than end date/time.</MudAlert>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(ViewModel.ErrorMessage))
+    {
+        <MudAlert Severity="Severity.Error">@ViewModel.ErrorMessage</MudAlert>
+    }
+
+    <div class="overview-layout">
+        <MudPaper Class="overview-chart-pane pa-2" Elevation="0">
+            @if (ViewModel.SelectedPosition is null)
+            {
+                <MudStack Class="pa-4" AlignItems="AlignItems.Center">
+                    <MudText Typo="Typo.body1">No position selected.</MudText>
+                </MudStack>
+            }
+            else
+            {
+                <MudStack Spacing="1" Class="pa-2">
+                    <MudText Typo="Typo.subtitle2">
+                        @ViewModel.SelectedPosition.UniqueTrade
+                    </MudText>
+                    <MudStack Row="true" Justify="Justify.FlexEnd">
+                        <MudChip T="string"
+                                 Variant="Variant.Outlined"
+                                 Size="Size.Small"
+                                 Color="@(ViewModel.ShowCandles ? Color.Info : Color.Default)"
+                                 OnClick="ToggleCandlesAsync">
+                            Candles: @(ViewModel.ShowCandles ? "On" : "Off")
+                        </MudChip>
+                    </MudStack>
+                    <MudText Typo="Typo.caption">
+                        Index @FormatDecimal(ViewModel.SelectedPosition.IndexPrice, "0.##")
+                        | Amount @ViewModel.SelectedPosition.Quantity.ToString("0.####")
+                        | Net premium @FormatDecimal(ViewModel.SelectedPosition.NetPremium, "0.##")
+                    </MudText>
+                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                        <MudText Typo="Typo.caption">Futures price</MudText>
+                        <MudNumericField T="decimal?"
+                                         Value="@ViewModel.SelectedFuturesPrice"
+                                         ValueChanged="OnFuturesPriceChanged"
+                                         Immediate="true"
+                                         Variant="Variant.Outlined"
+                                         Margin="Margin.Dense"
+                                         Format="0.##"
+                                         Clearable="true"
+                                         Adornment="Adornment.End"
+                                         AdornmentText="USDT"
+                                         Class="futures-price-field" />
+                        <MudText Typo="Typo.caption">
+                            Est. PnL: @FormatDecimal(ViewModel.EstimatedPnl, "0.##")
+                            (@FormatDecimal(ViewModel.EstimatedPnlPercent, "0.##")%)
+                        </MudText>
+                    </MudStack>
+                    <PayoffChart Strategies="@ViewModel.ChartStrategies"
+                                 SelectedPrice="@SelectedPriceForChart"
+                                 SelectedPriceChanged="OnChartSelectedPriceChanged"
+                                 ShowLegends="true"
+                                 IsDarkTheme="true"
+                                 Markers="@ViewModel.ChartMarkers"
+                                 Candles="@ViewModel.ChartCandles"
+                                 ShowCandles="@ViewModel.ShowCandles"
+                                 @key="ViewModel.SelectedPosition?.Id" />
+                    <MudDivider Class="my-2" />
+                    <MudText Typo="Typo.subtitle2">Position details</MudText>
+                    @if (ViewModel.SelectedPositionDetails.Count == 0)
+                    {
+                        <MudText Typo="Typo.caption">No detailed legs were returned for this trade.</MudText>
+                    }
+                    else
+                    {
+                        <MudTable Items="@ViewModel.SelectedPositionDetails" Dense="true" Hover="true" Breakpoint="Breakpoint.Md">
+                            <HeaderContent>
+                                <MudTh>Date</MudTh>
+                                <MudTh>Instrument</MudTh>
+                                <MudTh>Side</MudTh>
+                                <MudTh>Amount</MudTh>
+                                <MudTh>IV</MudTh>
+                                <MudTh>Price</MudTh>
+                                <MudTh>Price USD</MudTh>
+                                <MudTh>Size USD</MudTh>
+                                <MudTh>Block ID</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Date">@FormatDate(context.TimestampUtc)</MudTd>
+                                <MudTd DataLabel="Instrument">@context.Instrument</MudTd>
+                                <MudTd DataLabel="Side">@context.Side</MudTd>
+                                <MudTd DataLabel="Amount">@context.TradeAmount.ToString("0.####")</MudTd>
+                                <MudTd DataLabel="IV">@FormatDecimal(context.TradeIv, "0.##")</MudTd>
+                                <MudTd DataLabel="Price">@FormatDecimal(context.Price, "0.#####")</MudTd>
+                                <MudTd DataLabel="Price USD">@FormatDecimal(context.PriceUsd, "0.##")</MudTd>
+                                <MudTd DataLabel="Size USD">@FormatDecimal(context.SizeUsd, "0.##")</MudTd>
+                                <MudTd DataLabel="Block ID">@context.BlockTradeId</MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    }
+                </MudStack>
+            }
+        </MudPaper>
+
+        <MudPaper Class="overview-list-pane pa-2" Elevation="0">
+            <MudStack Spacing="1">
+                @foreach (var item in ViewModel.Positions)
+                {
+                    var selected = ViewModel.SelectedPosition?.Id == item.Id;
+                    <MudCard Class="@($"trade-card {(selected ? "overview-list-row-selected" : string.Empty)}")"
+                             @key="item.Id"
+                             @onclick="() => SelectAsync(item)">
+                        <MudCardContent>
+                            <MudText Typo="Typo.body2" Class="unique-trade-text">@item.UniqueTrade</MudText>
+                            <MudStack Row="true" Spacing="2" Class="mt-1">
+                                <MudText Typo="Typo.caption">Amount: @item.Quantity.ToString("N0")</MudText>
+                                <MudText Typo="Typo.caption">Index: $@FormatDecimal(item.IndexPrice, "N2")</MudText>
+                            </MudStack>
+                            <MudStack Row="true" Spacing="2">
+                                <MudText Typo="Typo.caption">Net: $@FormatDecimal(item.NetPremium, "N2")</MudText>
+                                <MudText Typo="Typo.caption">Trades: @item.NumTrades</MudText>
+                            </MudStack>
+                        </MudCardContent>
+                    </MudCard>
+                }
+            </MudStack>
+        </MudPaper>
+    </div>
+</MudStack>
+
+@code {
+    [SupplyParameterFromQuery(Name = "id")]
+    public string? SelectedId { get; set; }
+
+    private bool _initialized;
+    private string _startLocalText = string.Empty;
+    private string _endLocalText = string.Empty;
+    private bool IsRangeValid => TryGetLocalRange(out var start, out var end) && start < end;
+
+    protected override async Task OnInitializedAsync()
+    {
+        ViewModel.PropertyChanged += HandleViewModelChanged;
+        _startLocalText = FormatLocalForInput(ViewModel.DateStartUtc.ToLocalTime());
+        _endLocalText = FormatLocalForInput(ViewModel.DateEndUtc.ToLocalTime());
+        await ViewModel.LoadAsync(SelectedId);
+        _initialized = true;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!_initialized)
+        {
+            return;
+        }
+
+        await ViewModel.SelectByIdAsync(SelectedId);
+    }
+
+    public void Dispose()
+    {
+        ViewModel.PropertyChanged -= HandleViewModelChanged;
+    }
+
+    private async Task ReloadAsync()
+    {
+        if (!IsRangeValid)
+        {
+            return;
+        }
+
+        if (!TryGetLocalRange(out var localStart, out var localEnd))
+        {
+            return;
+        }
+
+        var startUtc = DateTime.SpecifyKind(localStart, DateTimeKind.Local).ToUniversalTime();
+        var endUtc = DateTime.SpecifyKind(localEnd, DateTimeKind.Local).ToUniversalTime();
+        ViewModel.SetDateRange(startUtc, endUtc);
+        await ViewModel.ReloadAsync(SelectedId);
+    }
+
+    private async Task SelectAsync(StrategyPosition item)
+    {
+        await ViewModel.SelectPositionAsync(item);
+        var id = Uri.EscapeDataString(item.Id);
+        NavigationManager.NavigateTo($"/block-trades?id={id}", replace: true);
+    }
+
+    private void HandleViewModelChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ToggleCandlesAsync()
+    {
+        await ViewModel.SetShowCandlesAsync(!ViewModel.ShowCandles);
+    }
+
+    private double? SelectedPriceForChart => ViewModel.SelectedFuturesPrice.HasValue ? (double)ViewModel.SelectedFuturesPrice.Value : null;
+
+    private static string FormatDecimal(decimal? value, string format)
+        => value.HasValue ? value.Value.ToString(format) : "-";
+
+    private static string FormatDate(DateTime? value)
+        => value.HasValue ? value.Value.ToLocalTime().ToString("dd.MM.yyyy HH:mm:ss") : "-";
+
+    private Task OnStartChanged(string value)
+    {
+        _startLocalText = value;
+        return Task.CompletedTask;
+    }
+
+    private Task OnEndChanged(string value)
+    {
+        _endLocalText = value;
+        return Task.CompletedTask;
+    }
+
+    private Task OnFuturesPriceChanged(decimal? value)
+        => ViewModel.SetSelectedFuturesPriceAsync(value);
+
+    private Task OnChartSelectedPriceChanged(double? value)
+        => ViewModel.SetSelectedFuturesPriceAsync(value.HasValue ? (decimal)value.Value : null);
+
+    private static string FormatLocalForInput(DateTime value)
+        => value.ToString("yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture);
+
+    private bool TryGetLocalRange(out DateTime start, out DateTime end)
+    {
+        var formats = new[] { "yyyy-MM-ddTHH:mm", "yyyy-MM-ddTHH:mm:ss" };
+        var okStart = DateTime.TryParseExact(_startLocalText, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out start);
+        var okEnd = DateTime.TryParseExact(_endLocalText, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out end);
+        return okStart && okEnd;
+    }
+}
+
+<style>
+    .overview-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 400px;
+        gap: 12px;
+        align-items: start;
+    }
+
+    .overview-chart-pane {
+        min-height: 520px;
+    }
+
+    .overview-list-pane {
+        overflow: auto;
+    }
+
+    @@media (min-width: 1025px) {
+        .overview-list-pane {
+            height: calc(100vh - 110px);
+            max-height: calc(100vh - 110px);
+        }
+    }
+
+    .overview-list-row-selected {
+        background: rgba(59, 130, 246, 0.18);
+        outline: 1px solid rgba(59, 130, 246, 0.4);
+    }
+
+    .trade-card {
+        cursor: pointer;
+    }
+
+    .unique-trade-text {
+        white-space: normal;
+        word-break: break-word;
+    }
+
+    .futures-price-field {
+        max-width: 190px;
+    }
+
+    @@media (max-width: 1024px) {
+        .overview-layout {
+            grid-template-columns: 1fr;
+        }
+
+        .overview-list-pane {
+            max-height: none;
+        }
+    }
+</style>

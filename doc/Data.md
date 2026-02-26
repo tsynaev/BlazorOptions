@@ -9,6 +9,7 @@ The Data section groups market analytics tools used for option/futures analysis.
 - `/open-interest`: open interest charts for calls and puts.
 - `/volatility-skew`: implied volatility skew with expiration filters.
 - `/straddle-fair`: weekly ATM straddle fair value estimator vs market quote.
+- `/block-trades`: Amberdata Deribit ETH options trades list with payoff chart for selected trade.
 
 ## Open Interest
 

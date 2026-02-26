@@ -50,6 +50,8 @@ builder.Services.AddScoped<ITradingHistoryPort>(sp => sp.GetRequiredService<Trad
 builder.Services.AddScoped<ExchangeTickerService>();
 builder.Services.AddScoped<ITickersService>(sp => sp.GetRequiredService<ExchangeTickerService>());
 builder.Services.AddScoped<IExchangeService, ExchangeService>();
+builder.Services.AddScoped<AmberdataDerivativesGraphQl>();
+builder.Services.AddScoped<AmberdataPositionsService>();
 builder.Services.AddScoped<IExchangeTickerClient, BybitTickerClient>();
 builder.Services.AddScoped<OptionsChainService>();
 builder.Services.AddScoped<IOptionsChainService>(sp => sp.GetRequiredService<OptionsChainService>());
@@ -76,6 +78,7 @@ builder.Services.AddScoped<VolumeHeatmapViewModel>();
 builder.Services.AddScoped<OpenInterestViewModel>();
 builder.Services.AddScoped<VolatilitySkewViewModel>();
 builder.Services.AddScoped<StraddleFairValueViewModel>();
+builder.Services.AddScoped<BlockTradesViewModel>();
 builder.Services.AddDialog<PositionCreateDialog, PositionCreateDialogViewModel>();
 builder.Services.AddDialog<TradingSymbolDialog, TradingSymbolDialogViewModel>();
 builder.Services.AddDialog<TradingHistorySelectionDialog, TradingHistorySelectionDialogViewModel>();
