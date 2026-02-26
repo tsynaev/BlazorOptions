@@ -52,6 +52,9 @@ The Positions page is where you manage one position at a time and review its pay
 - `Live` and `Candles` are switched with chips.
 - `Day Min/Max` chip toggles IV-based day range markers.
 - `Orders` chip toggles order and linked-order markers on the chart.
+- Valuation date/time is set with a full-width timeline bar from `now` to latest included-leg expiration.
+- Expiration dates are shown as thick vertical markers with short labels.
+- Clicking/tapping the bar selects valuation date/time at that point; `X` resets selection to now.
 - User-selected chart range and candle interval are remembered per position.
 - Default candles:
 - interval: `1H`

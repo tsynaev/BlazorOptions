@@ -1,0 +1,291 @@
+@using System.Globalization
+@using MudBlazor
+
+<div class="valuation-timeline-shell">
+    <div class="valuation-timeline-track @(_isDisabled ? "valuation-timeline-track-disabled" : string.Empty)">
+        <div class="valuation-timeline-selected-left">@FormatFull(SelectedDateTime)</div>
+
+        @foreach (var marker in BuildMarkerViews())
+        {
+            <div class="valuation-exp-marker" style="@BuildMarkerStyle(marker.Percent)"></div>
+            <div class="valuation-exp-label" style="@BuildMarkerLabelStyle(marker.Percent, marker.IsLast)">@FormatExp(marker.Date)</div>
+        }
+
+        <div class="valuation-selected-line" style="@BuildSelectedLineStyle()"></div>
+        <div class="valuation-selected-badge" style="@BuildSelectedBadgeStyle()">@FormatFull(SelectedDateTime)</div>
+
+        <input class="valuation-timeline-input"
+               type="range"
+               min="0"
+               max="@SliderMax"
+               step="1"
+               value="@_sliderValue"
+               disabled="@_isDisabled"
+               @oninput="HandleSliderInput" />
+
+        <div class="valuation-reset-button" @onclick:stopPropagation="true">
+            <MudTooltip Text="Reset to now">
+                <MudIconButton Icon="@Icons.Material.Filled.Close"
+                               Size="Size.Small"
+                               Color="Color.Default"
+                               Disabled="@IsAtNow"
+                               OnClick="ResetToNowAsync" />
+            </MudTooltip>
+        </div>
+    </div>
+</div>
+
+@code {
+    private const int SliderMax = 10_000;
+
+    [Parameter] public DateTime MinDateTime { get; set; } = DateTime.UtcNow;
+    [Parameter] public DateTime MaxDateTime { get; set; } = DateTime.UtcNow;
+    [Parameter] public DateTime SelectedDateTime { get; set; } = DateTime.UtcNow;
+    [Parameter] public IReadOnlyList<DateTime> ExpirationDates { get; set; } = Array.Empty<DateTime>();
+    [Parameter] public EventCallback<DateTime> SelectedDateTimeChanged { get; set; }
+
+    private int _sliderValue;
+    private bool _isDisabled;
+
+    private bool IsAtNow => Math.Abs((SelectedDateTime - MinDateTime).TotalMinutes) < 0.5;
+
+    protected override void OnParametersSet()
+    {
+        _isDisabled = MaxDateTime <= MinDateTime;
+        _sliderValue = _isDisabled
+            ? 0
+            : (int)Math.Round(ResolvePercent(SelectedDateTime) * SliderMax, MidpointRounding.AwayFromZero);
+    }
+
+    private async Task HandleSliderInput(ChangeEventArgs args)
+    {
+        if (_isDisabled)
+        {
+            return;
+        }
+
+        if (!int.TryParse(args.Value?.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var raw))
+        {
+            return;
+        }
+
+        var clampedRaw = Math.Clamp(raw, 0, SliderMax);
+        _sliderValue = clampedRaw;
+
+        var ratio = clampedRaw / (double)SliderMax;
+        var selected = MinDateTime + TimeSpan.FromTicks((long)(ResolveRange().Ticks * ratio));
+        var rounded = RoundToMinute(selected);
+
+        if (SelectedDateTimeChanged.HasDelegate)
+        {
+            await SelectedDateTimeChanged.InvokeAsync(ClampToBounds(rounded));
+        }
+    }
+
+    private async Task ResetToNowAsync()
+    {
+        if (!SelectedDateTimeChanged.HasDelegate)
+        {
+            return;
+        }
+
+        await SelectedDateTimeChanged.InvokeAsync(MinDateTime);
+    }
+
+    private IEnumerable<(DateTime Date, double Percent, bool IsLast)> BuildMarkerViews()
+    {
+        if (_isDisabled || ExpirationDates.Count == 0)
+        {
+            yield break;
+        }
+
+        var normalized = ExpirationDates
+            .Select(date => date.ToUniversalTime())
+            .Distinct()
+            .OrderBy(date => date)
+            .ToArray();
+
+        for (var i = 0; i < normalized.Length; i++)
+        {
+            var date = ClampToBounds(normalized[i]);
+            yield return (date, ResolvePercent(date), i == normalized.Length - 1);
+        }
+    }
+
+    private string BuildMarkerStyle(double percent)
+    {
+        return $"left:{percent.ToString("0.###", CultureInfo.InvariantCulture)}%;";
+    }
+
+    private string BuildMarkerLabelStyle(double percent, bool isLast)
+    {
+        var left = percent.ToString("0.###", CultureInfo.InvariantCulture);
+        return isLast
+            ? $"left:{left}%;transform:translateX(calc(-100% - 6px));"
+            : $"left:{left}%;transform:translateX(6px);";
+    }
+
+    private string BuildSelectedLineStyle()
+    {
+        var left = ResolvePercent(SelectedDateTime).ToString("0.###", CultureInfo.InvariantCulture);
+        return $"left:{left}%;";
+    }
+
+    private string BuildSelectedBadgeStyle()
+    {
+        var percent = ResolvePercent(SelectedDateTime);
+        var left = percent.ToString("0.###", CultureInfo.InvariantCulture);
+        var isNearEnd = percent > 78d;
+        return isNearEnd
+            ? $"left:{left}%;transform:translateX(calc(-100% - 8px));"
+            : $"left:{left}%;transform:translateX(8px);";
+    }
+
+    private double ResolvePercent(DateTime value)
+    {
+        if (_isDisabled)
+        {
+            return 0d;
+        }
+
+        var range = ResolveRange().TotalMilliseconds;
+        if (range <= 0d)
+        {
+            return 0d;
+        }
+
+        var offset = (ClampToBounds(value) - MinDateTime).TotalMilliseconds;
+        return Math.Clamp((offset / range) * 100d, 0d, 100d);
+    }
+
+    private TimeSpan ResolveRange()
+    {
+        return MaxDateTime > MinDateTime ? MaxDateTime - MinDateTime : TimeSpan.Zero;
+    }
+
+    private DateTime ClampToBounds(DateTime value)
+    {
+        if (value < MinDateTime)
+        {
+            return MinDateTime;
+        }
+
+        if (value > MaxDateTime)
+        {
+            return MaxDateTime;
+        }
+
+        return value;
+    }
+
+    private static DateTime RoundToMinute(DateTime value)
+    {
+        var ticks = value.Ticks - (value.Ticks % TimeSpan.TicksPerMinute);
+        return new DateTime(ticks, value.Kind);
+    }
+
+    private static string FormatFull(DateTime value)
+    {
+        return value.ToString("dd.MM.yyyy HH:mm", CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatExp(DateTime value)
+    {
+        return value.ToString("dd MMM", CultureInfo.InvariantCulture);
+    }
+}
+
+<style>
+    .valuation-timeline-shell {
+        width: 100%;
+    }
+
+    .valuation-timeline-track {
+        position: relative;
+        width: 100%;
+        min-height: 62px;
+        border: 1px solid rgba(255, 255, 255, 0.32);
+        border-radius: 8px;
+        background: rgba(15, 26, 44, 0.34);
+        overflow: hidden;
+    }
+
+    .valuation-timeline-track-disabled {
+        opacity: 0.7;
+    }
+
+    .valuation-timeline-selected-left {
+        position: absolute;
+        left: 10px;
+        top: 8px;
+        z-index: 3;
+        font-size: 0.78rem;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        color: rgba(226, 232, 240, 0.95);
+        pointer-events: none;
+    }
+
+    .valuation-exp-marker {
+        position: absolute;
+        top: 22px;
+        bottom: 0;
+        width: 3px;
+        background: rgba(148, 163, 184, 0.85);
+        pointer-events: none;
+        z-index: 1;
+    }
+
+    .valuation-exp-label {
+        position: absolute;
+        top: 24px;
+        z-index: 2;
+        font-size: 0.62rem;
+        color: rgba(203, 213, 225, 0.88);
+        white-space: nowrap;
+        pointer-events: none;
+    }
+
+    .valuation-selected-line {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        background: rgba(59, 130, 246, 0.95);
+        pointer-events: none;
+        z-index: 2;
+    }
+
+    .valuation-selected-badge {
+        position: absolute;
+        bottom: 6px;
+        z-index: 3;
+        font-size: 0.7rem;
+        color: rgba(191, 219, 254, 0.98);
+        white-space: nowrap;
+        pointer-events: none;
+    }
+
+    .valuation-timeline-input {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        opacity: 0;
+        cursor: pointer;
+        z-index: 4;
+    }
+
+    .valuation-reset-button {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        z-index: 5;
+        background: rgba(15, 23, 42, 0.55);
+    }
+
+    .valuation-reset-button .mud-icon-root {
+        font-size: 0.85rem;
+    }
+</style>

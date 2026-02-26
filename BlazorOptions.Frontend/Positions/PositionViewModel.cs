@@ -467,22 +467,23 @@ public sealed class PositionViewModel : IDisposable
     {
         var clampedOffset = Math.Clamp(dayOffset, 0, MaxExpiryDays);
         SelectedDayOffset = clampedOffset;
-        ApplyValuationDate(DateTime.UtcNow.Date.AddDays(clampedOffset));
+        ApplyValuationDate(DateTime.UtcNow.AddDays(clampedOffset));
         UpdateChart();
     }
 
     public void SetValuationDate(DateTime date)
     {
-        var today = DateTime.UtcNow.Date;
-        var clampedDate = date.Date < today ? today : date.Date > MaxExpiryDate ? MaxExpiryDate : date.Date;
+        var now = DateTime.UtcNow;
+        var max = MaxExpiryDate.Date.AddDays(1).AddTicks(-1);
+        var clampedDate = date < now ? now : date > max ? max : date;
         ApplyValuationDate(clampedDate);
-        SelectedDayOffset = Math.Clamp((clampedDate - today).Days, 0, MaxExpiryDays);
+        SelectedDayOffset = Math.Clamp((clampedDate.Date - now.Date).Days, 0, MaxExpiryDays);
         UpdateChart();
     }
 
     public void ResetValuationDateToToday()
     {
-        SetValuationDate(DateTime.UtcNow.Date);
+        SetValuationDate(DateTime.UtcNow);
     }
 
     public async Task<bool> RemovePositionAsync(PositionModel position)
@@ -1803,17 +1804,19 @@ public sealed class PositionViewModel : IDisposable
 
         MaxExpiryDays = Math.Max(0, (MaxExpiryDate - today).Days);
         var currentValuationDate = ValuationDate;
-        var clampedDate = currentValuationDate == default ? today : currentValuationDate.Date;
-        if (clampedDate < today)
+        var now = DateTime.UtcNow;
+        var max = MaxExpiryDate.Date.AddDays(1).AddTicks(-1);
+        var clampedDate = currentValuationDate == default ? now : currentValuationDate;
+        if (clampedDate < now)
         {
-            clampedDate = today;
+            clampedDate = now;
         }
-        else if (clampedDate > MaxExpiryDate)
+        else if (clampedDate > max)
         {
-            clampedDate = MaxExpiryDate;
+            clampedDate = max;
         }
 
-        var clampedOffset = Math.Clamp((clampedDate - today).Days, 0, MaxExpiryDays);
+        var clampedOffset = Math.Clamp((clampedDate.Date - today).Days, 0, MaxExpiryDays);
         ApplyValuationDate(clampedDate);
         SelectedDayOffset = clampedOffset;
     }
