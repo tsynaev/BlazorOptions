@@ -164,8 +164,7 @@ public sealed class BlockTradesViewModel : Bindable
         {
             // Clearing the field should reset to live exchange price.
             price = await GetCurrentExchangeFuturesPriceAsync()
-                    ?? SelectedUnderlyingPrice
-                    ?? OpenIndexPrice;
+                    ?? SelectedUnderlyingPrice;
         }
 
         if (price.HasValue && price.Value <= 0m)
@@ -271,7 +270,7 @@ public sealed class BlockTradesViewModel : Bindable
             await ApplyMarketContextAsync(legs);
             OpenIndexPrice = position.IndexPrice;
             InvestedAmount = ResolveInvestedAmount(position, SelectedPositionDetails);
-            SelectedFuturesPrice = SelectedUnderlyingPrice ?? position.IndexPrice;
+            SelectedFuturesPrice = await GetCurrentExchangeFuturesPriceAsync() ?? SelectedUnderlyingPrice;
             RefreshMarkers();
             await LoadCandlesAsync();
 
@@ -316,7 +315,7 @@ public sealed class BlockTradesViewModel : Bindable
             await ApplyMarketContextAsync(fallbackLegs);
             OpenIndexPrice = position.IndexPrice;
             InvestedAmount = ResolveInvestedAmount(position, SelectedPositionDetails);
-            SelectedFuturesPrice = SelectedUnderlyingPrice ?? position.IndexPrice;
+            SelectedFuturesPrice = await GetCurrentExchangeFuturesPriceAsync() ?? SelectedUnderlyingPrice;
             RefreshMarkers();
             await LoadCandlesAsync();
 
@@ -433,6 +432,7 @@ public sealed class BlockTradesViewModel : Bindable
     private void RefreshMarkers()
     {
         ChartMarkers.Clear();
+
         var openIndex = OpenIndexPrice;
         if (openIndex.HasValue && openIndex.Value > 0m)
         {
