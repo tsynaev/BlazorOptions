@@ -66,7 +66,9 @@ public sealed class ActivePositionsService : IActivePositionsService
             return;
         }
 
+        // Subscribe first, then fetch the full snapshot to avoid missing bootstrap updates.
         _topicSubscription = await _privateStreamService.SubscribeTopicAsync("position", HandlePositionTopicAsync);
+        _snapshotTask = LoadSnapshotOnceAsync();
     }
 
     private async Task HandlePositionTopicAsync(IReadOnlyList<JsonElement> entries)
@@ -404,12 +406,17 @@ public sealed class ActivePositionsService : IActivePositionsService
         await _sync.WaitAsync();
         try
         {
-            var index = _positions.FindIndex(existing => _comparer.Equals(existing, update));
+            var index = FindIndexForUpdate(update);
             if (Math.Abs(update.Size) < 0.0001m)
             {
                 if (index >= 0)
                 {
                     _positions.RemoveAt(index);
+                }
+                else if (IsUnknownSide(update.Side))
+                {
+                    // Some close events can omit/normalize side; remove all symbol/category matches.
+                    _positions.RemoveAll(existing => IsSameSymbolCategory(existing, update));
                 }
             }
             else if (index >= 0)
@@ -429,6 +436,48 @@ public sealed class ActivePositionsService : IActivePositionsService
         }
 
         await NotifySubscribersAsync();
+    }
+
+    private int FindIndexForUpdate(ExchangePosition update)
+    {
+        var direct = _positions.FindIndex(existing => _comparer.Equals(existing, update));
+        if (direct >= 0)
+        {
+            return direct;
+        }
+
+        if (!IsUnknownSide(update.Side))
+        {
+            return -1;
+        }
+
+        var sameSymbolCategory = _positions
+            .Select((position, idx) => new { position, idx })
+            .Where(item => IsSameSymbolCategory(item.position, update))
+            .ToArray();
+        if (sameSymbolCategory.Length == 1)
+        {
+            return sameSymbolCategory[0].idx;
+        }
+
+        return -1;
+    }
+
+    private static bool IsSameSymbolCategory(ExchangePosition left, ExchangePosition right)
+    {
+        return string.Equals(left.Symbol, right.Symbol, StringComparison.OrdinalIgnoreCase)
+               && string.Equals(left.Category, right.Category, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsUnknownSide(string? side)
+    {
+        if (string.IsNullOrWhiteSpace(side))
+        {
+            return true;
+        }
+
+        return side.Equals("none", StringComparison.OrdinalIgnoreCase)
+               || side.Equals("unknown", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task SendHeartbeatLoopAsync(CancellationToken cancellationToken)
@@ -586,6 +635,7 @@ public sealed class ActivePositionsService : IActivePositionsService
         }
 
         await EnsureInitializedAsync();
+        await _snapshotTask;
 
         var snapshot = _positions.ToArray();
         if (snapshot.Length > 0 && !cancellationToken.IsCancellationRequested)

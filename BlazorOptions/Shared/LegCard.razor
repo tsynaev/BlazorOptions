@@ -52,7 +52,7 @@
                 <tr>
                     <td>Mark</td>
                     <td>@FormatPrice(ViewModel.MarkPrice)</td>
-                    <td>@(ViewModel.Leg.Type == LegType.Future ? "-" : FormatIv(ViewModel.ChainIv ?? ViewModel.Leg.ImpliedVolatility))</td>
+                    <td>@(ViewModel.Leg.Type == LegType.Future ? "-" : FormatIv(ViewModel.ChainIv))</td>
                     <td>@FormatPrice(CalculateValue(ViewModel.MarkPrice, ViewModel.Leg.Size))</td>
                 </tr>
             </tbody>

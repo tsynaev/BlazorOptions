@@ -107,8 +107,9 @@ public sealed class ActiveOrdersService : IOrdersService, IAsyncDisposable
             return;
         }
 
-        _snapshotTask = LoadSnapshotOnceAsync();
+        // Subscribe first, then fetch the full snapshot to avoid missing bootstrap updates.
         _topicSubscription = await _privateStreamService.SubscribeTopicAsync("order", HandleOrderTopicAsync);
+        _snapshotTask = LoadSnapshotOnceAsync();
     }
 
     private async Task HandleOrderTopicAsync(IReadOnlyList<JsonElement> entries)

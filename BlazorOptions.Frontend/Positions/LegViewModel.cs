@@ -548,40 +548,49 @@ public sealed class LegViewModel : IDisposable
             changed = true;
         }
 
-        decimal? nextMark = ResolveLiveMarkPrice(ticker.UnderlyingPrice, ticker);
+        var isExpired = IsOptionExpiredAtValuation();
+        decimal? nextMark = isExpired
+            ? ResolveExpiredOptionIntrinsicPrice(ticker.UnderlyingPrice ?? _currentPrice)
+            : ResolveLiveMarkPrice(ticker.UnderlyingPrice, ticker);
         if (MarkPrice != nextMark)
         {
             MarkPrice = nextMark;
             changed = true;
         }
 
-        if (Delta != ticker.Delta)
+        var nextDelta = isExpired ? 0m : ticker.Delta;
+        if (Delta != nextDelta)
         {
-            Delta = ticker.Delta;
+            Delta = nextDelta;
             changed = true;
         }
 
-        if (Gamma != ticker.Gamma)
+        var nextGamma = isExpired ? 0m : ticker.Gamma;
+        if (Gamma != nextGamma)
         {
-            Gamma = ticker.Gamma;
+            Gamma = nextGamma;
             changed = true;
         }
 
-        if (Vega != ticker.Vega)
+        var nextVega = isExpired ? 0m : ticker.Vega;
+        if (Vega != nextVega)
         {
-            Vega = ticker.Vega;
+            Vega = nextVega;
             changed = true;
         }
 
-        if (Theta != ticker.Theta)
+        var nextTheta = isExpired ? 0m : ticker.Theta;
+        if (Theta != nextTheta)
         {
-            Theta = ticker.Theta;
+            Theta = nextTheta;
             changed = true;
         }
 
-        var chainIv = NormalizeIv(ticker.MarkIv)
-            ?? NormalizeIv(ticker.BidIv)
-            ?? NormalizeIv(ticker.AskIv);
+        var chainIv = isExpired
+            ? null
+            : NormalizeIv(ticker.MarkIv)
+              ?? NormalizeIv(ticker.BidIv)
+              ?? NormalizeIv(ticker.AskIv);
         if (ChainIv != chainIv)
         {
             ChainIv = chainIv;
@@ -743,6 +752,15 @@ public sealed class LegViewModel : IDisposable
             return;
         }
 
+        if (IsOptionExpiredAtValuation())
+        {
+            Delta = 0m;
+            Gamma = 0m;
+            Vega = 0m;
+            Theta = 0m;
+            return;
+        }
+
         if (!_currentPrice.HasValue || !Leg.Strike.HasValue || !Leg.ExpirationDate.HasValue)
         {
             return;
@@ -799,11 +817,24 @@ public sealed class LegViewModel : IDisposable
 
         Bid = ticker.BidPrice > 0 ? ticker.BidPrice : null;
         Ask = ticker.AskPrice > 0 ? ticker.AskPrice : null;
-        var ivPercent = NormalizeIv(ticker.MarkIv)
-            ?? NormalizeIv(ticker.BidIv)
-            ?? NormalizeIv(ticker.AskIv);
+        var isExpired = IsOptionExpiredAtValuation();
+        var ivPercent = isExpired
+            ? null
+            : NormalizeIv(ticker.MarkIv)
+              ?? NormalizeIv(ticker.BidIv)
+              ?? NormalizeIv(ticker.AskIv);
 
         ChainIv = ivPercent;
+        if (isExpired)
+        {
+            Delta = 0m;
+            Gamma = 0m;
+            Vega = 0m;
+            Theta = 0m;
+            MarkPrice = ResolveExpiredOptionIntrinsicPrice(ticker.UnderlyingPrice ?? _currentPrice);
+            return;
+        }
+
         Delta = ticker.Delta;
         Gamma = ticker.Gamma;
         Vega = ticker.Vega;
@@ -1380,6 +1411,11 @@ public sealed class LegViewModel : IDisposable
             return liveUnderlyingPrice ?? _currentPrice;
         }
 
+        if (IsOptionExpiredAtValuation())
+        {
+            return ResolveExpiredOptionIntrinsicPrice(liveUnderlyingPrice ?? _currentPrice);
+        }
+
         var ticker = optionTicker;
         if (ticker is null)
         {
@@ -1408,6 +1444,38 @@ public sealed class LegViewModel : IDisposable
         }
 
         return null;
+    }
+
+    private bool IsOptionExpiredAtValuation()
+    {
+        if (Leg.Type == LegType.Future || !Leg.ExpirationDate.HasValue)
+        {
+            return false;
+        }
+
+        // Exchange-backed active/order legs are still tradable and should keep live IV/Greeks.
+        if (Leg.Status is LegStatus.Active or LegStatus.Order)
+        {
+            return false;
+        }
+
+        // Date-only expirations have no time component; treat them as expired only after the day passes.
+        return Leg.ExpirationDate.Value.Date < ValuationDate.Date;
+    }
+
+    private decimal? ResolveExpiredOptionIntrinsicPrice(decimal? underlyingPrice)
+    {
+        if (!underlyingPrice.HasValue || !Leg.Strike.HasValue)
+        {
+            return null;
+        }
+
+        return Leg.Type switch
+        {
+            LegType.Call => Math.Max(underlyingPrice.Value - Leg.Strike.Value, 0m),
+            LegType.Put => Math.Max(Leg.Strike.Value - underlyingPrice.Value, 0m),
+            _ => null
+        };
     }
 
     private decimal? ResolveNonLiveMarkPrice()

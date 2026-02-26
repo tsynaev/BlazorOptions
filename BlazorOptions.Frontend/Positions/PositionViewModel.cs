@@ -241,23 +241,59 @@ public sealed class PositionViewModel : IDisposable
             return;
         }
 
+        var hasError = false;
         try
         {
             _ = EnsureLiveSubscriptionAsync();
+        }
+        catch
+        {
+            hasError = true;
+        }
 
+        try
+        {
             _positionsSubscription?.Dispose();
             _positionsSubscription = await _exchangeService.Positions.SubscribeAsync(HandleActivePositionsSnapshot);
+        }
+        catch
+        {
+            hasError = true;
+        }
 
+        try
+        {
             _ordersSubscription?.Dispose();
             _ordersSubscription = await _exchangeService.Orders.SubscribeAsync(HandleOpenOrdersSnapshot);
+        }
+        catch
+        {
+            hasError = true;
+        }
 
+        try
+        {
             await ClosedPositions.InitializeAsync();
+        }
+        catch
+        {
+            hasError = true;
+        }
+
+        try
+        {
             await RefreshExchangeMissingFlagsAsync();
             NotifyStateChanged();
         }
         catch
         {
-            // Keep page usable even if exchange bootstrap fails.
+            hasError = true;
+        }
+
+        if (hasError)
+        {
+            // Keep page usable even when one of exchange bootstrap steps fails.
+            NotifyStateChanged();
         }
     }
 

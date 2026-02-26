@@ -127,7 +127,6 @@ public sealed class ActiveWalletService : IWalletService
     private async Task HandleWalletTopicAsync(IReadOnlyList<JsonElement> entries)
     {
         _lastWalletEventUtc = DateTime.UtcNow;
-        _logger.LogInformation("Wallet topic received with {Count} entries.", entries.Count);
         foreach (var entry in entries)
         {
             var mapped = MapWalletEntry(entry);
