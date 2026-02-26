@@ -15,6 +15,7 @@ public interface IExchangeService
     ITickersService Tickers { get; }
     IOptionsChainService OptionsChain { get; }
     IFuturesInstrumentsService FuturesInstruments { get; }
+    IWalletService Wallet { get; }
     bool IsLive { set; }
 }
 
@@ -24,6 +25,7 @@ public sealed class ExchangeService : IExchangeService
     private readonly IServiceProvider? _services;
     private IOptionsChainService? _optionsChain;
     private IFuturesInstrumentsService? _futuresInstruments;
+    private IWalletService? _wallet;
 
 
     public bool IsLive
@@ -36,17 +38,19 @@ public sealed class ExchangeService : IExchangeService
     }
 
     public ExchangeService()
-        : this(new NullOrdersService(), new NullPositionsService(), new NullTickersService(), null)
+        : this(new NullOrdersService(), new NullPositionsService(), new NullTickersService(), new NullWalletService(), null)
     {
         _optionsChain = new NullOptionsChainService();
         _futuresInstruments = new NullFuturesInstrumentsService();
+        _wallet = new NullWalletService();
     }
 
-    public ExchangeService(IOrdersService orders, IPositionsService positions, ITickersService tickers, IServiceProvider? services)
+    public ExchangeService(IOrdersService orders, IPositionsService positions, ITickersService tickers, IWalletService wallet, IServiceProvider? services)
     {
         Orders = orders;
         Positions = positions;
         Tickers = tickers;
+        Wallet = wallet;
         _services = services;
     }
 
@@ -55,6 +59,8 @@ public sealed class ExchangeService : IExchangeService
     public IPositionsService Positions { get; }
 
     public ITickersService Tickers { get; }
+
+    public IWalletService Wallet { get; }
 
     public IOptionsChainService OptionsChain => _optionsChain ??= _services?.GetRequiredService<IOptionsChainService>()
         ?? new NullOptionsChainService();
@@ -317,6 +323,21 @@ public sealed class ExchangeService : IExchangeService
         {
             return new ValueTask<IDisposable>(new SubscriptionRegistration(() => { }));
         }
+    }
+
+    private sealed class NullWalletService : IWalletService
+    {
+        public Task<ExchangeWalletSnapshot?> GetSnapshotAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<ExchangeWalletSnapshot?>(null);
+        }
+
+        public ValueTask<IDisposable> SubscribeAsync(Func<ExchangeWalletSnapshot, Task> handler, CancellationToken cancellationToken = default)
+        {
+            return new ValueTask<IDisposable>(new SubscriptionRegistration(() => { }));
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private sealed class NullFuturesInstrumentsService : IFuturesInstrumentsService

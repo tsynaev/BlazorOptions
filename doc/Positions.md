@@ -49,6 +49,7 @@ The Positions page is where you manage one position at a time and review its pay
 ## Chart And Controls
 
 - Header shows combined total P/L (temporary + closed).
+- Header also shows Bybit wallet totals (`Equity`, `Wallet`, `Available`) when available.
 - Header total P/L also shows portfolio P/L percent, using included non-futures leg entry value as denominator.
 - `Live` and `Candles` are switched with chips.
 - `Day Min/Max` chip toggles IV-based day range markers.

@@ -5,6 +5,7 @@ Route: `/`
 ## Overview
 
 - Home page now renders dashboard cards for all saved positions.
+- Dashboard header shows account wallet totals from Bybit (`Equity`, `Wallet`, `Available`) when wallet data is available.
 - Cards are grouped by `base/quote` asset pair.
 - Each asset-pair group can show a DVOL chart (Deribit implied volatility index) for the group base asset when available.
 - DVOL is shown as the first card in each asset-pair group.

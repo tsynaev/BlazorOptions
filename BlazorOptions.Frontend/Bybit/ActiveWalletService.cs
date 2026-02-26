@@ -8,40 +8,42 @@ using Microsoft.Extensions.Options;
 
 namespace BlazorOptions.Services;
 
-public sealed class ActiveOrdersService : IOrdersService, IAsyncDisposable
+public sealed class ActiveWalletService : IWalletService
 {
+    private const string StorageKey = "blazor-options-bybit-wallet";
     private static readonly Uri BybitPrivateWebSocketUrl = new("wss://stream.bybit.com/v5/private");
     private static readonly TimeSpan ReconnectDelay = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(20);
 
-    private readonly BybitOrderService _bybitOrderService;
+    private readonly ILocalStorageService _localStorageService;
+    private readonly BybitWalletService _bybitWalletService;
     private readonly IBybitPrivateStreamService _privateStreamService;
     private readonly IOptions<BybitSettings> _bybitSettingsOptions;
     private readonly JsonSerializerOptions _serializerOptions = new(JsonSerializerDefaults.Web);
-    private readonly SemaphoreSlim _sync = new(1, 1);
-    private readonly SemaphoreSlim _snapshotLock = new(1, 1);
     private readonly object _subscriberLock = new();
-    private readonly List<Func<IReadOnlyList<ExchangeOrder>, Task>> _subscribers = new();
-    private readonly List<ExchangeOrder> _orders = new();
+    private readonly SemaphoreSlim _sync = new(1, 1);
+    private readonly List<Func<ExchangeWalletSnapshot, Task>> _subscribers = new();
     private ClientWebSocket? _socket;
     private CancellationTokenSource? _socketCts;
     private Task? _socketTask;
-    private Task? _heartbeatTask;
     private bool _isInitialized;
     private Task _snapshotTask = Task.CompletedTask;
+    private ExchangeWalletSnapshot? _snapshot;
     private IDisposable? _topicSubscription;
 
-    public ActiveOrdersService(
-        BybitOrderService bybitOrderService,
+    public ActiveWalletService(
+        ILocalStorageService localStorageService,
+        BybitWalletService bybitWalletService,
         IBybitPrivateStreamService privateStreamService,
         IOptions<BybitSettings> bybitSettingsOptions)
     {
-        _bybitOrderService = bybitOrderService;
+        _localStorageService = localStorageService;
+        _bybitWalletService = bybitWalletService;
         _privateStreamService = privateStreamService;
         _bybitSettingsOptions = bybitSettingsOptions;
     }
 
-    public async Task<IReadOnlyList<ExchangeOrder>> GetOpenOrdersAsync(CancellationToken cancellationToken = default)
+    public async Task<ExchangeWalletSnapshot?> GetSnapshotAsync(CancellationToken cancellationToken = default)
     {
         await EnsureInitializedAsync();
         await _snapshotTask;
@@ -49,7 +51,7 @@ public sealed class ActiveOrdersService : IOrdersService, IAsyncDisposable
         await _sync.WaitAsync(cancellationToken);
         try
         {
-            return _orders.ToArray();
+            return _snapshot;
         }
         finally
         {
@@ -58,7 +60,7 @@ public sealed class ActiveOrdersService : IOrdersService, IAsyncDisposable
     }
 
     public async ValueTask<IDisposable> SubscribeAsync(
-        Func<IReadOnlyList<ExchangeOrder>, Task> handler,
+        Func<ExchangeWalletSnapshot, Task> handler,
         CancellationToken cancellationToken = default)
     {
         if (handler is null)
@@ -74,18 +76,18 @@ public sealed class ActiveOrdersService : IOrdersService, IAsyncDisposable
         await EnsureInitializedAsync();
         await _snapshotTask;
 
-        ExchangeOrder[] snapshot;
+        ExchangeWalletSnapshot? snapshot;
         await _sync.WaitAsync(cancellationToken);
         try
         {
-            snapshot = _orders.ToArray();
+            snapshot = _snapshot;
         }
         finally
         {
             _sync.Release();
         }
 
-        if (snapshot.Length > 0 && !cancellationToken.IsCancellationRequested)
+        if (snapshot is not null && !cancellationToken.IsCancellationRequested)
         {
             await handler.Invoke(snapshot);
         }
@@ -101,6 +103,8 @@ public sealed class ActiveOrdersService : IOrdersService, IAsyncDisposable
         }
 
         _isInitialized = true;
+        await LoadFromStorageAsync();
+
         if (!HasApiCredentials())
         {
             _snapshotTask = Task.CompletedTask;
@@ -108,56 +112,63 @@ public sealed class ActiveOrdersService : IOrdersService, IAsyncDisposable
         }
 
         _snapshotTask = LoadSnapshotOnceAsync();
-        _topicSubscription = await _privateStreamService.SubscribeTopicAsync("order", HandleOrderTopicAsync);
+        _topicSubscription = await _privateStreamService.SubscribeTopicAsync("wallet", HandleWalletTopicAsync);
     }
 
-    private async Task HandleOrderTopicAsync(IReadOnlyList<JsonElement> entries)
+    private async Task HandleWalletTopicAsync(IReadOnlyList<JsonElement> entries)
     {
         foreach (var entry in entries)
         {
-            var update = ReadOrder(entry);
-            if (update is null)
+            var mapped = MapWalletEntry(entry);
+            if (mapped is null)
             {
                 continue;
             }
 
-            await ApplyUpdateAsync(update);
+            await UpdateSnapshotAsync(mapped, notify: true);
+        }
+    }
+
+    private async Task LoadFromStorageAsync()
+    {
+        try
+        {
+            var payload = await _localStorageService.GetItemAsync(StorageKey);
+            if (string.IsNullOrWhiteSpace(payload))
+            {
+                return;
+            }
+
+            var snapshot = JsonSerializer.Deserialize<ExchangeWalletSnapshot>(payload, _serializerOptions);
+            if (snapshot is null)
+            {
+                return;
+            }
+
+            await UpdateSnapshotAsync(snapshot, notify: false);
+        }
+        catch
+        {
+            // Ignore storage corruption and continue with live fetch.
         }
     }
 
     private async Task LoadSnapshotOnceAsync()
     {
-        await _snapshotLock.WaitAsync();
         try
         {
-            if (!HasApiCredentials())
+            var snapshot = await _bybitWalletService.GetWalletSnapshotAsync();
+            if (snapshot is null)
             {
                 return;
             }
 
-            var orders = await _bybitOrderService.GetOpenOrdersAsync();
-            await UpdateSnapshotAsync(orders);
+            await UpdateSnapshotAsync(snapshot, notify: true);
         }
-        finally
+        catch
         {
-            _snapshotLock.Release();
+            // Keep stream alive even if REST snapshot failed.
         }
-    }
-
-    private async Task UpdateSnapshotAsync(IReadOnlyList<ExchangeOrder> orders)
-    {
-        await _sync.WaitAsync();
-        try
-        {
-            _orders.Clear();
-            _orders.AddRange(orders.Where(IsOpenOrderStatus));
-        }
-        finally
-        {
-            _sync.Release();
-        }
-
-        await NotifySubscribersAsync();
     }
 
     private async Task RunSocketLoopAsync(CancellationToken cancellationToken)
@@ -206,8 +217,8 @@ public sealed class ActiveOrdersService : IOrdersService, IAsyncDisposable
         _socket = new ClientWebSocket();
         await _socket.ConnectAsync(BybitPrivateWebSocketUrl, cancellationToken);
         await AuthenticateAsync(settings, cancellationToken);
-        await SubscribeOrdersAsync(cancellationToken);
-        _heartbeatTask = SendHeartbeatLoopAsync(cancellationToken);
+        await SubscribeWalletAsync(cancellationToken);
+        _ = SendHeartbeatLoopAsync(cancellationToken);
     }
 
     private async Task AuthenticateAsync(BybitSettings settings, CancellationToken cancellationToken)
@@ -223,12 +234,12 @@ public sealed class ActiveOrdersService : IOrdersService, IAsyncDisposable
         await SendAsync(payload, cancellationToken);
     }
 
-    private async Task SubscribeOrdersAsync(CancellationToken cancellationToken)
+    private async Task SubscribeWalletAsync(CancellationToken cancellationToken)
     {
         var payload = new
         {
             op = "subscribe",
-            args = new[] { "order" }
+            args = new[] { "wallet" }
         };
 
         await SendAsync(payload, cancellationToken);
@@ -254,12 +265,10 @@ public sealed class ActiveOrdersService : IOrdersService, IAsyncDisposable
         }
 
         var buffer = new byte[4096];
-
         while (_socket.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested)
         {
             WebSocketReceiveResult? result = null;
             var builder = new StringBuilder();
-
             do
             {
                 result = await _socket.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken);
@@ -277,11 +286,11 @@ public sealed class ActiveOrdersService : IOrdersService, IAsyncDisposable
                 continue;
             }
 
-            TryHandlePayload(builder.ToString());
+            _ = TryHandlePayloadAsync(builder.ToString());
         }
     }
 
-    private void TryHandlePayload(string payload)
+    private async Task TryHandlePayloadAsync(string payload)
     {
         if (string.IsNullOrWhiteSpace(payload))
         {
@@ -293,22 +302,14 @@ public sealed class ActiveOrdersService : IOrdersService, IAsyncDisposable
             using var document = JsonDocument.Parse(payload);
             var root = document.RootElement;
 
-            if (root.TryGetProperty("op", out var opElement))
-            {
-                var op = opElement.GetString();
-                if (string.Equals(op, "pong", StringComparison.OrdinalIgnoreCase))
-                {
-                    return;
-                }
-            }
-
-            if (!root.TryGetProperty("topic", out var topicElement))
+            if (root.TryGetProperty("op", out var opElement)
+                && string.Equals(opElement.GetString(), "pong", StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }
 
-            var topic = topicElement.GetString();
-            if (!string.Equals(topic, "order", StringComparison.OrdinalIgnoreCase))
+            if (!root.TryGetProperty("topic", out var topicElement)
+                || !string.Equals(topicElement.GetString(), "wallet", StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }
@@ -320,13 +321,13 @@ public sealed class ActiveOrdersService : IOrdersService, IAsyncDisposable
 
             foreach (var entry in dataElement.EnumerateArray())
             {
-                var update = ReadOrder(entry);
-                if (update is null)
+                var mapped = MapWalletEntry(entry);
+                if (mapped is null)
                 {
                     continue;
                 }
 
-                _ = ApplyUpdateAsync(update);
+                await UpdateSnapshotAsync(mapped, notify: true);
             }
         }
         catch
@@ -335,59 +336,116 @@ public sealed class ActiveOrdersService : IOrdersService, IAsyncDisposable
         }
     }
 
-    private static ExchangeOrder? ReadOrder(JsonElement entry)
+    private static ExchangeWalletSnapshot? MapWalletEntry(JsonElement entry)
     {
-        if (!TryReadString(entry, "symbol", out var symbol))
+        var accountType = ReadString(entry, "accountType") ?? "UNIFIED";
+        var coins = new List<ExchangeWalletCoin>();
+        if (entry.TryGetProperty("coin", out var coinsElement) && coinsElement.ValueKind == JsonValueKind.Array)
         {
-            return null;
+            foreach (var coinEntry in coinsElement.EnumerateArray())
+            {
+                var coin = ReadString(coinEntry, "coin");
+                if (string.IsNullOrWhiteSpace(coin))
+                {
+                    continue;
+                }
+
+                coins.Add(new ExchangeWalletCoin(
+                    coin.ToUpperInvariant(),
+                    ReadDecimal(coinEntry, "equity"),
+                    ReadDecimal(coinEntry, "walletBalance"),
+                    ReadDecimal(coinEntry, "availableToWithdraw"),
+                    ReadDecimal(coinEntry, "usdValue")));
+            }
         }
 
-        TryReadString(entry, "orderId", out var orderId);
-        TryReadString(entry, "side", out var side);
-        TryReadString(entry, "category", out var category);
-        TryReadString(entry, "orderType", out var orderType);
-        TryReadString(entry, "stopOrderType", out var stopOrderType);
-        TryReadString(entry, "orderStatus", out var orderStatus);
-
-        var qty = ReadDecimal(entry, "qty");
-        if (qty == 0)
-        {
-            qty = ReadDecimal(entry, "leavesQty");
-        }
-
-        var price = ResolveOrderPrice(entry);
-
-        return new ExchangeOrder(orderId, symbol, side, category, orderType, orderStatus, qty, price, stopOrderType);
+        return new ExchangeWalletSnapshot(
+            DateTime.UtcNow,
+            accountType.ToUpperInvariant(),
+            ReadDecimal(entry, "totalEquity"),
+            ReadDecimal(entry, "totalWalletBalance"),
+            ReadDecimal(entry, "totalMarginBalance"),
+            ReadDecimal(entry, "totalInitialMargin"),
+            ReadDecimal(entry, "totalMaintenanceMargin"),
+            ReadDecimal(entry, "totalAvailableBalance"),
+            ReadDecimal(entry, "totalPerpUPL"),
+            coins);
     }
 
-    private async Task ApplyUpdateAsync(ExchangeOrder update)
+    private async Task UpdateSnapshotAsync(ExchangeWalletSnapshot snapshot, bool notify)
     {
+        ExchangeWalletSnapshot mergedSnapshot;
         await _sync.WaitAsync();
         try
         {
-            var index = _orders.FindIndex(order => string.Equals(order.OrderId, update.OrderId, StringComparison.OrdinalIgnoreCase));
-            if (!IsOpenOrderStatus(update))
-            {
-                if (index >= 0)
-                {
-                    _orders.RemoveAt(index);
-                }
-            }
-            else if (index >= 0)
-            {
-                _orders[index] = update;
-            }
-            else
-            {
-                _orders.Add(update);
-            }
+            // Wallet topic payloads may omit some totals/coins, so keep the latest complete view by merging.
+            mergedSnapshot = MergeWithCurrentSnapshot(snapshot, _snapshot);
+            _snapshot = mergedSnapshot;
+            var payload = JsonSerializer.Serialize(mergedSnapshot, _serializerOptions);
+            await _localStorageService.SetItemAsync(StorageKey, payload);
         }
         finally
         {
             _sync.Release();
         }
 
-        await NotifySubscribersAsync();
+        if (notify)
+        {
+            await NotifySubscribersAsync(mergedSnapshot);
+        }
+    }
+
+    private static ExchangeWalletSnapshot MergeWithCurrentSnapshot(
+        ExchangeWalletSnapshot incoming,
+        ExchangeWalletSnapshot? current)
+    {
+        if (current is null)
+        {
+            return incoming;
+        }
+
+        return new ExchangeWalletSnapshot(
+            incoming.UpdatedUtc,
+            string.IsNullOrWhiteSpace(incoming.AccountType) ? current.AccountType : incoming.AccountType,
+            incoming.TotalEquity ?? current.TotalEquity,
+            incoming.TotalWalletBalance ?? current.TotalWalletBalance,
+            incoming.TotalMarginBalance ?? current.TotalMarginBalance,
+            incoming.TotalInitialMargin ?? current.TotalInitialMargin,
+            incoming.TotalMaintenanceMargin ?? current.TotalMaintenanceMargin,
+            incoming.TotalAvailableBalance ?? current.TotalAvailableBalance,
+            incoming.TotalPerpUpl ?? current.TotalPerpUpl,
+            MergeCoins(incoming.Coins, current.Coins));
+    }
+
+    private static IReadOnlyList<ExchangeWalletCoin> MergeCoins(
+        IReadOnlyList<ExchangeWalletCoin> incoming,
+        IReadOnlyList<ExchangeWalletCoin> current)
+    {
+        if (incoming.Count == 0)
+        {
+            return current;
+        }
+
+        var merged = current.ToDictionary(coin => coin.Coin, StringComparer.OrdinalIgnoreCase);
+        foreach (var coin in incoming)
+        {
+            if (merged.TryGetValue(coin.Coin, out var existing))
+            {
+                merged[coin.Coin] = new ExchangeWalletCoin(
+                    coin.Coin,
+                    coin.Equity ?? existing.Equity,
+                    coin.WalletBalance ?? existing.WalletBalance,
+                    coin.AvailableToWithdraw ?? existing.AvailableToWithdraw,
+                    coin.UsdValue ?? existing.UsdValue);
+                continue;
+            }
+
+            merged[coin.Coin] = coin;
+        }
+
+        return merged.Values
+            .OrderBy(coin => coin.Coin, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private async Task SendHeartbeatLoopAsync(CancellationToken cancellationToken)
@@ -397,7 +455,7 @@ public sealed class ActiveOrdersService : IOrdersService, IAsyncDisposable
             try
             {
                 await Task.Delay(HeartbeatInterval, cancellationToken);
-                if (cancellationToken.IsCancellationRequested || _socket is null || _socket.State != WebSocketState.Open)
+                if (_socket is null || _socket.State != WebSocketState.Open)
                 {
                     return;
                 }
@@ -427,7 +485,7 @@ public sealed class ActiveOrdersService : IOrdersService, IAsyncDisposable
         }
         catch
         {
-            // ignore socket close failures
+            // ignore close errors
         }
         finally
         {
@@ -436,78 +494,19 @@ public sealed class ActiveOrdersService : IOrdersService, IAsyncDisposable
         }
     }
 
-    private static string SignWebSocketAuth(string secret, long expires)
-    {
-        var payload = $"GET/realtime{expires}";
-        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
-        var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(payload));
-        var builder = new StringBuilder(hash.Length * 2);
-
-        foreach (var value in hash)
-        {
-            builder.Append(value.ToString("x2", CultureInfo.InvariantCulture));
-        }
-
-        return builder.ToString();
-    }
-
-    private bool HasApiCredentials()
-    {
-        var settings = _bybitSettingsOptions.Value;
-        return !string.IsNullOrWhiteSpace(settings.ApiKey) && !string.IsNullOrWhiteSpace(settings.ApiSecret);
-    }
-
-    private static bool IsOpenOrderStatus(ExchangeOrder order)
-    {
-        return IsOpenOrderStatus(order.OrderStatus);
-    }
-
-    private static bool IsOpenOrderStatus(string status)
-    {
-        return status.Equals("New", StringComparison.OrdinalIgnoreCase)
-            || status.Equals("PartiallyFilled", StringComparison.OrdinalIgnoreCase)
-            || status.Equals("Untriggered", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool TryReadString(JsonElement element, string propertyName, out string value)
-    {
-        value = string.Empty;
-        if (!element.TryGetProperty(propertyName, out var property))
-        {
-            return false;
-        }
-
-        value = property.ValueKind switch
-        {
-            JsonValueKind.String => property.GetString()?.Trim() ?? string.Empty,
-            _ => property.GetRawText().Trim()
-        };
-
-        return !string.IsNullOrWhiteSpace(value);
-    }
-
-    private static decimal ReadDecimal(JsonElement element, string propertyName)
+    private static string? ReadString(JsonElement element, string propertyName)
     {
         if (!element.TryGetProperty(propertyName, out var property))
         {
-            return 0m;
+            return null;
         }
 
-        if (property.ValueKind == JsonValueKind.Number && property.TryGetDecimal(out var numeric))
-        {
-            return numeric;
-        }
-
-        var raw = property.ValueKind == JsonValueKind.String
-            ? property.GetString()
-            : property.GetRawText();
-
-        return decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
-            ? parsed
-            : 0m;
+        return property.ValueKind == JsonValueKind.String
+            ? property.GetString()?.Trim()
+            : property.GetRawText().Trim();
     }
 
-    private static decimal? ReadNullableDecimal(JsonElement element, string propertyName)
+    private static decimal? ReadDecimal(JsonElement element, string propertyName)
     {
         if (!element.TryGetProperty(propertyName, out var property))
         {
@@ -533,32 +532,27 @@ public sealed class ActiveOrdersService : IOrdersService, IAsyncDisposable
             : null;
     }
 
-    private static decimal? ResolveOrderPrice(JsonElement element)
+    private bool HasApiCredentials()
     {
-        return FirstPositive(
-            ReadNullableDecimal(element, "price"),
-            ReadNullableDecimal(element, "avgPrice"),
-            ReadNullableDecimal(element, "triggerPrice"),
-            ReadNullableDecimal(element, "takeProfit"),
-            ReadNullableDecimal(element, "stopLoss"),
-            ReadNullableDecimal(element, "tpLimitPrice"),
-            ReadNullableDecimal(element, "slLimitPrice"));
+        var settings = _bybitSettingsOptions.Value;
+        return !string.IsNullOrWhiteSpace(settings.ApiKey) && !string.IsNullOrWhiteSpace(settings.ApiSecret);
     }
 
-    private static decimal? FirstPositive(params decimal?[] values)
+    private static string SignWebSocketAuth(string secret, long expires)
     {
-        foreach (var value in values)
+        var payload = $"GET/realtime{expires}";
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
+        var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(payload));
+        var builder = new StringBuilder(hash.Length * 2);
+        foreach (var value in hash)
         {
-            if (value.HasValue && value.Value > 0)
-            {
-                return value.Value;
-            }
+            builder.Append(value.ToString("x2", CultureInfo.InvariantCulture));
         }
 
-        return null;
+        return builder.ToString();
     }
 
-    private void Unsubscribe(Func<IReadOnlyList<ExchangeOrder>, Task> handler)
+    private void Unsubscribe(Func<ExchangeWalletSnapshot, Task> handler)
     {
         lock (_subscriberLock)
         {
@@ -566,28 +560,12 @@ public sealed class ActiveOrdersService : IOrdersService, IAsyncDisposable
         }
     }
 
-    private async Task NotifySubscribersAsync()
+    private async Task NotifySubscribersAsync(ExchangeWalletSnapshot snapshot)
     {
-        Func<IReadOnlyList<ExchangeOrder>, Task>[] handlers;
+        Func<ExchangeWalletSnapshot, Task>[] handlers;
         lock (_subscriberLock)
         {
             handlers = _subscribers.ToArray();
-        }
-
-        if (handlers.Length == 0)
-        {
-            return;
-        }
-
-        ExchangeOrder[] snapshot;
-        await _sync.WaitAsync();
-        try
-        {
-            snapshot = _orders.ToArray();
-        }
-        finally
-        {
-            _sync.Release();
         }
 
         foreach (var handler in handlers)
@@ -614,7 +592,6 @@ public sealed class ActiveOrdersService : IOrdersService, IAsyncDisposable
         _socketCts?.Dispose();
         _socketCts = null;
         _socketTask = null;
-        _heartbeatTask = null;
         _topicSubscription?.Dispose();
         _topicSubscription = null;
         await CloseSocketAsync();

@@ -18,6 +18,7 @@ public sealed class ActivePositionsService : IActivePositionsService
 
     private readonly ILocalStorageService _localStorageService;
     private readonly BybitPositionService _bybitPositionService;
+    private readonly IBybitPrivateStreamService _privateStreamService;
     private readonly IOptions<BybitSettings> _bybitSettingsOptions;
     private readonly JsonSerializerOptions _serializerOptions = new(JsonSerializerDefaults.Web);
     private readonly SemaphoreSlim _sync = new(1, 1);
@@ -32,16 +33,19 @@ public sealed class ActivePositionsService : IActivePositionsService
     private Task? _heartbeatTask;
     private bool _isInitialized;
     private Task _snapshotTask = Task.CompletedTask;
+    private IDisposable? _topicSubscription;
 
  
 
     public ActivePositionsService(
         ILocalStorageService localStorageService,
         BybitPositionService bybitPositionService,
+        IBybitPrivateStreamService privateStreamService,
         IOptions<BybitSettings> bybitSettingsOptions)
     {
         _localStorageService = localStorageService;
         _bybitPositionService = bybitPositionService;
+        _privateStreamService = privateStreamService;
         _bybitSettingsOptions = bybitSettingsOptions;
     }
 
@@ -62,8 +66,35 @@ public sealed class ActivePositionsService : IActivePositionsService
             return;
         }
 
-        _socketCts = new CancellationTokenSource();
-        _socketTask = RunSocketLoopAsync(_socketCts.Token);
+        _topicSubscription = await _privateStreamService.SubscribeTopicAsync("position", HandlePositionTopicAsync);
+    }
+
+    private async Task HandlePositionTopicAsync(IReadOnlyList<JsonElement> entries)
+    {
+        foreach (var entry in entries)
+        {
+            if (!TryReadString(entry, "symbol", out var symbol))
+            {
+                continue;
+            }
+
+            TryReadString(entry, "side", out var side);
+            TryReadString(entry, "category", out var category);
+            var size = ReadDecimal(entry, "size");
+            var avgPrice = ReadDecimal(entry, "avgPrice");
+            if (avgPrice <= 0)
+            {
+                avgPrice = ReadDecimal(entry, "entryPrice");
+            }
+
+            if (string.IsNullOrWhiteSpace(category))
+            {
+                category = "linear";
+            }
+
+            var update = new ExchangePosition(symbol, side, category, size, avgPrice);
+            await ApplyUpdateAsync(update);
+        }
     }
 
  
@@ -535,6 +566,8 @@ public sealed class ActivePositionsService : IActivePositionsService
         _socketCts = null;
         _socketTask = null;
         _heartbeatTask = null;
+        _topicSubscription?.Dispose();
+        _topicSubscription = null;
         await CloseSocketAsync();
     }
 

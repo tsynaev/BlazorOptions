@@ -1,0 +1,206 @@
+@using BlazorOptions.Services
+@implements IAsyncDisposable
+@inject IExchangeService ExchangeService
+
+@if (_snapshot is not null)
+{
+    <div class="wallet-summary @Class">
+        <div class="wallet-summary-updated">Updated: @FormatUpdated(_snapshot.UpdatedUtc)</div>
+        <div class="wallet-summary-left">
+            <div class="wallet-summary-metric-row">
+                <span class="wallet-summary-label">IM</span>
+                <span class="wallet-summary-value">@FormatPercentShort(ResolveMarginPercent(_snapshot.TotalInitialMargin, _snapshot.TotalMarginBalance))</span>
+                <span class="wallet-summary-bar">
+                    <span class="wallet-summary-bar-fill" style="@BuildPercentWidthStyle(ResolveMarginPercent(_snapshot.TotalInitialMargin, _snapshot.TotalMarginBalance))"></span>
+                </span>
+            </div>
+            <div class="wallet-summary-metric-row">
+                <span class="wallet-summary-label">MM</span>
+                <span class="wallet-summary-value">@FormatPercentShort(ResolveMarginPercent(_snapshot.TotalMaintenanceMargin, _snapshot.TotalMarginBalance))</span>
+                <span class="wallet-summary-bar">
+                    <span class="wallet-summary-bar-fill wallet-summary-bar-fill-secondary" style="@BuildPercentWidthStyle(ResolveMarginPercent(_snapshot.TotalMaintenanceMargin, _snapshot.TotalMarginBalance))"></span>
+                </span>
+            </div>
+        </div>
+
+        <div class="wallet-summary-right">
+            @if (ShowEquity)
+            {
+                <div class="wallet-summary-balance-row">
+                    <span class="wallet-summary-balance-label">Equity</span>
+                    <span class="wallet-summary-balance-value">@FormatWalletCompact(_snapshot.TotalEquity)</span>
+                </div>
+            }
+
+            @if (ShowWalletBalance)
+            {
+                <div class="wallet-summary-balance-row">
+                    <span class="wallet-summary-balance-label">Wallet Balance</span>
+                    <span class="wallet-summary-balance-value">@FormatWalletCompact(_snapshot.TotalWalletBalance)</span>
+                </div>
+            }
+
+            <div class="wallet-summary-balance-row">
+                <span class="wallet-summary-balance-label">Margin Balance</span>
+                <span class="wallet-summary-balance-value">@FormatWalletCompact(_snapshot.TotalMarginBalance)</span>
+            </div>
+            <div class="wallet-summary-balance-row">
+                <span class="wallet-summary-balance-label">Available Balance</span>
+                <span class="wallet-summary-balance-value">@FormatWalletCompact(_snapshot.TotalAvailableBalance)</span>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool ShowEquity { get; set; }
+    [Parameter] public bool ShowWalletBalance { get; set; }
+    [Parameter] public string Class { get; set; } = string.Empty;
+    private IDisposable? _subscription;
+    private ExchangeWalletSnapshot? _snapshot;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _subscription = await ExchangeService.Wallet.SubscribeAsync(HandleWalletUpdatedAsync);
+        _snapshot = await ExchangeService.Wallet.GetSnapshotAsync();
+    }
+
+    private Task HandleWalletUpdatedAsync(ExchangeWalletSnapshot snapshot)
+    {
+        _snapshot = snapshot;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _subscription?.Dispose();
+        _subscription = null;
+        return ValueTask.CompletedTask;
+    }
+
+    private static decimal? ResolveMarginPercent(decimal? part, decimal? total)
+    {
+        if (!part.HasValue || !total.HasValue || total.Value <= 0m)
+        {
+            return null;
+        }
+
+        return part.Value / total.Value * 100m;
+    }
+
+    private static string FormatPercentShort(decimal? value)
+    {
+        return value.HasValue
+            ? $"{value.Value:0.##}%"
+            : "-";
+    }
+
+    private static string BuildPercentWidthStyle(decimal? percent)
+    {
+        var width = percent.HasValue ? Math.Clamp((double)percent.Value, 0d, 100d) : 0d;
+        return $"width:{width.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}%;";
+    }
+
+    private static string FormatWalletCompact(decimal? value)
+    {
+        return value.HasValue
+            ? value.Value.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)
+            : "-";
+    }
+
+    private static string FormatUpdated(DateTime value)
+    {
+        var utc = value.Kind == DateTimeKind.Utc ? value : value.ToUniversalTime();
+        return utc.ToLocalTime().ToString("dd.MM.yyyy HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+    }
+}
+
+<style>
+    .wallet-summary {
+        display: grid;
+        grid-template-columns: auto auto;
+        gap: 12px;
+        align-items: center;
+        position: relative;
+        padding-top: 14px;
+    }
+
+    .wallet-summary-updated {
+        position: absolute;
+        top: 0;
+        right: 0;
+        font-size: 10px;
+        opacity: 0.75;
+        white-space: nowrap;
+    }
+
+    .wallet-summary-left {
+        display: grid;
+        gap: 3px;
+    }
+
+    .wallet-summary-right {
+        display: grid;
+        gap: 2px;
+    }
+
+    .wallet-summary-metric-row {
+        display: grid;
+        grid-template-columns: 22px 56px 90px;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        line-height: 1.1;
+    }
+
+    .wallet-summary-label {
+        opacity: 0.95;
+    }
+
+    .wallet-summary-value {
+        font-weight: 600;
+    }
+
+    .wallet-summary-bar {
+        display: block;
+        height: 14px;
+        border-radius: 8px;
+        background: rgba(148, 163, 184, 0.2);
+        overflow: hidden;
+    }
+
+    .wallet-summary-bar-fill {
+        display: block;
+        height: 100%;
+        border-radius: 8px;
+        background: linear-gradient(90deg, #16a34a, #22c55e);
+    }
+
+    .wallet-summary-bar-fill-secondary {
+        background: linear-gradient(90deg, #16a34a, #34d399);
+    }
+
+    .wallet-summary-balance-row {
+        display: grid;
+        grid-template-columns: auto auto;
+        gap: 10px;
+        align-items: baseline;
+        font-size: 12px;
+        line-height: 1.1;
+        white-space: nowrap;
+    }
+
+    .wallet-summary-balance-label {
+        opacity: 0.95;
+    }
+
+    .wallet-summary-balance-value {
+        font-weight: 600;
+    }
+    
+    @@media (max-width: 900px) {
+        .wallet-summary {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>

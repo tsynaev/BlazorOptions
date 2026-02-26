@@ -85,4 +85,32 @@ public interface ITickersService : IAsyncDisposable
         CancellationToken cancellationToken = default);
 }
 
+public interface IWalletService : IAsyncDisposable
+{
+    Task<ExchangeWalletSnapshot?> GetSnapshotAsync(CancellationToken cancellationToken = default);
+
+    ValueTask<IDisposable> SubscribeAsync(
+        Func<ExchangeWalletSnapshot, Task> handler,
+        CancellationToken cancellationToken = default);
+}
+
 public sealed record ExchangeTradingPair(string BaseAsset, string QuoteAsset);
+
+public sealed record ExchangeWalletCoin(
+    string Coin,
+    decimal? Equity,
+    decimal? WalletBalance,
+    decimal? AvailableToWithdraw,
+    decimal? UsdValue);
+
+public sealed record ExchangeWalletSnapshot(
+    DateTime UpdatedUtc,
+    string AccountType,
+    decimal? TotalEquity,
+    decimal? TotalWalletBalance,
+    decimal? TotalMarginBalance,
+    decimal? TotalInitialMargin,
+    decimal? TotalMaintenanceMargin,
+    decimal? TotalAvailableBalance,
+    decimal? TotalPerpUpl,
+    IReadOnlyList<ExchangeWalletCoin> Coins);

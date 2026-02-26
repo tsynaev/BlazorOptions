@@ -38,11 +38,14 @@ else
             <MudStack Spacing="2">
                 <MudStack Spacing="1">
                     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
-                        <MudText Typo="Typo.h6" Class="position-title">
-                            @(!HasActivePosition
-                                ? "No position selected"
-                                : FormatPositionName(ViewModel.Position))
-                        </MudText>
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="position-title-row">
+                            <MudText Typo="Typo.h6" Class="position-title">
+                                @(!HasActivePosition
+                                    ? "No position selected"
+                                    : FormatPositionName(ViewModel.Position))
+                            </MudText>
+                            <WalletSummary Class="wallet-compact" />
+                        </MudStack>
                         <MudMenu Icon="@Icons.Material.Filled.MoreVert"
                                  Disabled="@(!HasActivePosition)"
                                  Dense="true"
@@ -247,6 +250,14 @@ else
     .position-summary-row {
         flex-wrap: wrap;
         gap: 6px;
+    }
+    .position-title-row {
+        flex-wrap: wrap;
+        gap: 6px;
+        min-width: 0;
+    }
+    .wallet-compact {
+        margin-left: 8px;
     }
     .position-content {
         padding-top: 8px;

@@ -9,7 +9,10 @@
 <MudStack Spacing="2">
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
         <MudText Typo="Typo.h4">Dashboard</MudText>
-        <MudStack Row="true" Spacing="1">
+        <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+            <WalletSummary ShowEquity="true"
+                           ShowWalletBalance="true"
+                           Class="dashboard-wallet" />
             <MudIconButton Icon="@Icons.Material.Filled.AddCircle"
                            Color="Color.Primary"
                            OnClick="CreatePositionAsync"
@@ -416,5 +419,9 @@
 
     .home-leg-tooltip-table td:first-child {
         opacity: 0.8;
+    }
+
+    .dashboard-wallet {
+        margin-right: 8px;
     }
 </style>
