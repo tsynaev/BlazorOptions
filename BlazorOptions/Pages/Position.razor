@@ -911,7 +911,7 @@ else
     private decimal? ResolveClosedNetPnl()
     {
         var closed = HasActivePosition ? ViewModel.Position.Closed : null;
-        if (closed is null)
+        if (closed is null || !closed.Include)
         {
             return null;
         }
