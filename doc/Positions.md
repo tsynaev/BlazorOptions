@@ -32,6 +32,7 @@ The Positions page is where you manage one position at a time and review its pay
 - Portfolio header shows only total Greeks for included legs.
 - Each non-futures leg card Greeks row includes a tiny unlabeled switch (with tooltip) to toggle between total leg Greek contribution and per-size Greek values.
 - In non-live mode, when a chart/temporary price is selected, option Greeks in leg cards and portfolio totals are recalculated for that selected underlying price and valuation date.
+- For legs that are already expired at the selected valuation date, both temp and expiry chart contributions are locked to that leg P/L at selected price (horizontal contribution). This includes dated futures; perpetual futures are never expired.
 - `Order` status legs display current market mark values in the card.
 - `New` legs with both empty entry price and empty IV show no entry price in the card.
 - In leg edit dialog, clearing price or IV shows placeholders from current market mark values when available.

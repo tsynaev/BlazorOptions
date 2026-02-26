@@ -12,7 +12,6 @@
         }
 
         <div class="valuation-selected-line" style="@BuildSelectedLineStyle()"></div>
-        <div class="valuation-selected-badge" style="@BuildSelectedBadgeStyle()">@FormatFull(SelectedDateTime)</div>
 
         <input class="valuation-timeline-input"
                type="range"
@@ -131,16 +130,6 @@
         return $"left:{left}%;";
     }
 
-    private string BuildSelectedBadgeStyle()
-    {
-        var percent = ResolvePercent(SelectedDateTime);
-        var left = percent.ToString("0.###", CultureInfo.InvariantCulture);
-        var isNearEnd = percent > 78d;
-        return isNearEnd
-            ? $"left:{left}%;transform:translateX(calc(-100% - 8px));"
-            : $"left:{left}%;transform:translateX(8px);";
-    }
-
     private double ResolvePercent(DateTime value)
     {
         if (_isDisabled)
@@ -254,16 +243,6 @@
         background: rgba(59, 130, 246, 0.95);
         pointer-events: none;
         z-index: 2;
-    }
-
-    .valuation-selected-badge {
-        position: absolute;
-        bottom: 6px;
-        z-index: 3;
-        font-size: 0.7rem;
-        color: rgba(191, 219, 254, 0.98);
-        white-space: nowrap;
-        pointer-events: none;
     }
 
     .valuation-timeline-input {

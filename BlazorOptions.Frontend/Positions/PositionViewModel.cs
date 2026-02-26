@@ -1051,8 +1051,12 @@ public sealed class PositionViewModel : IDisposable
         foreach (var collection in collections)
         {
             var collectionLegs = ResolveLegsForCalculation(collection.Legs).Where(leg => leg.IsIncluded).ToList();
-            var profits = xs.Select(price => _optionsService.CalculateTotalProfit(collectionLegs, price)).ToArray();
-            var theoreticalProfits = xs.Select(price => _optionsService.CalculateTotalTheoreticalProfit(collectionLegs, price, valuationDate)).ToArray();
+            var profits = xs
+                .Select(price => CalculateExpiryProfitForChartPrice(collectionLegs, price, valuationDate, displayPrice))
+                .ToArray();
+            var theoreticalProfits = xs
+                .Select(price => CalculateTempProfitForChartPrice(collectionLegs, price, valuationDate, displayPrice))
+                .ToArray();
 
             if (Math.Abs(closedPositionsTotal) > 0.0001m)
             {
@@ -1119,6 +1123,63 @@ public sealed class PositionViewModel : IDisposable
         }
 
         ChartSelectedPrice = displayPrice.HasValue ? (double)displayPrice.Value : null;
+    }
+
+    private decimal CalculateTempProfitForChartPrice(
+        IReadOnlyList<LegModel> legs,
+        decimal curvePrice,
+        DateTime valuationDate,
+        decimal? selectedPrice)
+    {
+        decimal total = 0m;
+        foreach (var leg in legs)
+        {
+            if (IsLegExpiredAtValuation(leg, valuationDate))
+            {
+                // Once a leg is expired at selected valuation date, lock its temp contribution to selected-price P/L.
+                var realizedPrice = selectedPrice ?? curvePrice;
+                total += _optionsService.CalculateLegProfit(leg, realizedPrice);
+                continue;
+            }
+
+            total += _optionsService.CalculateLegTheoreticalProfit(leg, curvePrice, valuationDate);
+        }
+
+        return total;
+    }
+
+    private decimal CalculateExpiryProfitForChartPrice(
+        IReadOnlyList<LegModel> legs,
+        decimal curvePrice,
+        DateTime valuationDate,
+        decimal? selectedPrice)
+    {
+        decimal total = 0m;
+        foreach (var leg in legs)
+        {
+            if (IsLegExpiredAtValuation(leg, valuationDate))
+            {
+                // Keep expired legs fixed at selected-price realized P/L so expiry line is horizontal for them.
+                var realizedPrice = selectedPrice ?? curvePrice;
+                total += _optionsService.CalculateLegProfit(leg, realizedPrice);
+                continue;
+            }
+
+            total += _optionsService.CalculateLegProfit(leg, curvePrice);
+        }
+
+        return total;
+    }
+
+    private static bool IsLegExpiredAtValuation(LegModel leg, DateTime valuationDate)
+    {
+        if (!leg.ExpirationDate.HasValue)
+        {
+            // Futures without expiration are perpetual and never expire.
+            return false;
+        }
+
+        return leg.ExpirationDate.Value.Date <= valuationDate.Date;
     }
 
     private void TryAddDayIvMarkers()
