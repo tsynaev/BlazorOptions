@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using BlazorOptions.ViewModels;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace BlazorOptions.Services;
@@ -19,6 +20,7 @@ public sealed class ActiveWalletService : IWalletService
     private readonly BybitWalletService _bybitWalletService;
     private readonly IBybitPrivateStreamService _privateStreamService;
     private readonly IOptions<BybitSettings> _bybitSettingsOptions;
+    private readonly ILogger<ActiveWalletService> _logger;
     private readonly JsonSerializerOptions _serializerOptions = new(JsonSerializerDefaults.Web);
     private readonly object _subscriberLock = new();
     private readonly SemaphoreSlim _sync = new(1, 1);
@@ -30,17 +32,22 @@ public sealed class ActiveWalletService : IWalletService
     private Task _snapshotTask = Task.CompletedTask;
     private ExchangeWalletSnapshot? _snapshot;
     private IDisposable? _topicSubscription;
+    private CancellationTokenSource? _fallbackRefreshCts;
+    private Task? _fallbackRefreshTask;
+    private DateTime _lastWalletEventUtc = DateTime.MinValue;
 
     public ActiveWalletService(
         ILocalStorageService localStorageService,
         BybitWalletService bybitWalletService,
         IBybitPrivateStreamService privateStreamService,
-        IOptions<BybitSettings> bybitSettingsOptions)
+        IOptions<BybitSettings> bybitSettingsOptions,
+        ILogger<ActiveWalletService> logger)
     {
         _localStorageService = localStorageService;
         _bybitWalletService = bybitWalletService;
         _privateStreamService = privateStreamService;
         _bybitSettingsOptions = bybitSettingsOptions;
+        _logger = logger;
     }
 
     public async Task<ExchangeWalletSnapshot?> GetSnapshotAsync(CancellationToken cancellationToken = default)
@@ -113,10 +120,14 @@ public sealed class ActiveWalletService : IWalletService
 
         _snapshotTask = LoadSnapshotOnceAsync();
         _topicSubscription = await _privateStreamService.SubscribeTopicAsync("wallet", HandleWalletTopicAsync);
+        _fallbackRefreshCts = new CancellationTokenSource();
+        _fallbackRefreshTask = RunFallbackRefreshLoopAsync(_fallbackRefreshCts.Token);
     }
 
     private async Task HandleWalletTopicAsync(IReadOnlyList<JsonElement> entries)
     {
+        _lastWalletEventUtc = DateTime.UtcNow;
+        _logger.LogInformation("Wallet topic received with {Count} entries.", entries.Count);
         foreach (var entry in entries)
         {
             var mapped = MapWalletEntry(entry);
@@ -168,6 +179,46 @@ public sealed class ActiveWalletService : IWalletService
         catch
         {
             // Keep stream alive even if REST snapshot failed.
+            _logger.LogWarning("Initial wallet snapshot fetch failed.");
+        }
+    }
+
+    private async Task RunFallbackRefreshLoopAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                // If wallet topic is quiet for a while, refresh from REST so UI remains current.
+                if (_lastWalletEventUtc != DateTime.MinValue
+                    && DateTime.UtcNow - _lastWalletEventUtc < TimeSpan.FromMinutes(2))
+                {
+                    continue;
+                }
+
+                var snapshot = await _bybitWalletService.GetWalletSnapshotAsync(cancellationToken);
+                if (snapshot is null)
+                {
+                    continue;
+                }
+
+                _logger.LogInformation("Wallet fallback refresh applied.");
+                await UpdateSnapshotAsync(snapshot, notify: true);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch
+            {
+                _logger.LogDebug("Wallet fallback refresh failed.");
+            }
         }
     }
 
@@ -576,6 +627,23 @@ public sealed class ActiveWalletService : IWalletService
 
     public async ValueTask DisposeAsync()
     {
+        _fallbackRefreshCts?.Cancel();
+        if (_fallbackRefreshTask is not null)
+        {
+            try
+            {
+                await _fallbackRefreshTask;
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        _fallbackRefreshCts?.Dispose();
+        _fallbackRefreshCts = null;
+        _fallbackRefreshTask = null;
+
         _socketCts?.Cancel();
         if (_socketTask is not null)
         {

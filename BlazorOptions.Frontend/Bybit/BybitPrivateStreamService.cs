@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using BlazorOptions.ViewModels;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace BlazorOptions.Services;
@@ -23,6 +24,7 @@ public sealed class BybitPrivateStreamService : IBybitPrivateStreamService
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(20);
 
     private readonly IOptions<BybitSettings> _bybitSettingsOptions;
+    private readonly ILogger<BybitPrivateStreamService> _logger;
     private readonly JsonSerializerOptions _serializerOptions = new(JsonSerializerDefaults.Web);
     private readonly object _handlersLock = new();
     private readonly SemaphoreSlim _sendLock = new(1, 1);
@@ -34,9 +36,12 @@ public sealed class BybitPrivateStreamService : IBybitPrivateStreamService
     private Task? _socketTask;
     private bool _isInitialized;
 
-    public BybitPrivateStreamService(IOptions<BybitSettings> bybitSettingsOptions)
+    public BybitPrivateStreamService(
+        IOptions<BybitSettings> bybitSettingsOptions,
+        ILogger<BybitPrivateStreamService> logger)
     {
         _bybitSettingsOptions = bybitSettingsOptions;
+        _logger = logger;
     }
 
     public async ValueTask<IDisposable> SubscribeTopicAsync(
@@ -237,6 +242,8 @@ public sealed class BybitPrivateStreamService : IBybitPrivateStreamService
             {
                 return;
             }
+            var normalizedTopic = topic.Trim().ToLowerInvariant();
+            var baseTopic = normalizedTopic.Split('.', 2)[0];
 
             if (!root.TryGetProperty("data", out var dataElement) || dataElement.ValueKind != JsonValueKind.Array)
             {
@@ -251,13 +258,16 @@ public sealed class BybitPrivateStreamService : IBybitPrivateStreamService
             Func<IReadOnlyList<JsonElement>, Task>[] handlers;
             lock (_handlersLock)
             {
-                if (!_handlersByTopic.TryGetValue(topic.Trim().ToLowerInvariant(), out var existing))
+                if (!_handlersByTopic.TryGetValue(normalizedTopic, out var existing)
+                    && !_handlersByTopic.TryGetValue(baseTopic, out existing))
                 {
                     return;
                 }
 
                 handlers = existing.ToArray();
             }
+
+            _logger.LogDebug("Bybit private stream topic received: {Topic}, entries: {Count}", topic, data.Length);
 
             foreach (var handler in handlers)
             {
