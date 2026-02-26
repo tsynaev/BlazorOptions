@@ -12,6 +12,7 @@ This folder is split into two parts:
 - [Closed Positions](ClosedPositions.md)
 - [Trading History](TradingHistory.md)
 - [Data Tools](Data.md)
+- [Straddle Fair Value](StraddleFairValue.md)
 - [Volume Heatmap](VolumeHeatmap.md)
 - [Leg Parsing / Quick Add](LegParsing.md)
 - [Application Settings](ApplicationSettings.md)

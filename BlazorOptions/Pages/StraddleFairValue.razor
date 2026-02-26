@@ -1,0 +1,251 @@
+@page "/straddle-fair"
+@implements IDisposable
+@inject StraddleFairValueViewModel ViewModel
+
+<PageTitle>Straddle Fair Value</PageTitle>
+
+<MudStack Spacing="3">
+    <MudText Typo="Typo.h4">Straddle Fair Value</MudText>
+    <MudText Typo="Typo.body2">
+        Weekly ATM straddle fair value from historical ranges versus market quote.
+    </MudText>
+
+    <MudPaper Class="pa-4">
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6" md="3">
+                <MudTextField T="string"
+                              Label="Underlying symbol"
+                              Value="@ViewModel.UnderlyingSymbol"
+                              ValueChanged="OnUnderlyingSymbolChanged"
+                              Immediate="false" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="2">
+                <MudNumericField T="int"
+                                 Label="Weeks to average"
+                                 Min="2"
+                                 Max="52"
+                                 Value="@ViewModel.WeeksToAverage"
+                                 ValueChanged="OnWeeksChanged" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="2">
+                <MudSelect T="StraddleFairMethod"
+                           Label="Method"
+                           Value="@ViewModel.Method"
+                           ValueChanged="OnMethodChanged">
+                    <MudSelectItem T="StraddleFairMethod" Value="StraddleFairMethod.Range">Range</MudSelectItem>
+                    <MudSelectItem T="StraddleFairMethod" Value="StraddleFairMethod.Parkinson">Parkinson</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="2">
+                <MudTextField T="string"
+                              Label="Current S"
+                              Value="@FormatNumber(ViewModel.CurrentUnderlyingPrice)"
+                              Disabled="true" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="1">
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           Disabled="ViewModel.IsLoading"
+                           OnClick="ReloadAsync">
+                    @(ViewModel.IsLoading ? "..." : "Reload")
+                </MudButton>
+            </MudItem>
+        </MudGrid>
+
+        <MudGrid Spacing="2" Class="mt-2">
+            <MudItem xs="12" sm="6" md="3">
+                <MudTextField T="string"
+                              Label="Actual ATM call price"
+                              Value="@FormatNumber(ViewModel.ActualAtmCallPrice)"
+                              Disabled="true" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudTextField T="string"
+                              Label="Actual ATM put price"
+                              Value="@FormatNumber(ViewModel.ActualAtmPutPrice)"
+                              Disabled="true" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudTextField T="string"
+                              Label="ATM straddle actual"
+                              Value="@FormatNumber(ViewModel.ActualAtmStraddle)"
+                              Disabled="true" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudTextField T="string"
+                              Label="ATM expiry / strike"
+                              Value="@BuildAtmLabel()"
+                              Disabled="true" />
+            </MudItem>
+        </MudGrid>
+
+        @if (!string.IsNullOrWhiteSpace(ViewModel.ErrorMessage))
+        {
+            <MudAlert Severity="Severity.Error" Class="mt-3">@ViewModel.ErrorMessage</MudAlert>
+        }
+        @if (!string.IsNullOrWhiteSpace(ViewModel.WarningMessage))
+        {
+            <MudAlert Severity="Severity.Warning" Class="mt-3">@ViewModel.WarningMessage</MudAlert>
+        }
+    </MudPaper>
+
+    <MudPaper Class="pa-4">
+        <MudText Typo="Typo.h6">Summary</MudText>
+        <MudGrid Spacing="2" Class="mt-1">
+            <MudItem xs="12" sm="6" md="3">
+                <MudText Typo="Typo.caption">Avg range D̄ (%)</MudText>
+                <MudText Typo="Typo.subtitle1">@FormatPercent(ViewModel.AvgRange)</MudText>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudText Typo="Typo.caption">σ week (%)</MudText>
+                <MudText Typo="Typo.subtitle1">@FormatPercent(ViewModel.SigmaWeek)</MudText>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="2">
+                <MudText Typo="Typo.caption">√(2/π)</MudText>
+                <MudText Typo="Typo.subtitle1">@StraddleMath.SQRT_2_PI.ToString("0.##########")</MudText>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="2">
+                <MudText Typo="Typo.caption">S</MudText>
+                <MudText Typo="Typo.subtitle1">@FormatNumber(ViewModel.CurrentUnderlyingPrice)</MudText>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="2">
+                <MudText Typo="Typo.caption">Fair straddle</MudText>
+                <MudText Typo="Typo.subtitle1">@FormatNumber(ViewModel.FairStraddle)</MudText>
+            </MudItem>
+        </MudGrid>
+
+        <MudGrid Spacing="2" Class="mt-1">
+            <MudItem xs="12" sm="6" md="4">
+                <MudText Typo="Typo.caption">Actual straddle</MudText>
+                <MudText Typo="Typo.subtitle1">@FormatNumber(ViewModel.ActualAtmStraddle)</MudText>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudText Typo="Typo.caption">Difference (Actual - Fair)</MudText>
+                <MudText Typo="Typo.subtitle1">@FormatSigned(ViewModel.Difference)</MudText>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudText Typo="Typo.caption">Difference % (Actual/Fair - 1)</MudText>
+                <MudText Typo="Typo.subtitle1">@FormatSignedPercent(ViewModel.DifferencePercent)</MudText>
+            </MudItem>
+        </MudGrid>
+
+        <MudChip T="string"
+                 Size="Size.Medium"
+                 Color="@ResolveEdgeColor()"
+                 Variant="Variant.Filled"
+                 Class="mt-2"
+                 Disabled="@(!ViewModel.CanShowResult)">
+            @BuildEdgeLabel()
+        </MudChip>
+    </MudPaper>
+
+    <MudPaper Class="pa-4">
+        <MudText Typo="Typo.h6">Historical weeks</MudText>
+        <MudTable Items="@ViewModel.Weeks" Dense="true" Hover="true" Striped="true" Class="mt-2">
+            <HeaderContent>
+                <MudTh>Week</MudTh>
+                <MudTh class="text-right">High</MudTh>
+                <MudTh class="text-right">Low</MudTh>
+                <MudTh class="text-right">Close</MudTh>
+                <MudTh class="text-right">@MetricHeader()</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Week">@context.Date.ToString("yyyy-MM-dd")</MudTd>
+                <MudTd DataLabel="High" class="text-right">@context.High.ToString("0.####")</MudTd>
+                <MudTd DataLabel="Low" class="text-right">@context.Low.ToString("0.####")</MudTd>
+                <MudTd DataLabel="Close" class="text-right">@context.Close.ToString("0.####")</MudTd>
+                <MudTd DataLabel="Metric" class="text-right">@MetricValue(context)</MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <MudText Typo="Typo.body2">No completed weekly candles.</MudText>
+            </NoRecordsContent>
+        </MudTable>
+    </MudPaper>
+</MudStack>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        ViewModel.PropertyChanged += HandleViewModelChanged;
+        await ViewModel.InitializeAsync();
+    }
+
+    public void Dispose()
+    {
+        ViewModel.PropertyChanged -= HandleViewModelChanged;
+    }
+
+    private Task OnUnderlyingSymbolChanged(string value) => ViewModel.SetUnderlyingSymbolAsync(value);
+
+    private Task OnWeeksChanged(int value) => ViewModel.SetWeeksToAverageAsync(value);
+
+    private Task OnMethodChanged(StraddleFairMethod value) => ViewModel.SetMethodAsync(value);
+
+    private Task ReloadAsync() => ViewModel.RecalculateAsync();
+
+    private void HandleViewModelChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private string BuildAtmLabel()
+    {
+        if (!ViewModel.TargetExpiry.HasValue || !ViewModel.TargetStrike.HasValue)
+        {
+            return "n/a";
+        }
+
+        return $"{ViewModel.TargetExpiry.Value:yyyy-MM-dd} @ {ViewModel.TargetStrike.Value:0.####}";
+    }
+
+    private string MetricHeader()
+    {
+        return ViewModel.Method == StraddleFairMethod.Range ? "Dᵢ (%)" : "σᵢ (%)";
+    }
+
+    private string MetricValue(WeekStat stat)
+    {
+        var value = ViewModel.Method == StraddleFairMethod.Range ? stat.Range : stat.Sigma;
+        return $"{value * 100d:0.####}%";
+    }
+
+    private static string FormatNumber(double? value)
+    {
+        return value.HasValue ? value.Value.ToString("0.####") : "n/a";
+    }
+
+    private static string FormatPercent(double? value)
+    {
+        return value.HasValue ? $"{value.Value * 100d:0.####}%" : "n/a";
+    }
+
+    private static string FormatSigned(double? value)
+    {
+        return value.HasValue ? $"{value.Value:+0.####;-0.####;0}" : "n/a";
+    }
+
+    private static string FormatSignedPercent(double? value)
+    {
+        return value.HasValue ? $"{value.Value * 100d:+0.####;-0.####;0}%" : "n/a";
+    }
+
+    private Color ResolveEdgeColor()
+    {
+        if (!ViewModel.Difference.HasValue)
+        {
+            return Color.Default;
+        }
+
+        return ViewModel.Difference.Value >= 0d ? Color.Success : Color.Error;
+    }
+
+    private string BuildEdgeLabel()
+    {
+        if (!ViewModel.CanShowResult || !ViewModel.Difference.HasValue || !ViewModel.DifferencePercent.HasValue)
+        {
+            return "Result unavailable";
+        }
+
+        return $"Edge: {FormatSigned(ViewModel.Difference)} ({FormatSignedPercent(ViewModel.DifferencePercent)})";
+    }
+}

@@ -8,6 +8,7 @@ The Data section groups market analytics tools used for option/futures analysis.
 - `/volume-heatmap`: weekday/hour heatmap.
 - `/open-interest`: open interest charts for calls and puts.
 - `/volatility-skew`: implied volatility skew with expiration filters.
+- `/straddle-fair`: weekly ATM straddle fair value estimator vs market quote.
 
 ## Open Interest
 
@@ -29,4 +30,5 @@ The Data section groups market analytics tools used for option/futures analysis.
 ## Related Docs
 
 - [Volume Heatmap](VolumeHeatmap.md)
+- [Straddle Fair Value](StraddleFairValue.md)
 - Developer details: `doc/dev/Data.md`
