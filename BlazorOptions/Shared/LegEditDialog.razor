@@ -92,7 +92,6 @@
                                  Label="IV"
                                  Value="@ViewModel.Leg.ImpliedVolatility"
                                  ValueChanged="ViewModel.UpdateLegIvAsync"
-                                 Immediate="true"
                                  Margin="Margin.Dense"
                                  Adornment="Adornment.End"
                                  AdornmentText="%"
@@ -193,19 +192,6 @@
 
     private async Task OnPriceChangedAsync(decimal? value)
     {
-        if (ViewModel.Leg.Type == LegType.Future
-            && !ViewModel.Leg.Price.HasValue
-            && value.HasValue
-            )
-        {
-            var placeholder = GetPricePlaceholder();
-            if (placeholder.HasValue && Math.Abs(value.Value - placeholder.Value) < 0.0001m)
-            {
-                // Keep empty entry for futures; current price should stay a placeholder hint only.
-                return;
-            }
-        }
-
         await ViewModel.UpdateLegPriceAsync(value);
     }
 
