@@ -106,20 +106,32 @@ public sealed class AmberdataPositionsService
             }
         }
 
-        var details = await _amberdata.GetDeribitEthTopTradesByUniqueTradeAsync(normalizedStart, normalizedEnd, position.UniqueTrade, blockTradeId: true);
-        var selectedRows = SelectRowsForPosition(details, position);
-        var legs = selectedRows
-            .Select(MapDetailToLeg)
-            .Where(item => item is not null)
-            .Cast<LegModel>()
-            .ToArray();
-        var detailRows = selectedRows
-            .Select(MapDetailRow)
-            .OrderByDescending(item => item.TimestampUtc ?? DateTime.MinValue)
-            .ThenBy(item => item.Instrument, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        IReadOnlyList<LegModel> legsResult;
+        IReadOnlyList<PositionTradeDetailRow> detailRows;
+        try
+        {
+            var details = await _amberdata.GetDeribitEthTopTradesByUniqueTradeAsync(normalizedStart, normalizedEnd, position.UniqueTrade, blockTradeId: true);
+            var selectedRows = SelectRowsForPosition(details, position);
+            var legs = selectedRows
+                .Select(MapDetailToLeg)
+                .Where(item => item is not null)
+                .Cast<LegModel>()
+                .ToArray();
+            detailRows = selectedRows
+                .Select(MapDetailRow)
+                .OrderByDescending(item => item.TimestampUtc ?? DateTime.MinValue)
+                .ThenBy(item => item.Instrument, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
 
-        var legsResult = legs.Length > 0 ? legs : new[] { position.Leg.Clone() };
+            legsResult = legs.Length > 0 ? legs : new[] { position.Leg.Clone() };
+        }
+        catch
+        {
+            // Amberdata detail query is unstable for some uniqueTrade values; keep chart usable with base leg.
+            legsResult = new[] { position.Leg.Clone() };
+            detailRows = Array.Empty<PositionTradeDetailRow>();
+        }
+
         var snapshotResult = new PositionTradeSnapshot(legsResult, detailRows);
         lock (_cacheLock)
         {

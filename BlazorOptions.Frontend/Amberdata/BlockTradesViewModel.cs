@@ -240,6 +240,7 @@ public sealed class BlockTradesViewModel : Bindable
 
     public async Task SelectPositionAsync(StrategyPosition? position)
     {
+        ErrorMessage = null;
         SelectedPosition = position;
         if (position is null)
         {
@@ -258,33 +259,77 @@ public sealed class BlockTradesViewModel : Bindable
             return;
         }
 
-        var snapshot = await _positionsService.GetPositionSnapshotAsync(position, DateStartUtc, DateEndUtc);
-        var legs = snapshot.Legs;
-        SelectedPositionDetails = snapshot.Details;
-        if (legs.Count == 0)
+        try
         {
-            legs = new[] { position.Leg.Clone() };
+            var snapshot = await _positionsService.GetPositionSnapshotAsync(position, DateStartUtc, DateEndUtc);
+            var legs = snapshot.Legs;
+            SelectedPositionDetails = snapshot.Details;
+            if (legs.Count == 0)
+            {
+                legs = new[] { position.Leg.Clone() };
+            }
+            await ApplyMarketContextAsync(legs);
+            OpenIndexPrice = position.IndexPrice;
+            InvestedAmount = ResolveInvestedAmount(position, SelectedPositionDetails);
+            SelectedFuturesPrice = SelectedUnderlyingPrice ?? position.IndexPrice;
+            RefreshMarkers();
+            await LoadCandlesAsync();
+
+            var (xs, profits, theoretical) = _optionsService.GeneratePosition(
+                legs,
+                points: 180,
+                valuationDate: DateTime.UtcNow);
+            _lastPayoffPrices = xs.ToArray();
+            _lastPayoffTemp = theoretical.ToArray();
+            RecalculateEstimatedPnl();
+
+            var temp = BuildPayoffPoints(xs, theoretical);
+            var exp = BuildPayoffPoints(xs, profits);
+            var series = ChartStrategies.FirstOrDefault();
+            if (series is null)
+            {
+                ChartStrategies.Add(new StrategySeries(
+                    position.Id,
+                    position.Instrument,
+                    "#00A6FB",
+                    showBreakEvens: true,
+                    tempPnl: temp,
+                    expiredPnl: exp,
+                    visible: true));
+            }
+            else
+            {
+                series.Id = position.Id;
+                series.Name = position.Instrument;
+                series.TempPnl = temp;
+                series.ExpiredPnl = exp;
+                series.Visible = true;
+                series.ShowBreakEvens = true;
+            }
         }
-        await ApplyMarketContextAsync(legs);
-        OpenIndexPrice = position.IndexPrice;
-        InvestedAmount = ResolveInvestedAmount(position, SelectedPositionDetails);
-        SelectedFuturesPrice = SelectedUnderlyingPrice ?? position.IndexPrice;
-        RefreshMarkers();
-        await LoadCandlesAsync();
-
-        var (xs, profits, theoretical) = _optionsService.GeneratePosition(
-            legs,
-            points: 180,
-            valuationDate: DateTime.UtcNow);
-        _lastPayoffPrices = xs.ToArray();
-        _lastPayoffTemp = theoretical.ToArray();
-        RecalculateEstimatedPnl();
-
-        var temp = BuildPayoffPoints(xs, theoretical);
-        var exp = BuildPayoffPoints(xs, profits);
-        var series = ChartStrategies.FirstOrDefault();
-        if (series is null)
+        catch (Exception ex)
         {
+            // Keep page responsive when details endpoint fails for a specific trade.
+            ErrorMessage = $"Failed to load trade details: {ex.Message}";
+            SelectedPositionDetails = Array.Empty<PositionTradeDetailRow>();
+            var fallbackLegs = new[] { position.Leg.Clone() };
+            await ApplyMarketContextAsync(fallbackLegs);
+            OpenIndexPrice = position.IndexPrice;
+            InvestedAmount = ResolveInvestedAmount(position, SelectedPositionDetails);
+            SelectedFuturesPrice = SelectedUnderlyingPrice ?? position.IndexPrice;
+            RefreshMarkers();
+            await LoadCandlesAsync();
+
+            var (xs, profits, theoretical) = _optionsService.GeneratePosition(
+                fallbackLegs,
+                points: 180,
+                valuationDate: DateTime.UtcNow);
+            _lastPayoffPrices = xs.ToArray();
+            _lastPayoffTemp = theoretical.ToArray();
+            RecalculateEstimatedPnl();
+            var temp = BuildPayoffPoints(xs, theoretical);
+            var exp = BuildPayoffPoints(xs, profits);
+            ChartStrategies.Clear();
             ChartStrategies.Add(new StrategySeries(
                 position.Id,
                 position.Instrument,
@@ -293,15 +338,6 @@ public sealed class BlockTradesViewModel : Bindable
                 tempPnl: temp,
                 expiredPnl: exp,
                 visible: true));
-        }
-        else
-        {
-            series.Id = position.Id;
-            series.Name = position.Instrument;
-            series.TempPnl = temp;
-            series.ExpiredPnl = exp;
-            series.Visible = true;
-            series.ShowBreakEvens = true;
         }
     }
 
