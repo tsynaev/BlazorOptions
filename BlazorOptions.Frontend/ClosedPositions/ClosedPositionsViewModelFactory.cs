@@ -27,6 +27,7 @@ public sealed class ClosedPositionsViewModelFactory
 
         viewModel.Model = position.Closed;
         viewModel.BaseAsset = position.BaseAsset;
+        viewModel.PositionCreationTimeUtc = position.CreationTimeUtc;
 
         return viewModel;
     }

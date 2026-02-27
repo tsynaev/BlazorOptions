@@ -7,6 +7,7 @@ namespace BlazorOptions.API.Positions;
 public class PositionModel : Bindable
 {
     private Guid _id = Guid.NewGuid();
+    private DateTime? _creationTimeUtc;
     private string _baseAsset = "ETH";
     private string _quoteAsset = "USDT";
     private string _name = "Position";
@@ -25,6 +26,12 @@ public class PositionModel : Bindable
     {
         get => _baseAsset;
         set => SetField(ref _baseAsset, value);
+    }
+
+    public DateTime? CreationTimeUtc
+    {
+        get => _creationTimeUtc;
+        set => SetField(ref _creationTimeUtc, value);
     }
 
     public string QuoteAsset

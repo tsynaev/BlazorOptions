@@ -126,7 +126,8 @@ public sealed class PositionCreateDialogViewModel : Bindable
         {
             Name = string.IsNullOrWhiteSpace(name) ? "Position" : name.Trim(),
             BaseAsset = string.IsNullOrWhiteSpace(baseAsset) ? "ETH" : baseAsset.Trim().ToUpperInvariant(),
-            QuoteAsset = string.IsNullOrWhiteSpace(quoteAsset) ? "USDT" : quoteAsset.Trim().ToUpperInvariant()
+            QuoteAsset = string.IsNullOrWhiteSpace(quoteAsset) ? "USDT" : quoteAsset.Trim().ToUpperInvariant(),
+            CreationTimeUtc = ResolveCreationTimeUtc(selectedBybitPositions)
         };
 
         var collection = PositionViewModel.CreateCollection(position, PositionViewModel.GetNextCollectionName(position));
@@ -439,6 +440,22 @@ public sealed class PositionCreateDialogViewModel : Bindable
         }
 
         return magnitude;
+    }
+
+    private static DateTime? ResolveCreationTimeUtc(IReadOnlyList<ExchangePosition>? selectedBybitPositions)
+    {
+        if (selectedBybitPositions is null || selectedBybitPositions.Count == 0)
+        {
+            return DateTime.UtcNow;
+        }
+
+        var minCreated = selectedBybitPositions
+            .Where(position => position.CreatedTimeUtc.HasValue)
+            .Select(position => position.CreatedTimeUtc!.Value)
+            .OrderBy(value => value)
+            .FirstOrDefault();
+
+        return minCreated != default ? minCreated : DateTime.UtcNow;
     }
 
     private sealed class PositionCreateDefaults

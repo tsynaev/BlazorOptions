@@ -40,6 +40,8 @@ The Positions page is where you manage one position at a time and review its pay
 - Expiration in leg edit dialog uses a combobox for both options and futures (futures include `Perpetual`).
 - Only existing expiration dates for the current base/quote context can be selected.
 - Leg edit dialog footer shows the resolved leg symbol for quick verification.
+- Position creation time is stored for each position and can be edited from the position rename dialog.
+- Closed-position trading history uses position creation time as the default start date when no per-symbol since date is set.
 - For same-side linked orders, the card also shows the expected new average entry price after execution.
 - Linked orders are labeled by kind when available: `TP`, `SL`, or `Conditional`.
 - Linked order chips can be toggled to simulate execution; chart and leg P/L use only activated linked orders.

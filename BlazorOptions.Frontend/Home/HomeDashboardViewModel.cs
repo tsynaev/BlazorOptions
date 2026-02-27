@@ -166,7 +166,7 @@ public sealed class HomeDashboardViewModel : Bindable
         var theoreticalAtCurrent = legs.Count > 0
             ? _optionsService.CalculateTotalTheoreticalProfit(legs, currentPrice, DateTime.UtcNow)
             : 0m;
-        var realizedPnl = model.Closed.TotalNet;
+        var realizedPnl = model.Closed.Include ? model.Closed.TotalNet : 0m;
         var tempOffset = tempPnl - theoreticalAtCurrent;
         var chart = withChart
             ? BuildChart(legs, model.ChartRange, realizedPnl, tempOffset)

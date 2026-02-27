@@ -46,19 +46,11 @@ else
                             </MudText>
                             <WalletSummary Class="wallet-compact" />
                         </MudStack>
-                        <MudMenu Icon="@Icons.Material.Filled.MoreVert"
-                                 Disabled="@(!HasActivePosition)"
-                                 Dense="true"
-                                 AnchorOrigin="Origin.BottomCenter"
-                                 TransformOrigin="Origin.TopCenter"
-                                 ListClass="tab-actions-menu">
-                            <MudMenuItem Disabled="@(!HasActivePosition)" OnClick="OpenRenameDialogAsync">
-                                <MudIcon Icon="@Icons.Material.Filled.Edit" Class="mr-2" /> Edit position
-                            </MudMenuItem>
-                            <MudMenuItem Disabled="@(!HasActivePosition)" OnClick="ConfirmAndRemovePositionAsync">
-                                <MudIcon Icon="@Icons.Material.Filled.Delete" Class="mr-2" /> Delete position
-                            </MudMenuItem>
-                        </MudMenu>
+                        <MudIconButton Icon="@Icons.Material.Filled.Settings"
+                                       Disabled="@(!HasActivePosition)"
+                                       Color="Color.Default"
+                                       OnClick="OpenPositionSettingsDialogAsync"
+                                       aria-label="Position settings" />
                     </MudStack>
                 </MudStack>
             </MudStack>
@@ -573,7 +565,7 @@ else
         await SaveChartTimeIntervalAsync(range);
         await InvokeAsync(StateHasChanged);
     }
-    private async Task OpenRenameDialogAsync()
+    private async Task OpenPositionSettingsDialogAsync()
     {
         if (!HasActivePosition)
         {
@@ -582,7 +574,8 @@ else
 
         var parameters = new DialogParameters
         {
-            [nameof(PositionNameDialog.InitialName)] = ViewModel.Position.Name
+            [nameof(PositionSettingsDialog.InitialPositionName)] = ViewModel.Position.Name,
+            [nameof(PositionSettingsDialog.InitialCreationTimeUtc)] = ViewModel.Position.CreationTimeUtc
         };
 
         var options = new DialogOptions
@@ -592,15 +585,21 @@ else
             FullWidth = true
         };
 
-        var dialog = await DialogService.ShowAsync<PositionNameDialog>("Edit position", parameters, options);
+        var dialog = await DialogService.ShowAsync<PositionSettingsDialog>("Edit position", parameters, options);
         var result = await dialog.Result;
 
-        if (result is null || result.Canceled || result.Data is not string name)
+        if (result is null || result.Canceled || result.Data is not PositionSettingsDialogResult payload)
         {
             return;
         }
 
-        await ViewModel.UpdateNameAsync(ViewModel.Position, name);
+        if (payload.DeletePosition)
+        {
+            await ConfirmAndRemovePositionAsync();
+            return;
+        }
+
+        await ViewModel.UpdateNameAndCreationTimeAsync(ViewModel.Position, payload.Name, payload.CreationTimeUtc);
         StateHasChanged();
     }
 
@@ -618,7 +617,7 @@ else
             : ViewModel.Position.Name;
         var confirmed = await DialogService.ShowMessageBox(
             "Remove position?",
-            $"Delete {positionName} and its chart view?",
+            $"Delete {positionName}?",
             yesText: "Delete",
             cancelText: "Cancel");
 

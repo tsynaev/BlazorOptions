@@ -16,6 +16,7 @@
 - Prefer MudBlazor components for layout, inputs, and actions instead of raw HTML.
 - Use ECharts for chart rendering.
 - Register new services or view models with dependency injection in `Program.cs`.
+- Dialog title must be shown only once: use the MudDialog header title from `ShowAsync(...)` and do not repeat the same heading inside dialog content.
 - Exchange integrations must be accessed through `IExchangeService` and its child interfaces (`IOrdersService`, `IPositionsService`, `ITickersService`, `IOptionsChainService`, `IFuturesInstrumentsService`) rather than using Bybit concrete services directly in view models.
 - Position aggregate and persistence models (`PositionModel`, `LegsCollectionModel`, `LegModel`, `ClosedModel`, `ClosedPositionModel`) live in `BlazorOptions.API` and are reused by Frontend/Server.
 - Position persistence uses API models directly; DTO types and mappers are removed.

@@ -94,7 +94,8 @@ public sealed class ActivePositionsService : IActivePositionsService
                 category = "linear";
             }
 
-            var update = new ExchangePosition(symbol, side, category, size, avgPrice);
+            var createdTimeUtc = ReadDateTimeUtc(entry, "createdTime");
+            var update = new ExchangePosition(symbol, side, category, size, avgPrice, createdTimeUtc);
             await ApplyUpdateAsync(update);
         }
     }
@@ -392,7 +393,8 @@ public sealed class ActivePositionsService : IActivePositionsService
                     category = "linear";
                 }
 
-                var update = new ExchangePosition(symbol, side, category, size, avgPrice);
+                var createdTimeUtc = ReadDateTimeUtc(entry, "createdTime");
+                var update = new ExchangePosition(symbol, side, category, size, avgPrice, createdTimeUtc);
                 _ = ApplyUpdateAsync(update);
             }
         }
@@ -421,7 +423,11 @@ public sealed class ActivePositionsService : IActivePositionsService
             }
             else if (index >= 0)
             {
-                _positions[index] = update;
+                var existing = _positions[index];
+                var merged = update.CreatedTimeUtc.HasValue
+                    ? update
+                    : update with { CreatedTimeUtc = existing.CreatedTimeUtc };
+                _positions[index] = merged;
             }
             else
             {
@@ -595,6 +601,47 @@ public sealed class ActivePositionsService : IActivePositionsService
         return decimal.TryParse(trimmed, NumberStyles.Any, CultureInfo.InvariantCulture, out var fallback)
             ? fallback
             : 0;
+    }
+
+    private static DateTime? ReadDateTimeUtc(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var property))
+        {
+            return null;
+        }
+
+        long timestampMs;
+        switch (property.ValueKind)
+        {
+            case JsonValueKind.Number when property.TryGetInt64(out var asLong):
+                timestampMs = asLong;
+                break;
+            case JsonValueKind.String:
+                var raw = property.GetString();
+                if (!long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedLong))
+                {
+                    return null;
+                }
+
+                timestampMs = parsedLong;
+                break;
+            default:
+                return null;
+        }
+
+        if (timestampMs <= 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            return DateTimeOffset.FromUnixTimeMilliseconds(timestampMs).UtcDateTime;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     public async ValueTask DisposeAsync()

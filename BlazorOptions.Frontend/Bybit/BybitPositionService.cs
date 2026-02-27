@@ -79,7 +79,8 @@ public class BybitPositionService : BybitApiService
                     var size = ReadDecimal(entry, "size");
                     var avgPrice = ReadDecimal(entry, "avgPrice");
 
-                    positions.Add(new ExchangePosition(symbol, side, category, size, avgPrice));
+                    var createdTimeUtc = ReadDateTimeUtc(entry, "createdTime");
+                    positions.Add(new ExchangePosition(symbol, side, category, size, avgPrice, createdTimeUtc));
                 }
             }
 
@@ -175,6 +176,47 @@ public class BybitPositionService : BybitApiService
             : 0;
     }
 
+    private static DateTime? ReadDateTimeUtc(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var property))
+        {
+            return null;
+        }
+
+        long timestampMs;
+        switch (property.ValueKind)
+        {
+            case JsonValueKind.Number when property.TryGetInt64(out var asLong):
+                timestampMs = asLong;
+                break;
+            case JsonValueKind.String:
+                var raw = property.GetString();
+                if (!long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedLong))
+                {
+                    return null;
+                }
+
+                timestampMs = parsedLong;
+                break;
+            default:
+                return null;
+        }
+
+        if (timestampMs <= 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            return DateTimeOffset.FromUnixTimeMilliseconds(timestampMs).UtcDateTime;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
 }
 
 public sealed record ExchangePosition(
@@ -182,4 +224,5 @@ public sealed record ExchangePosition(
     string Side,
     string Category,
     decimal Size,
-    decimal AvgPrice);
+    decimal AvgPrice,
+    DateTime? CreatedTimeUtc = null);

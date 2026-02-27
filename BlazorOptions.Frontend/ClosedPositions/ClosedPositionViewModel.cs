@@ -16,6 +16,7 @@ public sealed class ClosedPositionViewModel : Bindable
     public Func<Task>? UpdateCompleted;
 
     private ClosedPositionModel _model;
+    private DateTime? _defaultSinceDateUtc;
 
     public ClosedPositionViewModel(
         ITradingHistoryPort tradingHistoryPort,
@@ -54,6 +55,12 @@ public sealed class ClosedPositionViewModel : Bindable
     {
         get => _isCalculating;
         set => SetField(ref _isCalculating, value);
+    }
+
+    public DateTime? DefaultSinceDateUtc
+    {
+        get => _defaultSinceDateUtc;
+        init => _defaultSinceDateUtc = value;
     }
 
     public async Task RecalculateAsync(bool forceFull)
@@ -312,6 +319,11 @@ public sealed class ClosedPositionViewModel : Bindable
     private long? ResolveSinceTimestamp(bool forceFull)
     {
         DateTime? sinceDate = Model.SinceDate;
+
+        if (!sinceDate.HasValue && DefaultSinceDateUtc.HasValue)
+        {
+            sinceDate = DefaultSinceDateUtc.Value.ToLocalTime();
+        }
 
         if (!sinceDate.HasValue && _defaultLookbackDays > 0)
         {

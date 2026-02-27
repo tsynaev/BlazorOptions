@@ -128,13 +128,13 @@ public sealed class ActivePositionsPanelViewModel : IDisposable
 
     private async Task ApplyFilter()
     {
-        _filteredPositions.Clear();
-        ExcludedCount = 0;
-
         var baseAsset = string.IsNullOrWhiteSpace(BaseAsset) ? null : BaseAsset.Trim();
         var existingLegs = _existingLegs;
+        var nextFiltered = new List<ExchangePosition>();
+        var nextExcludedCount = 0;
+        var positions = (await _exchangeService.Positions.GetPositionsAsync()).ToList();
 
-        foreach (var position in await _exchangeService.Positions.GetPositionsAsync())
+        foreach (var position in positions)
         {
             if (!string.IsNullOrWhiteSpace(baseAsset) &&
                 !position.Symbol.StartsWith(baseAsset, StringComparison.OrdinalIgnoreCase))
@@ -147,10 +147,15 @@ public sealed class ActivePositionsPanelViewModel : IDisposable
                 existingLegs.Any(existing => IsLegMatch(existing, candidate)))
             {
                 _selectedPositions.Add(position);
+                nextExcludedCount++;
             }
 
-            _filteredPositions.Add(position);
+            nextFiltered.Add(position);
         }
+
+        _filteredPositions.Clear();
+        _filteredPositions.AddRange(nextFiltered);
+        ExcludedCount = nextExcludedCount;
 
         SyncSelection();
         if (_filteredPositions.Count > 0)

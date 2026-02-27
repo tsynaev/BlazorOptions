@@ -1,0 +1,112 @@
+@using MudBlazor
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using BlazorOptions.ViewModels
+
+<MudDialog Class="position-settings-dialog">
+    <DialogContent>
+        <MudTextField @bind-Value="_name"
+                      Label="Position name"
+                      Placeholder="Enter a name"
+                      Immediate="true"
+                      Margin="Margin.Dense"
+                      Variant="Variant.Outlined"
+                      FullWidth="true"
+                      OnKeyDown="HandleKeyDown" />
+        <MudTextField T="string"
+                      Label="Creation time"
+                      Variant="Variant.Outlined"
+                      Margin="Margin.Dense"
+                      FullWidth="true"
+                      Immediate="true"
+                      InputType="InputType.DateTimeLocal"
+                      Value="@_creationLocalText"
+                      ValueChanged="OnCreationTextChanged" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton Color="Color.Error" Variant="Variant.Text" OnClick="DeletePosition">Delete</MudButton>
+        <MudSpacer />
+        <MudButton Color="Color.Default" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="string.IsNullOrWhiteSpace(_name)" OnClick="Save">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    [Parameter] public string? InitialPositionName { get; set; }
+    [Parameter] public DateTime? InitialCreationTimeUtc { get; set; }
+
+    private string _name = string.Empty;
+    private string _creationLocalText = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        _name = InitialPositionName ?? string.Empty;
+        _creationLocalText = InitialCreationTimeUtc.HasValue
+            ? InitialCreationTimeUtc.Value.ToLocalTime().ToString("yyyy-MM-ddTHH:mm")
+            : string.Empty;
+    }
+
+    private void Save()
+    {
+        var utc = ResolveCreationTimeUtc(_creationLocalText);
+        Dialog.Close(DialogResult.Ok(new PositionSettingsDialogResult(_name.Trim(), utc, DeletePosition: false)));
+    }
+
+    private void Cancel()
+    {
+        Dialog.Cancel();
+    }
+
+    private void DeletePosition()
+    {
+        var utc = ResolveCreationTimeUtc(_creationLocalText);
+        Dialog.Close(DialogResult.Ok(new PositionSettingsDialogResult(_name.Trim(), utc, DeletePosition: true)));
+    }
+
+    private void HandleKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter" && !string.IsNullOrWhiteSpace(_name))
+        {
+            Save();
+        }
+        else if (args.Key == "Escape")
+        {
+            Cancel();
+        }
+    }
+
+    private Task OnCreationTextChanged(string value)
+    {
+        _creationLocalText = value;
+        return Task.CompletedTask;
+    }
+
+    private static DateTime? ParseCreationLocal(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var formats = new[] { "yyyy-MM-ddTHH:mm", "yyyy-MM-ddTHH:mm:ss" };
+        if (DateTime.TryParseExact(value, formats, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var parsed))
+        {
+            return parsed;
+        }
+
+        return null;
+    }
+
+    private static DateTime? ResolveCreationTimeUtc(string? value)
+    {
+        var local = ParseCreationLocal(value);
+        if (!local.HasValue)
+        {
+            return null;
+        }
+
+        return DateTime.SpecifyKind(local.Value, DateTimeKind.Local).ToUniversalTime();
+    }
+}

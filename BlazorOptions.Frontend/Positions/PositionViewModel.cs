@@ -444,6 +444,13 @@ public sealed class PositionViewModel : IDisposable
         await QueuePersistPositionsAsync(position);
     }
 
+    public async Task UpdateNameAndCreationTimeAsync(PositionModel position, string name, DateTime? creationTimeUtc)
+    {
+        position.Name = name;
+        position.CreationTimeUtc = creationTimeUtc;
+        await QueuePersistPositionsAsync(position);
+    }
+
     public void UpdateChartRange(ChartRange range)
     {
         _chartRangeOverride = range;

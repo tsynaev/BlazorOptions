@@ -14,6 +14,7 @@ public sealed class ClosedPositionsViewModel: Bindable
     private ObservableCollection<ClosedPositionViewModel> _closedPositions;
     private ClosedModel _model;
     private string? _baseAsset;
+    private DateTime? _positionCreationTimeUtc;
 
     public ClosedPositionsViewModel(
         PositionViewModel positionViewModel,
@@ -37,6 +38,12 @@ public sealed class ClosedPositionsViewModel: Bindable
     {
         get => _baseAsset;
         set => _baseAsset = value;
+    }
+
+    public DateTime? PositionCreationTimeUtc
+    {
+        get => _positionCreationTimeUtc;
+        set => _positionCreationTimeUtc = value;
     }
 
     public event Func<Task>? UpdatedCompleted;
@@ -197,7 +204,8 @@ public sealed class ClosedPositionsViewModel: Bindable
         var closedPosition =
             new ClosedPositionViewModel(_tradingHistoryPort, _exchangeService)
             {
-                Model = model
+                Model = model,
+                DefaultSinceDateUtc = PositionCreationTimeUtc
             };
 
         closedPosition.UpdateCompleted += OnPositionUpdated;

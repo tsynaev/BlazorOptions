@@ -46,6 +46,7 @@ Route: `/`
 - Futures legs use `0` entry value for PnL% scaling.
 - Current temp P/L: theoretical payoff at midpoint price of saved chart x-range (or chart midpoint fallback).
 - Total temp P/L: current temp P/L + closed net P/L.
+- Closed net P/L is included only when closed positions are enabled for that position.
 - Mini chart P/L curve is shifted by closed net P/L (realized P/L baseline).
 - Leg chip severity uses Account Settings thresholds:
   - options: `Max loss for options (%)`
