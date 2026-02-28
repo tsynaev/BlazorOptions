@@ -1,11 +1,17 @@
 using BlazorOptions.API.Common;
 using BlazorOptions.API.Positions;
 using BlazorOptions.Services;
+using System.Globalization;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace BlazorOptions.ViewModels;
 
 public sealed class HomeDashboardViewModel : Bindable
 {
+    private const string DashboardCacheStorageKey = "blazor-options-dashboard-cache";
+    private static readonly string[] PositionExpirationFormats = { "ddMMMyy", "ddMMMyyyy" };
+    private static readonly JsonSerializerOptions DashboardCacheJsonOptions = new(JsonSerializerDefaults.Web);
     private readonly IPositionsPort _positionsPort;
     private readonly OptionsService _optionsService;
     private readonly IExchangeService _exchangeService;
@@ -76,26 +82,44 @@ public sealed class HomeDashboardViewModel : Bindable
         try
         {
             _riskSettings = await LoadRiskSettingsAsync();
-            var models = await _positionsPort.LoadPositionsAsync();
-            await EnsureOptionChainsAsync(models);
-            var pricesBySymbol = await LoadCurrentPricesAsync(models);
-            var cards = models
-                .Select(model =>
-                {
-                    var symbol = $"{model.BaseAsset}{model.QuoteAsset}".ToUpperInvariant();
-                    pricesBySymbol.TryGetValue(symbol, out var currentPrice);
-                    return BuildCard(model, currentPrice, withChart: false);
-                })
-                .ToArray();
-            SetCards(cards);
-            _ = WarmUpChartsAsync(models, pricesBySymbol, _chartLoadCts.Token);
+            var cachedModels = await LoadCachedPositionsAsync();
+            var hasCachedModels = cachedModels.Count > 0;
+            if (cachedModels.Count > 0)
+            {
+                SetCards(BuildCards(cachedModels, null, withChart: true, includeTempLine: false));
+            }
+
+            var serverModels = (await _positionsPort.LoadPositionsAsync()).ToArray();
+            await EnsureOptionChainsAsync(serverModels);
+            var pricesBySymbol = await LoadCurrentPricesAsync(serverModels);
+            SetCards(BuildCards(serverModels, pricesBySymbol, withChart: hasCachedModels, includeTempLine: true));
+
+            IReadOnlyList<PositionModel> modelsForCharts = serverModels;
+            try
+            {
+                var exchangeSnapshot = await LoadExchangeSnapshotAsync();
+                var actualModels = ClonePositions(serverModels);
+                ApplyExchangeSnapshot(actualModels, exchangeSnapshot.Positions, exchangeSnapshot.Orders);
+                SetCards(BuildCards(actualModels, pricesBySymbol, withChart: hasCachedModels, includeTempLine: true));
+                await SaveCachedPositionsAsync(actualModels);
+                modelsForCharts = actualModels;
+            }
+            catch
+            {
+                await SaveCachedPositionsAsync(serverModels);
+            }
+
+            _ = WarmUpChartsAsync(modelsForCharts, pricesBySymbol, _chartLoadCts.Token);
             _ = WarmUpDvolAsync(_chartLoadCts.Token);
         }
         catch (Exception ex)
         {
             ErrorMessage = ex.Message;
-            Positions = Array.Empty<HomePositionCardModel>();
-            Groups = Array.Empty<HomePositionGroupModel>();
+            if (Positions.Count == 0)
+            {
+                Positions = Array.Empty<HomePositionCardModel>();
+                Groups = Array.Empty<HomePositionGroupModel>();
+            }
         }
         finally
         {
@@ -117,7 +141,7 @@ public sealed class HomeDashboardViewModel : Bindable
 
             var symbol = $"{model.BaseAsset}{model.QuoteAsset}".ToUpperInvariant();
             pricesBySymbol.TryGetValue(symbol, out var currentPrice);
-            var card = BuildCard(model, currentPrice, withChart: true);
+            var card = BuildCard(model, currentPrice, withChart: true, includeTempLine: true);
             ReplaceCard(card);
             await Task.Yield();
         }
@@ -152,12 +176,30 @@ public sealed class HomeDashboardViewModel : Bindable
         return position.Id;
     }
 
-    private HomePositionCardModel BuildCard(PositionModel model, decimal? exchangePrice, bool withChart)
+    private HomePositionCardModel[] BuildCards(
+        IReadOnlyList<PositionModel> models,
+        IReadOnlyDictionary<string, decimal?>? pricesBySymbol,
+        bool withChart,
+        bool includeTempLine)
     {
-        var sourceLegs = model.Collections
-            .SelectMany(collection => collection.Legs)
-            .Where(leg => leg.IsIncluded)
-            .ToList();
+        return models
+            .Select(model =>
+            {
+                decimal? currentPrice = null;
+                if (pricesBySymbol is not null)
+                {
+                    var symbol = $"{model.BaseAsset}{model.QuoteAsset}".ToUpperInvariant();
+                    pricesBySymbol.TryGetValue(symbol, out currentPrice);
+                }
+
+                return BuildCard(model, currentPrice, withChart, includeTempLine);
+            })
+            .ToArray();
+    }
+
+    private HomePositionCardModel BuildCard(PositionModel model, decimal? exchangePrice, bool withChart, bool includeTempLine)
+    {
+        var sourceLegs = ResolveDashboardLegs(model);
         var legs = PrepareLegsForChart(sourceLegs, model.BaseAsset);
 
         var entryValue = legs.Sum(ResolveEntryValue);
@@ -169,13 +211,14 @@ public sealed class HomeDashboardViewModel : Bindable
         var realizedPnl = model.Closed.Include ? model.Closed.TotalNet : 0m;
         var tempOffset = tempPnl - theoreticalAtCurrent;
         var chart = withChart
-            ? BuildChart(legs, model.ChartRange, realizedPnl, tempOffset)
+            ? BuildChart(legs, model.ChartRange, realizedPnl, tempOffset, includeTempLine)
             : HomeMiniChartModel.Empty;
         var breakEvens = BuildBreakEvensOnly(legs, model.ChartRange, realizedPnl);
         var greekSummary = BuildGreekSummary(legs, model.BaseAsset);
         var totalPnl = tempPnl + realizedPnl;
         var pnlPercent = entryValue > 0m ? (totalPnl / entryValue) * 100m : (decimal?)null;
         var currentPricePercent = withChart
+            && exchangePrice.HasValue
             ? ResolveCurrentPricePercent(currentPrice, chart.XMin, chart.XMax)
             : null;
 
@@ -196,6 +239,19 @@ public sealed class HomeDashboardViewModel : Bindable
             exchangePrice,
             currentPricePercent,
             withChart);
+    }
+
+    private static List<LegModel> ResolveDashboardLegs(PositionModel model)
+    {
+        var allLegs = model.Collections
+            .SelectMany(collection => collection.Legs)
+            .ToList();
+        var hasActiveLegs = allLegs.Any(leg => leg.Status == LegStatus.Active);
+
+        return allLegs
+            .Where(leg => leg.IsIncluded)
+            .Where(leg => !hasActiveLegs || (leg.Status != LegStatus.New && leg.Status != LegStatus.Order))
+            .ToList();
     }
 
     private IReadOnlyList<decimal> BuildBreakEvensOnly(
@@ -273,7 +329,8 @@ public sealed class HomeDashboardViewModel : Bindable
         IReadOnlyList<LegModel> legs,
         BlazorChart.Models.ChartRange? range,
         decimal pnlShift,
-        decimal tempOffset)
+        decimal tempOffset,
+        bool includeTempLine)
     {
         var (xs, profits, theoreticalProfits) = _optionsService.GeneratePosition(
             legs,
@@ -288,12 +345,14 @@ public sealed class HomeDashboardViewModel : Bindable
         var values = profits
             .Select(value => (double)(value + pnlShift))
             .ToArray();
-        var tempValues = theoreticalProfits
-            .Select(value => (double)(value + pnlShift + tempOffset))
-            .ToArray();
+        var tempValues = includeTempLine
+            ? theoreticalProfits
+                .Select(value => (double)(value + pnlShift + tempOffset))
+                .ToArray()
+            : Array.Empty<double>();
         var breakEvens = ResolveBreakEvens(xs, profits, pnlShift);
 
-        return new HomeMiniChartModel(sparseLabels, values, tempValues, (double)xs[0], (double)xs[^1], breakEvens);
+        return new HomeMiniChartModel(sparseLabels, values, tempValues, (double)xs[0], (double)xs[^1], breakEvens, includeTempLine);
     }
 
     private static IReadOnlyList<decimal> ResolveBreakEvens(IReadOnlyList<decimal> xs, IReadOnlyList<decimal> profits, decimal pnlShift)
@@ -706,6 +765,415 @@ public sealed class HomeDashboardViewModel : Bindable
         }
     }
 
+    private async Task<IReadOnlyList<PositionModel>> LoadCachedPositionsAsync()
+    {
+        try
+        {
+            var payload = await _localStorageService.GetItemAsync(DashboardCacheStorageKey);
+            if (string.IsNullOrWhiteSpace(payload))
+            {
+                return Array.Empty<PositionModel>();
+            }
+
+            return JsonSerializer.Deserialize<PositionModel[]>(payload, DashboardCacheJsonOptions) ?? Array.Empty<PositionModel>();
+        }
+        catch
+        {
+            return Array.Empty<PositionModel>();
+        }
+    }
+
+    private async Task SaveCachedPositionsAsync(IReadOnlyList<PositionModel> models)
+    {
+        try
+        {
+            var payload = JsonSerializer.Serialize(models, DashboardCacheJsonOptions);
+            await _localStorageService.SetItemAsync(DashboardCacheStorageKey, payload);
+        }
+        catch
+        {
+            // Keep dashboard resilient when cache persistence fails.
+        }
+    }
+
+    private async Task<(IReadOnlyList<ExchangePosition> Positions, IReadOnlyList<ExchangeOrder> Orders)> LoadExchangeSnapshotAsync()
+    {
+        var positionsTask = _exchangeService.Positions.GetPositionsAsync();
+        var ordersTask = _exchangeService.Orders.GetOpenOrdersAsync();
+        await Task.WhenAll(positionsTask, ordersTask);
+
+        return (
+            positionsTask.Result?.ToArray() ?? Array.Empty<ExchangePosition>(),
+            ordersTask.Result?.ToArray() ?? Array.Empty<ExchangeOrder>());
+    }
+
+    private void ApplyExchangeSnapshot(
+        IReadOnlyList<PositionModel> models,
+        IReadOnlyList<ExchangePosition> positions,
+        IReadOnlyList<ExchangeOrder> orders)
+    {
+        foreach (var model in models)
+        {
+            ApplyExchangeSnapshot(model, positions, orders);
+        }
+    }
+
+    private void ApplyExchangeSnapshot(
+        PositionModel model,
+        IReadOnlyList<ExchangePosition> positions,
+        IReadOnlyList<ExchangeOrder> orders)
+    {
+        var baseAsset = model.BaseAsset?.Trim();
+        if (string.IsNullOrWhiteSpace(baseAsset))
+        {
+            return;
+        }
+
+        var activeLegs = positions
+            .Select(position => CreateLegFromExchangePosition(position, baseAsset, position.Category))
+            .Where(leg => leg is not null)
+            .Cast<LegModel>()
+            .ToArray();
+
+        var orderLegs = orders
+            .Select(order => CreateLegFromExchangeOrder(order, baseAsset))
+            .Where(leg => leg is not null && !string.IsNullOrWhiteSpace(leg.ReferenceId))
+            .Cast<LegModel>()
+            .ToArray();
+
+        foreach (var collection in model.Collections)
+        {
+            SyncDashboardOrderLegs(collection, orderLegs, activeLegs);
+            SyncDashboardReadOnlyLegs(collection, activeLegs);
+        }
+    }
+
+    private static void SyncDashboardOrderLegs(
+        LegsCollectionModel collection,
+        IReadOnlyList<LegModel> orderLegs,
+        IReadOnlyList<LegModel> activeLegs)
+    {
+        var openOrderLegs = orderLegs
+            .Where(leg => !string.IsNullOrWhiteSpace(leg.ReferenceId))
+            .ToDictionary(leg => leg.ReferenceId!, StringComparer.OrdinalIgnoreCase);
+        var existingOrderLegs = collection.Legs
+            .Where(leg => leg.Status == LegStatus.Order)
+            .ToList();
+
+        foreach (var existing in existingOrderLegs)
+        {
+            var referenceId = existing.ReferenceId
+                ?? ExtractReferenceIdFromCandidateId(existing.Id)
+                ?? BuildFallbackOrderReference(existing.Symbol, existing.Size, existing.Price);
+            existing.ReferenceId = referenceId;
+
+            if (!openOrderLegs.TryGetValue(referenceId, out var snapshotLeg))
+            {
+                if (TryConvertDashboardExecutedOrderToActive(collection, existing, activeLegs))
+                {
+                    continue;
+                }
+
+                collection.Legs.Remove(existing);
+                continue;
+            }
+
+            ApplyDashboardOrderLegSnapshot(existing, snapshotLeg);
+        }
+    }
+
+    private static void SyncDashboardReadOnlyLegs(
+        LegsCollectionModel collection,
+        IReadOnlyList<LegModel> activeLegs)
+    {
+        var lookup = activeLegs
+            .Where(leg => !string.IsNullOrWhiteSpace(leg.Symbol))
+            .GroupBy(leg => leg.Symbol!.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var leg in collection.Legs)
+        {
+            if (leg.Status == LegStatus.Order)
+            {
+                continue;
+            }
+
+            if (!leg.IsReadOnly)
+            {
+                leg.Status = LegStatus.New;
+                continue;
+            }
+
+            var symbol = leg.Symbol?.Trim();
+            if (string.IsNullOrWhiteSpace(symbol)
+                || !lookup.TryGetValue(symbol, out var matches))
+            {
+                leg.Status = LegStatus.Missing;
+                leg.IsIncluded = false;
+                continue;
+            }
+
+            var match = matches.FirstOrDefault(item =>
+                Math.Sign(item.Size) == Math.Sign(leg.Size)
+                && item.Type == leg.Type
+                && item.ExpirationDate?.Date == leg.ExpirationDate?.Date
+                && item.Strike == leg.Strike);
+
+            if (match is null)
+            {
+                leg.Status = LegStatus.Missing;
+                leg.IsIncluded = false;
+                continue;
+            }
+
+            ApplyDashboardActiveLegSnapshot(leg, match, forceInclude: false);
+        }
+    }
+
+    private static void ApplyDashboardOrderLegSnapshot(LegModel target, LegModel snapshot)
+    {
+        target.Type = snapshot.Type;
+        target.Strike = snapshot.Strike;
+        target.ExpirationDate = snapshot.ExpirationDate;
+        target.Size = snapshot.Size;
+        target.Price = snapshot.Price;
+        target.Symbol = snapshot.Symbol;
+        target.IsReadOnly = true;
+        target.Status = LegStatus.Order;
+        target.ReferenceId = snapshot.ReferenceId;
+    }
+
+    private static bool TryConvertDashboardExecutedOrderToActive(
+        LegsCollectionModel collection,
+        LegModel orderLeg,
+        IReadOnlyList<LegModel> activeLegs)
+    {
+        var matchedPositionLeg = activeLegs.FirstOrDefault(positionLeg =>
+            string.Equals(positionLeg.Symbol, orderLeg.Symbol, StringComparison.OrdinalIgnoreCase)
+            && Math.Sign(positionLeg.Size) == Math.Sign(orderLeg.Size)
+            && positionLeg.Type == orderLeg.Type
+            && positionLeg.ExpirationDate?.Date == orderLeg.ExpirationDate?.Date
+            && positionLeg.Strike == orderLeg.Strike);
+
+        if (matchedPositionLeg is null)
+        {
+            return false;
+        }
+
+        if (collection.Legs.Any(existing =>
+                !ReferenceEquals(existing, orderLeg)
+                && existing.IsReadOnly
+                && existing.Status != LegStatus.Order
+                && string.Equals(existing.Symbol, matchedPositionLeg.Symbol, StringComparison.OrdinalIgnoreCase)
+                && Math.Sign(existing.Size) == Math.Sign(matchedPositionLeg.Size)))
+        {
+            collection.Legs.Remove(orderLeg);
+            return true;
+        }
+
+        ApplyDashboardActiveLegSnapshot(orderLeg, matchedPositionLeg, forceInclude: true);
+        if (orderLeg.Id.StartsWith("order:", StringComparison.OrdinalIgnoreCase))
+        {
+            orderLeg.Id = Guid.NewGuid().ToString("N");
+        }
+
+        return true;
+    }
+
+    private static void ApplyDashboardActiveLegSnapshot(LegModel target, LegModel snapshot, bool forceInclude)
+    {
+        target.Status = LegStatus.Active;
+        target.IsReadOnly = true;
+        if (forceInclude)
+        {
+            target.IsIncluded = true;
+        }
+
+        target.Type = snapshot.Type;
+        target.Strike = snapshot.Strike;
+        target.ExpirationDate = snapshot.ExpirationDate;
+        target.Size = snapshot.Size;
+        target.Price = snapshot.Price;
+        target.Symbol = snapshot.Symbol;
+        target.ReferenceId = snapshot.ReferenceId;
+    }
+
+    private LegModel? CreateLegFromExchangePosition(ExchangePosition position, string baseAsset, string category)
+    {
+        if (string.IsNullOrWhiteSpace(position.Symbol))
+        {
+            return null;
+        }
+
+        DateTime? expiration = null;
+        decimal? strike = null;
+        var type = LegType.Future;
+        if (string.Equals(category, "option", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!_exchangeService.TryParseSymbol(position.Symbol, out var parsedBase, out var parsedExpiration, out var parsedStrike, out var parsedType))
+            {
+                return null;
+            }
+
+            if (!string.Equals(parsedBase, baseAsset, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            expiration = parsedExpiration;
+            strike = parsedStrike;
+            type = parsedType;
+        }
+        else
+        {
+            if (!position.Symbol.StartsWith(baseAsset, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            if (TryParseFutureExpiration(position.Symbol, out var parsedFutureExpiration))
+            {
+                expiration = parsedFutureExpiration;
+            }
+        }
+
+        var size = DetermineSignedSize(position);
+        if (Math.Abs(size) < 0.0001m)
+        {
+            return null;
+        }
+
+        return new LegModel
+        {
+            ReferenceId = BuildPositionReferenceId(position.Symbol, size),
+            IsReadOnly = true,
+            Type = type,
+            Strike = strike,
+            ExpirationDate = expiration,
+            Size = size,
+            Price = position.AvgPrice,
+            ImpliedVolatility = null,
+            Symbol = position.Symbol,
+            Status = LegStatus.Active
+        };
+    }
+
+    private LegModel? CreateLegFromExchangeOrder(ExchangeOrder order, string baseAsset)
+    {
+        if (string.IsNullOrWhiteSpace(order.Symbol))
+        {
+            return null;
+        }
+
+        DateTime? expiration = null;
+        decimal? strike = null;
+        var type = LegType.Future;
+        if (string.Equals(order.Category, "option", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!_exchangeService.TryParseSymbol(order.Symbol, out var parsedBase, out var parsedExpiration, out var parsedStrike, out var parsedType))
+            {
+                return null;
+            }
+
+            if (!string.Equals(parsedBase, baseAsset, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            expiration = parsedExpiration;
+            strike = parsedStrike;
+            type = parsedType;
+        }
+        else
+        {
+            if (!order.Symbol.StartsWith(baseAsset, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            if (TryParseFutureExpiration(order.Symbol, out var parsedFutureExpiration))
+            {
+                expiration = parsedFutureExpiration;
+            }
+        }
+
+        var size = DetermineSignedSize(order);
+        if (Math.Abs(size) < 0.0001m)
+        {
+            return null;
+        }
+
+        return new LegModel
+        {
+            Id = BuildOrderCandidateId(order),
+            ReferenceId = BuildOrderReferenceId(order),
+            IsReadOnly = true,
+            Type = type,
+            Strike = strike,
+            ExpirationDate = expiration,
+            Size = size,
+            Price = order.Price,
+            ImpliedVolatility = null,
+            Symbol = order.Symbol,
+            Status = LegStatus.Order
+        };
+    }
+
+    private static PositionModel[] ClonePositions(IReadOnlyList<PositionModel> models)
+    {
+        return models.Select(ClonePosition).ToArray();
+    }
+
+    private static PositionModel ClonePosition(PositionModel model)
+    {
+        return new PositionModel
+        {
+            Id = model.Id,
+            BaseAsset = model.BaseAsset,
+            QuoteAsset = model.QuoteAsset,
+            Name = model.Name,
+            Notes = model.Notes,
+            CreationTimeUtc = model.CreationTimeUtc,
+            ChartRange = model.ChartRange,
+            Closed = new ClosedModel
+            {
+                Include = model.Closed.Include,
+                TotalClosePnl = model.Closed.TotalClosePnl,
+                TotalFee = model.Closed.TotalFee,
+                Positions = new(model.Closed.Positions.Select(CloneClosedPosition))
+            },
+            Collections = new(model.Collections.Select(collection => new LegsCollectionModel
+            {
+                Id = collection.Id,
+                Name = collection.Name,
+                Color = collection.Color,
+                IsVisible = collection.IsVisible,
+                Legs = new(collection.Legs.Select(leg => leg.Clone()))
+            }))
+        };
+    }
+
+    private static ClosedPositionModel CloneClosedPosition(ClosedPositionModel model)
+    {
+        return new ClosedPositionModel
+        {
+            Id = model.Id,
+            Symbol = model.Symbol,
+            SinceDate = model.SinceDate,
+            FirstTradeTimestamp = model.FirstTradeTimestamp,
+            LastProcessedTimestamp = model.LastProcessedTimestamp,
+            LastProcessedIdsAtTimestamp = model.LastProcessedIdsAtTimestamp.ToList(),
+            PositionSize = model.PositionSize,
+            AvgPrice = model.AvgPrice,
+            EntryQty = model.EntryQty,
+            EntryValue = model.EntryValue,
+            CloseQty = model.CloseQty,
+            CloseValue = model.CloseValue,
+            Realized = model.Realized,
+            FeeTotal = model.FeeTotal
+        };
+    }
+
     private async Task<decimal?> TryLoadCurrentPriceAsync(string symbol)
     {
         try
@@ -723,6 +1191,113 @@ public sealed class HomeDashboardViewModel : Bindable
         {
             return null;
         }
+    }
+
+    private static bool TryParseFutureExpiration(string symbol, out DateTime expiration)
+    {
+        expiration = default;
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return false;
+        }
+
+        var tokens = symbol.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (tokens.Length >= 2
+            && DateTime.TryParseExact(tokens[1], PositionExpirationFormats, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
+        {
+            expiration = parsed.Date;
+            return true;
+        }
+
+        var match = Regex.Match(symbol, @"(\d{8}|\d{6})$");
+        if (!match.Success)
+        {
+            return false;
+        }
+
+        var format = match.Groups[1].Value.Length == 8 ? "yyyyMMdd" : "yyMMdd";
+        return DateTime.TryParseExact(match.Groups[1].Value, format, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out expiration);
+    }
+
+    private static string BuildPositionReferenceId(string? symbol, decimal size)
+    {
+        var normalizedSymbol = string.IsNullOrWhiteSpace(symbol) ? string.Empty : symbol.Trim().ToUpperInvariant();
+        return $"position:{normalizedSymbol}:{Math.Sign(size)}";
+    }
+
+    private static string BuildOrderCandidateId(ExchangeOrder order)
+    {
+        return $"order:{BuildOrderReferenceId(order)}";
+    }
+
+    private static string BuildOrderReferenceId(ExchangeOrder order)
+    {
+        if (!string.IsNullOrWhiteSpace(order.OrderId))
+        {
+            return order.OrderId.Trim();
+        }
+
+        return BuildFallbackOrderReference(order.Symbol, DetermineSignedSize(order), order.Price);
+    }
+
+    private static string BuildFallbackOrderReference(string? symbol, decimal size, decimal? price)
+    {
+        var normalizedSymbol = string.IsNullOrWhiteSpace(symbol) ? string.Empty : symbol.Trim().ToUpperInvariant();
+        var side = Math.Sign(size).ToString(CultureInfo.InvariantCulture);
+        var qty = Math.Abs(size).ToString("0.########", CultureInfo.InvariantCulture);
+        var normalizedPrice = price.HasValue ? price.Value.ToString("0.########", CultureInfo.InvariantCulture) : "mkt";
+        return $"{normalizedSymbol}:{side}:{qty}:{normalizedPrice}";
+    }
+
+    private static string? ExtractReferenceIdFromCandidateId(string? id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return null;
+        }
+
+        var value = id.Trim();
+        return value.StartsWith("order:", StringComparison.OrdinalIgnoreCase)
+            ? value["order:".Length..]
+            : value;
+    }
+
+    private static decimal DetermineSignedSize(ExchangePosition position)
+    {
+        var magnitude = Math.Abs(position.Size);
+        if (magnitude < 0.0001m)
+        {
+            return 0m;
+        }
+
+        if (!string.IsNullOrWhiteSpace(position.Side))
+        {
+            var normalized = position.Side.Trim();
+            if (string.Equals(normalized, "Sell", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(normalized, "Short", StringComparison.OrdinalIgnoreCase))
+            {
+                return -magnitude;
+            }
+        }
+
+        return magnitude;
+    }
+
+    private static decimal DetermineSignedSize(ExchangeOrder order)
+    {
+        var magnitude = Math.Abs(order.Qty);
+        if (magnitude < 0.0001m)
+        {
+            return 0m;
+        }
+
+        if (!string.IsNullOrWhiteSpace(order.Side)
+            && string.Equals(order.Side.Trim(), "Sell", StringComparison.OrdinalIgnoreCase))
+        {
+            return -magnitude;
+        }
+
+        return magnitude;
     }
 
     private void SetCards(IReadOnlyList<HomePositionCardModel> cards)
@@ -938,7 +1513,8 @@ public sealed record HomeMiniChartModel(
     IReadOnlyList<double> TempValues,
     double XMin,
     double XMax,
-    IReadOnlyList<decimal> BreakEvens)
+    IReadOnlyList<decimal> BreakEvens,
+    bool HasTempLine)
 {
     public static HomeMiniChartModel Empty { get; } = new(
         Array.Empty<string>(),
@@ -946,5 +1522,6 @@ public sealed record HomeMiniChartModel(
         Array.Empty<double>(),
         0d,
         0d,
-        Array.Empty<decimal>());
+        Array.Empty<decimal>(),
+        false);
 }

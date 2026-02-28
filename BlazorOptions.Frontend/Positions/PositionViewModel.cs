@@ -209,6 +209,7 @@ public sealed class PositionViewModel : IDisposable
             }
 
             Position = storedPosition;
+            ResetTransientStrategyLegInclusions();
 
             ResetPricingContextForPositionSwitch();
 
@@ -231,6 +232,22 @@ public sealed class PositionViewModel : IDisposable
         finally
         {
             _initializeLock.Release();
+        }
+    }
+
+    private void ResetTransientStrategyLegInclusions()
+    {
+        if (_position is null)
+        {
+            return;
+        }
+
+        foreach (var leg in _position.Collections.SelectMany(collection => collection.Legs))
+        {
+            if ((leg.Status == LegStatus.New || leg.Status == LegStatus.Order) && leg.IsIncluded)
+            {
+                leg.IsIncluded = false;
+            }
         }
     }
 

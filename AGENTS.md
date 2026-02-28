@@ -43,6 +43,7 @@
 
 ## Formating
 
+- use UTF-8 encoding for `.cs` files
 - use windows line ending (CR LF) in cs files
 - avoid mixed line endings: after edits, ensure the entire `.cs` file is normalized to CRLF
 

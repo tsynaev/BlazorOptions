@@ -53,6 +53,8 @@ The Positions page is where you manage one position at a time and review its pay
 - Header shows combined total P/L (temporary + closed).
 - Desktop app bar shows the shared wallet summary in two columns: `IM/MM` on the left and wallet balances on the right.
 - Header total P/L also shows portfolio P/L percent, using included non-futures leg entry value as denominator.
+- On page open, `New` and `Order` legs start excluded so strategy experiments do not affect the saved position by default.
+- While the position page is open, `New` and `Order` legs can still be manually included or excluded for scenario testing.
 - `Live` and `Candles` are switched with chips.
 - `Day Min/Max` chip toggles IV-based day range markers.
 - `Orders` chip toggles order and linked-order markers on the chart.

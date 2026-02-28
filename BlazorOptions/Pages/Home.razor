@@ -27,13 +27,16 @@
         <MudAlert Severity="Severity.Warning">@ViewModel.ErrorMessage</MudAlert>
     }
 
-    @if (ViewModel.Positions.Count == 0)
+    @if (ViewModel.Positions.Count == 0 && ViewModel.IsLoading)
+    {
+        <MudStack Class="pa-6" AlignItems="AlignItems.Center" Justify="Justify.Center">
+            <MudProgressCircular Indeterminate="true" Color="Color.Primary" Size="Size.Large" />
+        </MudStack>
+    }
+    else if (ViewModel.Positions.Count == 0)
     {
         <MudPaper Class="pa-4">
             <MudText Typo="Typo.body1">No positions yet.</MudText>
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="positions" StartIcon="@Icons.Material.Filled.ShowChart">
-                Open position builder
-            </MudButton>
         </MudPaper>
     }
     else
@@ -128,10 +131,10 @@
                                                     }
                                                 </div>
                                                 <MudStack Row="true" Spacing="1" Class="home-greeks-row">
-                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Δ @FormatGreek(position.GreekSummary.TotalDelta)</MudChip>
-                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Γ @FormatGamma(position.GreekSummary.TotalGamma)</MudChip>
-                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">ν @FormatGreek(position.GreekSummary.TotalVega)</MudChip>
-                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Θ @FormatGreek(position.GreekSummary.TotalTheta)</MudChip>
+                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">О” @FormatGreek(position.GreekSummary.TotalDelta)</MudChip>
+                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">О“ @FormatGamma(position.GreekSummary.TotalGamma)</MudChip>
+                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">ОЅ @FormatGreek(position.GreekSummary.TotalVega)</MudChip>
+                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">О @FormatGreek(position.GreekSummary.TotalTheta)</MudChip>
                                                 </MudStack>
                                                 <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" AlignItems="AlignItems.Center" Class="home-break-even-row">
                                                     <MudText Typo="Typo.caption" Class="home-break-even-label">BE</MudText>
@@ -275,8 +278,8 @@
     private static List<ChartSeries> BuildSeries(HomeMiniChartModel chart)
     {
         var zero = new double[chart.Values.Count];
-        return
-        [
+        var series = new List<ChartSeries>
+        {
             new ChartSeries
             {
                 Name = "P/L",
@@ -284,15 +287,21 @@
             },
             new ChartSeries
             {
-                Name = "Temp",
-                Data = chart.TempValues.ToArray()
-            },
-            new ChartSeries
-            {
                 Name = "Zero",
                 Data = zero
             }
-        ];
+        };
+
+        if (chart.HasTempLine && chart.TempValues.Count == chart.Values.Count)
+        {
+            series.Insert(1, new ChartSeries
+            {
+                Name = "Temp",
+                Data = chart.TempValues.ToArray()
+            });
+        }
+
+        return series;
     }
 
     private static Color ResolvePnlColor(decimal value)

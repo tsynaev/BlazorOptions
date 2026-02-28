@@ -6,6 +6,11 @@ Route: `/`
 
 - Home page now renders dashboard cards for all saved positions.
 - Desktop app bar shows the account wallet summary in two columns: `IM/MM` on the left and wallet balances on the right.
+- Dashboard load order is:
+- show the last cached dashboard snapshot first when available, including cached charts
+- load the latest saved position state from the server
+- then apply current exchange positions and open orders so cards and charts reflect the latest live position state
+- If no cached positions are available yet, the page shows a loading indicator instead of the empty-state panel until the server response arrives.
 - Cards are grouped by `base/quote` asset pair.
 - Each asset-pair group can show a DVOL chart (Deribit implied volatility index) for the group base asset when available.
 - DVOL is shown as the first card in each asset-pair group.
@@ -20,6 +25,7 @@ Route: `/`
   - fresh data is requested in background and replaces cached chart when loaded
 - Cards and non-chart data are shown first; mini charts are then rendered asynchronously one-by-one to keep initial page load responsive.
 - While a card chart is warming up, the card shows a chart skeleton placeholder.
+- Cached charts are shown immediately, but the temporary/theoretical line is added only after fresh server and exchange pricing is loaded.
 - Break-even values are calculated independently and shown even while the mini chart is still loading.
 - Each card shows:
   - position name in `base/quote - name` format
@@ -39,6 +45,7 @@ Route: `/`
     - red: loss >= 30% (critical)
   - chip tooltip with leg details (type, size, entry, mark, PnL, PnL%)
   - group-level DVOL latest value chip (for example `DVOL BTC`)
+- `New` and `Order` legs are included in dashboard P/L only when the position has no `Active` legs.
 
 ## Calculation Notes
 
@@ -48,6 +55,7 @@ Route: `/`
 - Total temp P/L: current temp P/L + closed net P/L.
 - Closed net P/L is included only when closed positions are enabled for that position.
 - Mini chart P/L curve is shifted by closed net P/L (realized P/L baseline).
+- Exchange sync updates tracked read-only legs before dashboard charts are warmed, so stale `Active` / `Missing` / executed `Order` states do not linger after load.
 - Leg chip severity uses Account Settings thresholds:
   - options: `Max loss for options (%)`
   - futures: `Max loss for futures (%)`
