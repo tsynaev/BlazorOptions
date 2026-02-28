@@ -4,8 +4,11 @@
 
 @if (_snapshot is not null)
 {
-    <div class="wallet-summary @Class">
-        <div class="wallet-summary-updated">Updated: @FormatUpdated(_snapshot.UpdatedUtc)</div>
+    <div class="@BuildContainerClass()">
+        @if (ShowUpdatedTimestamp)
+        {
+            <div class="wallet-summary-updated">Updated: @FormatUpdated(_snapshot.UpdatedUtc)</div>
+        }
         <div class="wallet-summary-left">
             <div class="wallet-summary-metric-row">
                 <span class="wallet-summary-label">IM</span>
@@ -55,6 +58,8 @@
 @code {
     [Parameter] public bool ShowEquity { get; set; }
     [Parameter] public bool ShowWalletBalance { get; set; }
+    [Parameter] public bool ShowUpdatedTimestamp { get; set; } = true;
+    [Parameter] public bool CollapseToSingleColumnOnMobile { get; set; } = true;
     [Parameter] public string Class { get; set; } = string.Empty;
     private IDisposable? _subscription;
     private ExchangeWalletSnapshot? _snapshot;
@@ -113,6 +118,17 @@
         var utc = value.Kind == DateTimeKind.Utc ? value : value.ToUniversalTime();
         return utc.ToLocalTime().ToString("dd.MM.yyyy HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
     }
+
+    private string BuildContainerClass()
+    {
+        var mobileLayoutClass = CollapseToSingleColumnOnMobile
+            ? " wallet-summary-single-column-mobile"
+            : string.Empty;
+
+        return string.IsNullOrWhiteSpace(Class)
+            ? $"wallet-summary{(ShowUpdatedTimestamp ? " wallet-summary-with-updated" : string.Empty)}{mobileLayoutClass}"
+            : $"wallet-summary{(ShowUpdatedTimestamp ? " wallet-summary-with-updated" : string.Empty)}{mobileLayoutClass} {Class}";
+    }
 }
 
 <style>
@@ -122,6 +138,9 @@
         gap: 12px;
         align-items: center;
         position: relative;
+    }
+
+    .wallet-summary-with-updated {
         padding-top: 14px;
     }
 
@@ -199,8 +218,12 @@
     }
     
     @@media (max-width: 900px) {
-        .wallet-summary {
+        .wallet-summary-single-column-mobile {
             grid-template-columns: 1fr;
+        }
+
+        .wallet-summary {
+            gap: 10px;
         }
     }
 </style>

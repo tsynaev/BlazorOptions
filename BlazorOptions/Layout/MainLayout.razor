@@ -3,23 +3,35 @@
 @inject BlazorOptions.ViewModels.MainLayoutViewModel ViewModel
 
 <MudLayout>
-    <MudAppBar>
-        <MudText Typo="Typo.h6">Blazor Options</MudText>
-        <MudStack Row="true" Spacing="1" Class="appbar-links">
-            <MudNavLink Href="/" Match="NavLinkMatch.All" Class="appbar-link">Home</MudNavLink>
-            <MudNavLink Href="/trading-history" Class="appbar-link">Trading</MudNavLink>
-            <MudNavLink Href="/data" Class="appbar-link">Data</MudNavLink>
-        </MudStack>
-        <MudSpacer />
-        @if (ViewModel.IsAuthenticated && !string.IsNullOrWhiteSpace(ViewModel.UserName))
-        {
-            <MudText Typo="Typo.subtitle2">@ViewModel.UserName</MudText>
-        }
-        <MudIconButton Icon="@Icons.Material.Filled.AccountCircle"
-                       Class="appbar-account"
-                       Color="Color.Inherit"
-                       Href="account-settings"
-                       aria-label="Account settings" />
+    <MudAppBar Fixed="false" Class="main-appbar">
+        <div class="appbar-shell">
+            <div class="appbar-brand-row">
+                <MudText Typo="Typo.h6">Blazor Options</MudText>
+                <MudStack Row="true" Spacing="1" Class="appbar-links">
+                    <MudNavLink Href="/" Match="NavLinkMatch.All" Class="appbar-link">Home</MudNavLink>
+                    <MudNavLink Href="/trading-history" Class="appbar-link">Trading</MudNavLink>
+                    <MudNavLink Href="/data" Class="appbar-link">Data</MudNavLink>
+                </MudStack>
+            </div>
+            <div class="appbar-wallet-row">
+                <WalletSummary ShowEquity="true"
+                               ShowWalletBalance="true"
+                               ShowUpdatedTimestamp="false"
+                               CollapseToSingleColumnOnMobile="false"
+                               Class="appbar-wallet" />
+            </div>
+            <div class="appbar-account-group">
+                @if (ViewModel.IsAuthenticated && !string.IsNullOrWhiteSpace(ViewModel.UserName))
+                {
+                    <MudText Typo="Typo.subtitle2">@ViewModel.UserName</MudText>
+                }
+                <MudIconButton Icon="@Icons.Material.Filled.AccountCircle"
+                               Class="appbar-account"
+                               Color="Color.Inherit"
+                               Href="account-settings"
+                               aria-label="Account settings" />
+            </div>
+        </div>
     </MudAppBar>
     <MudMainContent Class="main-content-shell">
         @Body
@@ -79,6 +91,40 @@
 }
 
 <style>
+    .appbar-shell {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto auto;
+        grid-template-areas: "brand brand wallet account";
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        min-width: 0;
+    }
+
+    .appbar-brand-row {
+        grid-area: brand;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+    }
+
+    .appbar-wallet-row {
+        grid-area: wallet;
+        display: flex;
+        align-items: center;
+        min-width: 0;
+    }
+
+    .appbar-account-group {
+        grid-area: account;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        min-width: 0;
+    }
+
     .appbar-links {
         margin-left: 16px;
         align-items: center;
@@ -92,6 +138,10 @@
 
     .appbar-link.active {
         text-decoration: underline;
+    }
+
+    .appbar-wallet {
+        margin-right: 12px;
     }
 
     .mobile-bottom-nav {
@@ -150,16 +200,48 @@
     }
 
     @@media (max-width: 768px) {
-        .mud-appbar {
-            display: none;
+        .main-appbar {
+            height: auto !important;
+            min-height: 0 !important;
+            display: block !important;
+            align-items: stretch !important;
+            overflow: visible !important;
+            padding-top: calc(env(safe-area-inset-top, 0px) + 8px);
+            padding-bottom: 8px;
         }
 
         .appbar-links {
             display: none;
         }
 
-        .appbar-account {
+        .appbar-shell {
+            display: grid;
+            grid-template-columns: 1fr;
+            grid-template-areas:
+                "wallet wallet";
+            gap: 8px;
+            align-items: stretch;
+            padding: 8px 0;
+        }
+
+        .appbar-brand-row,
+        .appbar-wallet-row,
+        .appbar-account-group {
+            width: 100%;
+        }
+
+        .appbar-brand-row,
+        .appbar-account-group {
             display: none;
+        }
+
+        .appbar-brand-row {
+            gap: 8px;
+        }
+
+        .appbar-wallet {
+            margin-right: 0;
+            width: 100%;
         }
 
         .mobile-bottom-nav {
@@ -172,7 +254,6 @@
         }
 
         .main-content-shell {
-            padding-top: 0 !important;
             padding-bottom: 72px;
         }
     }

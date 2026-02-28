@@ -44,7 +44,6 @@ else
                                     ? "No position selected"
                                     : FormatPositionName(ViewModel.Position))
                             </MudText>
-                            <WalletSummary Class="wallet-compact" />
                         </MudStack>
                         <MudIconButton Icon="@Icons.Material.Filled.Settings"
                                        Disabled="@(!HasActivePosition)"
@@ -255,9 +254,6 @@ else
         gap: 6px;
         min-width: 0;
     }
-    .wallet-compact {
-        margin-left: 8px;
-    }
     .position-content {
         padding-top: 8px;
     }
@@ -384,7 +380,6 @@ else
     private bool HasActivePosition => _viewModelReady && ViewModel.Position?.Id != Guid.Empty;
     private bool _viewModelReady;
     private bool _isRouteLoading = true;
-    private Guid? _pendingRoutePositionId;
     private IJSObjectReference? _chartRangeModule;
     private string? _restoredChartRangeKey;
     private readonly object _liveRenderLock = new();
