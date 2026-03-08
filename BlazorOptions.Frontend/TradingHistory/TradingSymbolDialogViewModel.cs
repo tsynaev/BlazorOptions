@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Text;
+using System.Globalization;
 using BlazorOptions.API.TradingHistory;
 using BlazorOptions.Services;
 
@@ -98,6 +100,45 @@ public sealed class TradingSymbolDialogViewModel : Bindable
         }
     }
 
+    public string BuildTradesMarkdownTable()
+    {
+        if (Trades.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder();
+        builder.AppendLine("| Date | Trade | Price | Value | Fee | Size after | Avg price after | Realized PnL | Cumulative PnL |");
+        builder.AppendLine("|---|---|---:|---:|---:|---:|---:|---:|---:|");
+
+        foreach (var trade in Trades)
+        {
+            var dateText = EscapeMarkdown(FormatTimestamp(trade.Timestamp));
+            var tradeText = EscapeMarkdown($"{trade.Side} {trade.Size} {trade.Symbol}".Trim());
+            var priceText = FormatNumber(trade.Price);
+            var currencyText = string.IsNullOrWhiteSpace(trade.Currency) ? string.Empty : $" {trade.Currency}";
+            var valueText = $"{FormatNumber(trade.Size * trade.Price)}{currencyText}";
+            var feeText = $"{FormatNumber(trade.Fee)}{currencyText}";
+            var sizeAfterText = FormatNumber(trade.Calculated?.SizeAfter ?? 0m);
+            var avgPriceAfterText = FormatNumber(trade.Calculated?.AvgPriceAfter ?? 0m);
+            var realizedPnlText = FormatNumber(trade.Calculated?.RealizedPnl ?? 0m);
+            var cumulativePnlText = FormatNumber(trade.Calculated?.CumulativePnl ?? 0m);
+
+            builder.Append("| ")
+                .Append(dateText).Append(" | ")
+                .Append(tradeText).Append(" | ")
+                .Append(priceText).Append(" | ")
+                .Append(valueText).Append(" | ")
+                .Append(feeText).Append(" | ")
+                .Append(sizeAfterText).Append(" | ")
+                .Append(avgPriceAfterText).Append(" | ")
+                .Append(realizedPnlText).Append(" | ")
+                .Append(cumulativePnlText).AppendLine(" |");
+        }
+
+        return builder.ToString();
+    }
+
     private static long? GetSinceTimestamp(DateTime? sinceDate)
     {
         if (!sinceDate.HasValue)
@@ -192,9 +233,35 @@ public sealed class TradingSymbolDialogViewModel : Bindable
             cumulativeByCoin[settleCoin] = next;
         }
 
-        return orderedAsc
-            .OrderByDescending(entry => entry.Timestamp ?? 0)
-            .ThenByDescending(entry => entry.Id, StringComparer.Ordinal)
-            .ToList();
+        return orderedAsc;
+    }
+
+    private static string EscapeMarkdown(string value)
+    {
+        return value.Replace("|", "\\|", StringComparison.Ordinal);
+    }
+
+    private static string FormatNumber(decimal value)
+    {
+        return value.ToString("0.##########", CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatTimestamp(long? timestamp)
+    {
+        if (!timestamp.HasValue || timestamp.Value <= 0)
+        {
+            return "N/A";
+        }
+
+        try
+        {
+            return DateTimeOffset.FromUnixTimeMilliseconds(timestamp.Value)
+                .ToLocalTime()
+                .ToString("g", CultureInfo.CurrentCulture);
+        }
+        catch
+        {
+            return "N/A";
+        }
     }
 }

@@ -3,6 +3,7 @@
 @using System.Globalization
 @using System.ComponentModel
 @using BlazorOptions.ViewModels
+@inject Microsoft.JSInterop.IJSRuntime JS
 <MudDialog>
     <DialogContent>
         <MudStack Spacing="2">
@@ -54,9 +55,11 @@
                                 </MudStack>
                             </CellTemplate>
                         </TemplateColumn>
-                        <TemplateColumn Title="Trade">
+                        <TemplateColumn Title="Trade"
+                                        HeaderStyle="min-width: 320px; width: 320px;"
+                                        CellStyle="min-width: 320px;">
                             <CellTemplate>
-                                @($"{context.Item.Side} {context.Item.TransactionType} {context.Item.Size} {context.Item.Symbol}")
+                                @($"{context.Item.Side} {context.Item.Size} {context.Item.Symbol}")
                             </CellTemplate>
                         </TemplateColumn>
                         <TemplateColumn Title="Price">
@@ -84,6 +87,12 @@
         </MudStack>
     </DialogContent>
     <DialogActions>
+        <MudButton Color="Color.Secondary"
+                   StartIcon="@Icons.Material.Filled.ContentCopy"
+                   Disabled="@(ViewModel.Trades.Count == 0)"
+                   OnClick="CopyTableAsMarkdownAsync">
+            Copy Markdown
+        </MudButton>
         <MudButton Color="Color.Primary" OnClick="Close">Close</MudButton>
     </DialogActions>
 </MudDialog>
@@ -131,6 +140,17 @@
     private static string FormatValue(decimal qty, decimal price)
     {
         return (qty * price).ToString("0.##########", CultureInfo.InvariantCulture);
+    }
+
+    private async Task CopyTableAsMarkdownAsync()
+    {
+        var markdown = ViewModel.BuildTradesMarkdownTable();
+        if (string.IsNullOrWhiteSpace(markdown))
+        {
+            return;
+        }
+
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", markdown);
     }
 
     private void Close()

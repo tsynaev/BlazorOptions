@@ -7,7 +7,7 @@ The Trading History feature pulls and analyzes Bybit transaction logs, with pagi
 - Backfill older history using stored cursors and registration date.
 - Virtualized grid with server/page-backed loading for large histories.
 - Summary tables by symbol and by settle coin (fees and realized PnL), loaded from the server.
-- Trade detail dialog per symbol (optionally filtered by a since date), with raw JSON view.
+- Trade detail dialog per symbol (optionally filtered by a since date), with raw JSON view and one-click markdown export.
 - Manual recalculation of realized PnL and running totals (server-side).
 
 ## Performance behavior
@@ -17,6 +17,7 @@ The Trading History feature pulls and analyzes Bybit transaction logs, with pagi
 - Calculated fields are stored so reloading is fast.
 - The client streams transaction pages to the server as they are fetched from Bybit, and the server computes calculated fields and deduplicates entries. The client does not calculate PnL.
 - Daily summaries are generated and stored on the server during recalculation. The UI requests daily PnL by date range from the server, along with symbol/coin summaries.
+- The trade detail dialog shows symbol trades in ascending timestamp order so position changes can be read from open to close.
 
 ## Decimal parsing
 - Some provider values (for example, `change`) can exceed decimal range.
