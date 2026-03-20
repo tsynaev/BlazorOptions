@@ -73,6 +73,9 @@ The Positions page is where you manage one position at a time and review its pay
 ## Mobile Notes
 
 - Compact marker labels are used to reduce overlap.
+- Position title, payoff chart, and the section switcher stay pinned at the top while page content below them scrolls.
+- Chart controls live in the `Chart` section so the payoff remains visible while you edit legs, notes, trades, or wallet views.
+- Mobile sections are split into `Note`, `Chart`, `Legs`, `Trades`, `Equity`, and `...`.
 - Controls are stacked for narrow screens.
 - Available chips can scroll horizontally.
 - Bottom navigation is used in portrait mode.

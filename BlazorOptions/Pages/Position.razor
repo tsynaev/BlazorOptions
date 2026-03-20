@@ -32,9 +32,77 @@ else if (_isRouteLoading)
 }
 else
 {
-    <MudStack>
+    <MudStack Class="position-page-shell">
+        @if (HasActivePosition)
+        {
+            <div class="position-mobile-fixed-root">
+                <MudPaper Class="mobile-position-header" Elevation="0">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="position-title-row">
+                            <MudText Typo="Typo.h6" Class="position-title">
+                                @FormatPositionName(ViewModel.Position)
+                            </MudText>
+                        </MudStack>
+                        <MudMenu Dense="true"
+                                 AnchorOrigin="Origin.BottomRight"
+                                 TransformOrigin="Origin.TopRight">
+                            <ActivatorContent>
+                                <MudIconButton Icon="@Icons.Material.Filled.Settings"
+                                               Color="Color.Default"
+                                               aria-label="Open page menu" />
+                            </ActivatorContent>
+                            <ChildContent>
+                                <MudMenuItem Href="/">Home</MudMenuItem>
+                                <MudMenuItem Href="/trading-history">Trade</MudMenuItem>
+                                <MudMenuItem Href="/data">Data</MudMenuItem>
+                                <MudMenuItem Href="/account-settings">Account</MudMenuItem>
+                                <MudDivider />
+                                <MudMenuItem OnClick="OpenPositionSettingsDialogAsync">
+                                    Position settings
+                                </MudMenuItem>
+                            </ChildContent>
+                        </MudMenu>
+                    </MudStack>
+                </MudPaper>
+
+                <div class="position-mobile-chart-shell">
+                    <MudPaper Class="chart-surface" Elevation="0">
+                        <MudStack Spacing="2">
+                            <PayoffChart Strategies="@DisplayChartStrategies"
+                                         SelectedPrice="@DisplaySelectedPrice"
+                                         SelectedPriceChanged="HandleChartPriceSelected"
+                                         Markers="@DisplayChartMarkers"
+                                         Candles="@DisplayChartCandles"
+                                         ShowCandles="@DisplayShowCandles"
+                                         ShowLegends="true"
+                                         IsDarkTheme="@IsDarkMode"
+                                         Range="@ViewModel.ChartRange"
+                                         RangeChanged="HandleChartRangeChanged"
+                                         TimeRange="@ViewModel.ChartTimeRange"
+                                         TimeRangeChanged="HandleChartTimeRangeChanged" />
+                        </MudStack>
+                    </MudPaper>
+                </div>
+
+                <MudPaper Class="mobile-tab-switcher" Elevation="0">
+                    <MudStack Row="true" Spacing="1" Class="mobile-tab-switcher-row">
+                        @foreach (var tab in MobileTabs)
+                        {
+                            <MudButton Variant="@(tab == _activeMobileTab ? Variant.Filled : Variant.Outlined)"
+                                       Color="Color.Default"
+                                       Size="Size.Small"
+                                       Class="@BuildMobileTabButtonClass(tab)"
+                                       OnClick="@(() => SetActiveMobileTab(tab))">
+                                @GetMobileTabLabel(tab)
+                            </MudButton>
+                        }
+                    </MudStack>
+                </MudPaper>
+            </div>
+        }
+
         <MudCard>
-        <MudCardContent>
+        <MudCardContent Class="position-header-surface">
             <MudStack Spacing="2">
                 <MudStack Spacing="1">
                     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
@@ -56,10 +124,10 @@ else
         </MudCardContent>
         <MudCardContent Class="position-content">
             <div class="position-desktop-shell">
-                <div class="position-chart-column">
+                <div class="position-chart-column desktop-chart-column">
                     <MudPaper Class="chart-surface" Elevation="0">
                         <MudStack Spacing="2">
-                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="position-summary-row">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="position-summary-row desktop-chart-section">
                                 <MudChip T="string" Variant="Variant.Filled" Size="Size.Small" Color="@ResolvePnlColor(ResolveTotalCombinedPnl())">
                                     Total P/L: @FormatPrice(ResolveTotalCombinedPnl()) (@FormatPercent(ResolveTotalCombinedPnlPercent()))
                                 </MudChip>
@@ -113,7 +181,7 @@ else
                                          TimeRange="@ViewModel.ChartTimeRange"
                                          TimeRangeChanged="HandleChartTimeRangeChanged" />
 
-                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="chart-controls-row">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="chart-controls-row desktop-chart-section">
                                 <MudText Typo="Typo.subtitle2">Valuation timeline</MudText>
                                 <MudSpacer />
                                 <MudText Typo="Typo.caption" Class="ml-2">Index Price</MudText>
@@ -128,17 +196,19 @@ else
                                                  AdornmentText="USDT"
                                                  Class="temp-price-field" />
                             </MudStack>
-                            <ValuationTimelinePicker MinDateTime="@DateTime.UtcNow"
-                                                     MaxDateTime="@ResolveValuationTimelineEndUtc()"
-                                                     SelectedDateTime="@ViewModel.ValuationDate"
-                                                     SelectedDateTimeChanged="OnValuationTimelineChanged"
-                                                     ExpirationDates="@GetIncludedLegExpirationsUtc()" />
+                            <div class="desktop-chart-section">
+                                <ValuationTimelinePicker MinDateTime="@DateTime.UtcNow"
+                                                         MaxDateTime="@ResolveValuationTimelineEndUtc()"
+                                                         SelectedDateTime="@ViewModel.ValuationDate"
+                                                         SelectedDateTimeChanged="OnValuationTimelineChanged"
+                                                         ExpirationDates="@GetIncludedLegExpirationsUtc()" />
+                            </div>
                         </MudStack>
                     </MudPaper>
 
                     @if (HasActivePosition)
                     {
-                        <MudPaper Class="notes-panel" Elevation="0">
+                        <MudPaper Class="notes-panel desktop-notes-panel" Elevation="0">
                             <MudText Typo="Typo.subtitle2">Notes</MudText>
                             <MudTextField T="string"
                                           @bind-Value="@ViewModel.Position.Notes"
@@ -154,9 +224,127 @@ else
                 @if (HasActivePosition)
                 {
                     <div class="position-details-column">
-                        <MudPaper Class="position-panel-surface" Elevation="0">
-                            <PositionPanel ViewModel="@ViewModel" />
-                        </MudPaper>
+                        <div class="position-sections">
+                            <MudPaper Class="@BuildSectionClass(MobileTab.Chart, "chart-settings-panel mobile-only-section")" Elevation="0">
+                                <MudStack Spacing="2">
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="position-summary-row">
+                                        <MudChip T="string" Variant="Variant.Filled" Size="Size.Small" Color="@ResolvePnlColor(ResolveTotalCombinedPnl())">
+                                            Total P/L: @FormatPrice(ResolveTotalCombinedPnl()) (@FormatPercent(ResolveTotalCombinedPnlPercent()))
+                                        </MudChip>
+                                        <MudChip T="string"
+                                                 Variant="Variant.Outlined"
+                                                 Size="Size.Small"
+                                                 Color="@(ViewModel.IsLive ? Color.Success : Color.Default)"
+                                                 OnClick="ToggleLive">
+                                            Live: @(ViewModel.IsLive ? "On" : "Off")
+                                        </MudChip>
+                                        <MudChip T="string"
+                                                 Variant="Variant.Outlined"
+                                                 Size="Size.Small"
+                                                 Color="@(ViewModel.ShowCandles ? Color.Info : Color.Default)"
+                                                 OnClick="ToggleCandles">
+                                            Candles: @(ViewModel.ShowCandles ? "On" : "Off")
+                                        </MudChip>
+                                        <MudChip T="string"
+                                                 Variant="Variant.Outlined"
+                                                 Size="Size.Small"
+                                                 Color="@(ViewModel.ShowDayMinMaxMarkers ? Color.Success : Color.Default)"
+                                                 OnClick="ToggleDayMinMaxMarkers">
+                                            Day Min/Max: @(ViewModel.ShowDayMinMaxMarkers ? "On" : "Off")
+                                        </MudChip>
+                                        <MudChip T="string"
+                                                 Variant="Variant.Outlined"
+                                                 Size="Size.Small"
+                                                 Color="@(ViewModel.ShowOrderMarkers ? Color.Info : Color.Default)"
+                                                 OnClick="ToggleOrderMarkers">
+                                            Orders: @(ViewModel.ShowOrderMarkers ? "On" : "Off")
+                                        </MudChip>
+                                        <MudChip T="string"
+                                                 Variant="Variant.Outlined"
+                                                 Size="Size.Small"
+                                                 Color="@(ViewModel.ShowSkewShift ? Color.Warning : Color.Default)"
+                                                 OnClick="ToggleSkewShift">
+                                            Skew: @(ViewModel.ShowSkewShift ? "On" : "Off")
+                                        </MudChip>
+                                    </MudStack>
+
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="chart-controls-row">
+                                        <MudText Typo="Typo.subtitle2">Valuation timeline</MudText>
+                                        <MudSpacer />
+                                        <MudText Typo="Typo.caption" Class="ml-2">Index Price</MudText>
+                                        <MudNumericField T="decimal?"
+                                                         Value="@ViewModel.SelectedPrice"
+                                                         ValueChanged="OnTemporaryPriceChanged"
+                                                         Immediate="true"
+                                                         Variant="Variant.Outlined"
+                                                         Margin="Margin.Dense"
+                                                         Clearable="true"
+                                                         Adornment="Adornment.End"
+                                                         AdornmentText="USDT"
+                                                         Class="temp-price-field" />
+                                    </MudStack>
+                                    <ValuationTimelinePicker MinDateTime="@DateTime.UtcNow"
+                                                             MaxDateTime="@ResolveValuationTimelineEndUtc()"
+                                                             SelectedDateTime="@ViewModel.ValuationDate"
+                                                             SelectedDateTimeChanged="OnValuationTimelineChanged"
+                                                             ExpirationDates="@GetIncludedLegExpirationsUtc()" />
+                                </MudStack>
+                            </MudPaper>
+
+                            <MudPaper Class="@BuildSectionClass(MobileTab.Note, "notes-panel mobile-only-section")" Elevation="0">
+                                <MudText Typo="Typo.subtitle2">Notes</MudText>
+                                <MudTextField T="string"
+                                              @bind-Value="@ViewModel.Position.Notes"
+                                              Variant="Variant.Outlined"
+                                              Margin="Margin.Dense"
+                                              Lines="8"
+                                              FullWidth="true"
+                                              Placeholder="Write notes about this position..." />
+                            </MudPaper>
+
+                            <MudPaper Class="@BuildSectionClass(MobileTab.Legs, "position-panel-surface")" Elevation="0">
+                                <PortfoliosPanel ViewModel="@ViewModel" />
+                            </MudPaper>
+
+                            @if (ViewModel.ClosedPositions is not null)
+                            {
+                                <MudPaper Class="@BuildSectionClass(MobileTab.Trades, "position-panel-surface")" Elevation="0">
+                                    <ClosedPositionsPanel ViewModel="@ViewModel.ClosedPositions" />
+                                </MudPaper>
+                            }
+
+                            <MudPaper Class="@BuildSectionClass(MobileTab.Equity, "equity-panel mobile-only-section")" Elevation="0">
+                                <MudText Typo="Typo.h6">Exchange wallet</MudText>
+                                <WalletSummary ShowEquity="true"
+                                               ShowWalletBalance="true"
+                                               ShowUpdatedTimestamp="true"
+                                               CollapseToSingleColumnOnMobile="true" />
+                            </MudPaper>
+
+                            <MudPaper Class="@BuildSectionClass(MobileTab.More, "more-actions-panel mobile-only-section")" Elevation="0">
+                                <MudStack Spacing="1">
+                                    <MudText Typo="Typo.h6">More actions</MudText>
+                                    <MudButton Variant="Variant.Filled"
+                                               Color="Color.Primary"
+                                               StartIcon="@Icons.Material.Filled.Settings"
+                                               OnClick="OpenPositionSettingsDialogAsync">
+                                        Position settings
+                                    </MudButton>
+                                    <MudButton Variant="Variant.Outlined"
+                                               Color="Color.Default"
+                                               StartIcon="@Icons.Material.Filled.AddCircle"
+                                               OnClick="async () => await ViewModel.AddCollectionAsync()">
+                                        Add portfolio
+                                    </MudButton>
+                                    <MudButton Variant="Variant.Outlined"
+                                               Color="Color.Default"
+                                               StartIcon="@Icons.Material.Filled.Home"
+                                               Href="/">
+                                        Open dashboard
+                                    </MudButton>
+                                </MudStack>
+                            </MudPaper>
+                        </div>
                     </div>
                 }
             </div>
@@ -167,6 +355,12 @@ else
 }
 
 <style>
+    .position-page-shell {
+        --position-mobile-header-height: 44px;
+        --position-mobile-chart-height: 320px;
+        --position-mobile-tabs-height: 44px;
+        --position-mobile-fixed-stack-height: calc(var(--position-mobile-header-height) + var(--position-mobile-chart-height) + var(--position-mobile-tabs-height) + 24px);
+    }
     .position-swipe-area {
         display: block;
         flex: 1;
@@ -239,6 +433,10 @@ else
     .route-error-panel {
         padding: 24px;
     }
+    .position-header-surface {
+        position: relative;
+        z-index: 2;
+    }
     .notes-panel {
         padding: 16px;
         display: flex;
@@ -257,6 +455,9 @@ else
     .position-content {
         padding-top: 8px;
     }
+    .position-page-shell {
+        min-height: 0;
+    }
     .position-desktop-shell {
         display: flex;
         flex-direction: column;
@@ -271,11 +472,37 @@ else
         flex-direction: column;
         gap: 12px;
     }
+    .position-mobile-fixed-stack {
+        min-width: 0;
+    }
+    .position-mobile-fixed-root {
+        display: none;
+    }
+    .position-mobile-chart-shell {
+        display: none;
+    }
+    .mobile-position-header {
+        display: none;
+    }
+    .desktop-chart-column {
+        display: block;
+    }
+    .desktop-chart-section {
+        display: block;
+    }
+    .desktop-notes-panel {
+        display: block;
+    }
     .chart-surface {
         padding: 16px;
     }
     .position-panel-surface {
         padding: 0;
+    }
+    .chart-settings-panel,
+    .equity-panel,
+    .more-actions-panel {
+        padding: 16px;
     }
     .chart-controls-row {
         flex-wrap: wrap;
@@ -292,7 +519,21 @@ else
         bottom: 10px;
         z-index: 2;
     }
+    .mobile-tab-switcher {
+        display: none;
+    }
+    .position-sections {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+    .mobile-tab-hidden {
+        display: block;
+    }
     @@media (min-width: 961px) {
+        .mobile-only-section {
+            display: none !important;
+        }
         .position-desktop-shell {
             flex-direction: row;
             align-items: stretch;
@@ -305,6 +546,12 @@ else
             top: 72px;
             align-self: flex-start;
         }
+        .position-mobile-fixed-stack {
+            display: contents;
+        }
+        .position-mobile-fixed-root {
+            display: none;
+        }
         .position-details-column {
             flex: 1 1 auto;
             height: calc(100vh - 140px);
@@ -315,10 +562,105 @@ else
             z-index: 10;
         }
     }
-    @@media (max-width: 600px) {
+    @@media (max-width: 960px) {
+        .mud-layout > .main-appbar,
+        header.main-appbar {
+            display: none !important;
+        }
+        .mud-layout > .main-content-shell,
+        .mud-main-content.main-content-shell,
+        .main-content-shell {
+            height: 100vh;
+            padding-top: 0 !important;
+            margin-top: 0 !important;
+            padding-bottom: 0 !important;
+            overflow: hidden;
+        }
+        .mobile-bottom-nav {
+            display: none !important;
+        }
+        .position-page-shell,
+        .position-page-shell > .mud-card,
+        .position-page-shell > .mud-card > .mud-card-content:first-child {
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+        }
+        .main-appbar .appbar-wallet-row {
+            display: none !important;
+        }
+        .position-page-shell {
+            height: 100vh;
+            overflow: hidden;
+        }
+        .position-header-surface {
+            display: none;
+        }
+        .desktop-chart-column {
+            display: none;
+        }
+        .desktop-chart-section,
+        .desktop-notes-panel {
+            display: none;
+        }
+        .position-mobile-fixed-root {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 60;
+            background: var(--mud-palette-background);
+        }
+        .mobile-position-header {
+            display: block;
+            background: var(--mud-palette-background);
+            border-bottom: 1px solid rgba(148, 163, 184, 0.24);
+            padding: 0 16px;
+        }
+        .mobile-position-header > .mud-stack {
+            min-height: var(--position-mobile-header-height);
+        }
+        .position-mobile-chart-shell {
+            display: block;
+        }
         .position-title {
-            font-size: 1.45rem;
+            font-size: 0.9rem;
+            line-height: 1.1;
+            font-weight: 600;
             max-width: calc(100vw - 90px);
+        }
+        .position-title-row {
+            min-height: 0;
+        }
+        .position-header-surface .mud-icon-button {
+            width: 32px;
+            height: 32px;
+            padding: 4px;
+        }
+        .mobile-position-header {
+            position: static;
+        }
+        .mobile-tab-switcher {
+            position: static;
+        }
+        .position-content {
+            padding-top: 0;
+            padding-bottom: 0;
+        }
+        .position-desktop-shell {
+            height: 100vh;
+            overflow: hidden;
+        }
+        .position-details-column {
+            position: fixed;
+            top: var(--position-mobile-fixed-stack-height);
+            left: 0;
+            right: 0;
+            bottom: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+            -webkit-overflow-scrolling: touch;
+            padding: 8px 0 12px;
         }
         .position-summary-row {
             display: grid;
@@ -345,6 +687,54 @@ else
         .chart-controls-row .ml-2 {
             display: none;
         }
+        .mobile-tab-switcher {
+            display: block;
+            z-index: 34;
+            padding: 4px 0 0;
+            background: var(--mud-palette-background);
+            border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+        }
+        .mobile-tab-switcher-row {
+            overflow-x: auto;
+            flex-wrap: nowrap;
+            padding: 0 4px 6px;
+            gap: 4px;
+        }
+        .mobile-tab-button {
+            flex: 0 0 auto;
+            white-space: nowrap;
+            min-width: 0;
+            min-height: 28px;
+            padding: 4px 10px;
+            border: 0 !important;
+            border-radius: 10px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            line-height: 1;
+            text-transform: uppercase;
+            box-shadow: none !important;
+            background: transparent;
+            color: rgba(255, 255, 255, 0.88);
+        }
+        .mobile-tab-button.mud-button-root {
+            border: 0 !important;
+        }
+        .mobile-tab-button-active {
+            background: #f6aa1c;
+            color: #ffffff;
+        }
+        .mobile-tab-button-inactive {
+            background: rgba(148, 163, 184, 0.08);
+            color: rgba(255, 255, 255, 0.84);
+        }
+        .position-sections {
+            gap: 8px;
+            padding-bottom: 8px;
+        }
+        .mobile-tab-hidden {
+            display: none;
+        }
         .valuation-date-picker,
         .temp-price-field {
             min-width: 0;
@@ -364,8 +754,18 @@ else
         .notes-panel {
             padding: 12px;
         }
+        .chart-settings-panel,
+        .equity-panel,
+        .more-actions-panel {
+            padding: 12px;
+        }
         .chart-surface {
             position: static;
+            background: var(--mud-palette-background);
+            border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+        }
+        .payoff-chart {
+            height: var(--position-mobile-chart-height);
         }
     }
 </style>
@@ -377,6 +777,7 @@ else
 
     private const string ChartRangeStoragePrefix = "positions.chartRange.";
     private const string ChartTimeIntervalStorageKey = "positions.chartTimeIntervalMs";
+    private static readonly MobileTab[] MobileTabs = Enum.GetValues<MobileTab>();
     private bool HasActivePosition => _viewModelReady && ViewModel.Position?.Id != Guid.Empty;
     private bool _viewModelReady;
     private bool _isRouteLoading = true;
@@ -385,6 +786,7 @@ else
     private readonly object _liveRenderLock = new();
     private CancellationTokenSource? _liveRenderCts;
     private static readonly TimeSpan LiveRenderDebounce = TimeSpan.FromMilliseconds(120);
+    private MobileTab _activeMobileTab = MobileTab.Legs;
 
 
 
@@ -986,6 +1388,49 @@ else
         return value.HasValue
             ? $"{value.Value:+0.00;-0.00;0.00}%"
             : "-";
+    }
+
+    private void SetActiveMobileTab(MobileTab tab)
+    {
+        _activeMobileTab = tab;
+    }
+
+    private string BuildMobileTabButtonClass(MobileTab tab)
+    {
+        return tab == _activeMobileTab
+            ? "mobile-tab-button mobile-tab-button-active"
+            : "mobile-tab-button mobile-tab-button-inactive";
+    }
+
+    private string BuildSectionClass(MobileTab tab, string baseClass)
+    {
+        return tab == _activeMobileTab
+            ? baseClass
+            : $"{baseClass} mobile-tab-hidden";
+    }
+
+    private static string GetMobileTabLabel(MobileTab tab)
+    {
+        return tab switch
+        {
+            MobileTab.Note => "Note",
+            MobileTab.Chart => "Chart",
+            MobileTab.Legs => "Legs",
+            MobileTab.Trades => "Trades",
+            MobileTab.Equity => "Equity",
+            MobileTab.More => "...",
+            _ => tab.ToString()
+        };
+    }
+
+    private enum MobileTab
+    {
+        Note,
+        Chart,
+        Legs,
+        Trades,
+        Equity,
+        More
     }
 
 }
