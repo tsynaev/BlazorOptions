@@ -466,7 +466,16 @@ else
     {
         _ = InvokeAsync(async () =>
         {
-            ViewModel.UpdateSelectedPrice(price.HasValue ? (decimal?)price.Value : null, refresh: false);
+            if (ViewModel.IsLive)
+            {
+                // Keep live mode anchored to the streaming price so chart selection cannot drift from card P/L.
+                ViewModel.UpdateChartSelectedPrice(ViewModel.LivePrice);
+            }
+            else
+            {
+                ViewModel.UpdateSelectedPrice(price.HasValue ? (decimal?)price.Value : null, refresh: false);
+            }
+
             StateHasChanged();
         });
 
