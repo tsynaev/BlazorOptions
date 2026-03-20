@@ -11,6 +11,8 @@ public sealed class TradingSymbolDialogViewModel : Bindable
     private const string UnauthorizedMessage = "Sign in to view trading history.";
     private readonly ITradingHistoryPort _tradingHistoryPort;
     private IReadOnlyList<TradingHistoryEntry> _trades = Array.Empty<TradingHistoryEntry>();
+    private IReadOnlyList<TradeRow> _tradeRows = Array.Empty<TradeRow>();
+    private IReadOnlyList<TradeCycleSummary> _tradeCycleSummaries = Array.Empty<TradeCycleSummary>();
     private string _rawJson = string.Empty;
     private bool _isLoading;
     private string? _errorMessage;
@@ -47,6 +49,18 @@ public sealed class TradingSymbolDialogViewModel : Bindable
         private set => SetField(ref _trades, value);
     }
 
+    public IReadOnlyList<TradeRow> TradeRows
+    {
+        get => _tradeRows;
+        private set => SetField(ref _tradeRows, value);
+    }
+
+    public IReadOnlyList<TradeCycleSummary> TradeCycleSummaries
+    {
+        get => _tradeCycleSummaries;
+        private set => SetField(ref _tradeCycleSummaries, value);
+    }
+
     public string RawJson
     {
         get => _rawJson;
@@ -72,6 +86,8 @@ public sealed class TradingSymbolDialogViewModel : Bindable
         SinceDate = sinceDate;
         ErrorMessage = null;
         Trades = Array.Empty<TradingHistoryEntry>();
+        TradeRows = Array.Empty<TradeRow>();
+        TradeCycleSummaries = Array.Empty<TradeCycleSummary>();
         RawJson = string.Empty;
 
         if (string.IsNullOrWhiteSpace(Symbol))
@@ -88,6 +104,8 @@ public sealed class TradingSymbolDialogViewModel : Bindable
             var entries = await _tradingHistoryPort.LoadBySymbolAsync(Symbol, categoryValue, sinceTimestamp);
             var ordered = BuildSymbolView(entries);
             Trades = ordered;
+            TradeRows = BuildTradeRows(ordered);
+            TradeCycleSummaries = TradeCycleSummaryBuilder.BuildTradeCycleSummaries(TradeRows);
             RawJson = BuildRawJson(ordered);
         }
         catch (Exception ex)
@@ -134,6 +152,33 @@ public sealed class TradingSymbolDialogViewModel : Bindable
                 .Append(avgPriceAfterText).Append(" | ")
                 .Append(realizedPnlText).Append(" | ")
                 .Append(cumulativePnlText).AppendLine(" |");
+        }
+
+        return builder.ToString();
+    }
+
+    public string BuildTradeCycleSummaryMarkdownTable()
+    {
+        if (TradeCycleSummaries.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder();
+        builder.AppendLine("| Direction | Entry Time Range | Close Time Range | Entry Price | Size | Close Price | Fee | PnL |");
+        builder.AppendLine("|---|---|---|---:|---:|---:|---:|---:|");
+
+        foreach (var summary in TradeCycleSummaries)
+        {
+            builder.Append("| ")
+                .Append(EscapeMarkdown(summary.Direction)).Append(" | ")
+                .Append(EscapeMarkdown(FormatTimeRange(summary.EntryStartTimestamp, summary.EntryEndTimestamp))).Append(" | ")
+                .Append(EscapeMarkdown(FormatTimeRange(summary.CloseStartTimestamp, summary.CloseEndTimestamp))).Append(" | ")
+                .Append(FormatNumber(summary.EntryPrice)).Append(" | ")
+                .Append(FormatNumber(summary.Size)).Append(" | ")
+                .Append(FormatNumber(summary.ClosePrice)).Append(" | ")
+                .Append(FormatNumber(summary.Fee)).Append(" | ")
+                .Append(FormatNumber(summary.Pnl)).AppendLine(" |");
         }
 
         return builder.ToString();
@@ -236,6 +281,26 @@ public sealed class TradingSymbolDialogViewModel : Bindable
         return orderedAsc;
     }
 
+    private static IReadOnlyList<TradeRow> BuildTradeRows(IReadOnlyList<TradingHistoryEntry> entries)
+    {
+        if (entries.Count == 0)
+        {
+            return Array.Empty<TradeRow>();
+        }
+
+        return entries
+            .Where(entry => string.Equals(entry.TransactionType, "TRADE", StringComparison.OrdinalIgnoreCase))
+            .Select(entry => new TradeRow
+            {
+                Timestamp = entry.Timestamp,
+                Trade = $"{entry.Side} {FormatNumber(entry.Size)} {entry.Symbol}".Trim(),
+                Price = entry.Price,
+                Fee = entry.Fee,
+                SizeAfter = entry.Calculated?.SizeAfter ?? 0m
+            })
+            .ToList();
+    }
+
     private static string EscapeMarkdown(string value)
     {
         return value.Replace("|", "\\|", StringComparison.Ordinal);
@@ -262,6 +327,51 @@ public sealed class TradingSymbolDialogViewModel : Bindable
         catch
         {
             return "N/A";
+        }
+    }
+
+    private static string FormatTimeRange(long startTimestamp, long endTimestamp)
+    {
+        var start = ToLocalDateTime(startTimestamp);
+        var end = ToLocalDateTime(endTimestamp);
+        if (!start.HasValue || !end.HasValue)
+        {
+            var startText = FormatTimestamp(startTimestamp);
+            var endText = FormatTimestamp(endTimestamp);
+            return string.Equals(startText, endText, StringComparison.Ordinal)
+                ? startText
+                : $"{startText} -> {endText}";
+        }
+
+        if (start.Value == end.Value)
+        {
+            return start.Value.ToString("g", CultureInfo.CurrentCulture);
+        }
+
+        if (start.Value.Date == end.Value.Date)
+        {
+            var startText = start.Value.ToString("g", CultureInfo.CurrentCulture);
+            var endText = end.Value.ToString("t", CultureInfo.CurrentCulture);
+            return $"{startText} -> {endText}";
+        }
+
+        return $"{start.Value.ToString("g", CultureInfo.CurrentCulture)} -> {end.Value.ToString("g", CultureInfo.CurrentCulture)}";
+    }
+
+    private static DateTime? ToLocalDateTime(long timestamp)
+    {
+        if (timestamp <= 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            return DateTimeOffset.FromUnixTimeMilliseconds(timestamp).ToLocalTime().DateTime;
+        }
+        catch
+        {
+            return null;
         }
     }
 }

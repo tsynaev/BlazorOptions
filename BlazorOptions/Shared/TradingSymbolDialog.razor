@@ -7,8 +7,6 @@
 <MudDialog>
     <DialogContent>
         <MudStack Spacing="2">
-            <MudSwitch T="bool" @bind-Value="_showRaw" Color="Color.Primary" Label="Raw" />
-
             @if (ViewModel.IsLoading)
             {
                 <MudText Typo="Typo.body2">Loading trades...</MudText>
@@ -17,72 +15,111 @@
             {
                 <MudAlert Severity="Severity.Error">@ViewModel.ErrorMessage</MudAlert>
             }
-            else if (_showRaw)
-            {
-                @if (string.IsNullOrWhiteSpace(ViewModel.RawJson))
-                {
-                    <MudText Typo="Typo.body2">No raw data found for this symbol.</MudText>
-                }
-                else
-                {
-                    <MudTextField T="string"
-                                  Value="ViewModel.RawJson"
-                                  ReadOnly="true"
-                                  Lines="26"
-                                  Variant="Variant.Outlined"
-                                  Class="w-100"
-                                  Style="font-family: Consolas, 'Courier New', monospace;" />
-                }
-            }
             else if (ViewModel.Trades.Count == 0)
             {
                 <MudText Typo="Typo.body2">No trades found for this symbol.</MudText>
             }
             else
             {
-                <MudDataGrid T="TradingHistoryEntry"
-                             Items="ViewModel.Trades"
-                             Dense="true"
-                             Hover="true"
-                             FixedHeader="true"
-                             Height="420px">
-                    <Columns>
-                        <TemplateColumn Title="Date">
-                            <CellTemplate>
-                                <MudStack Spacing="0">
-                                    <MudText Typo="Typo.body2">@FormatTimestamp(context.Item.Timestamp)</MudText>
-                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.TransactionType</MudText>
-                                </MudStack>
-                            </CellTemplate>
-                        </TemplateColumn>
-                        <TemplateColumn Title="Trade"
-                                        HeaderStyle="min-width: 320px; width: 320px;"
-                                        CellStyle="min-width: 320px;">
-                            <CellTemplate>
-                                @($"{context.Item.Side} {context.Item.Size} {context.Item.Symbol}")
-                            </CellTemplate>
-                        </TemplateColumn>
-                        <TemplateColumn Title="Price">
-                            <CellTemplate>
-                                @context.Item.Price
-                            </CellTemplate>
-                        </TemplateColumn>
-                        <TemplateColumn Title="Value">
-                            <CellTemplate>
-                                @($"{FormatValue(context.Item.Size, context.Item.Price)} {context.Item.Currency}")
-                            </CellTemplate>
-                        </TemplateColumn>
-                        <TemplateColumn Title="Fee">
-                            <CellTemplate>
-                                @($"{context.Item.Fee} {context.Item.Currency}")
-                            </CellTemplate>
-                        </TemplateColumn>
-                        <PropertyColumn Property="x => x.Calculated.SizeAfter" Title="Size after" />
-                        <PropertyColumn Property="x => x.Calculated.AvgPriceAfter" Title="Avg price after" />
-                        <PropertyColumn Property="x => x.Calculated.RealizedPnl" Title="Realized PnL" />
-                        <PropertyColumn Property="x => x.Calculated.CumulativePnl" Title="Cumulative PnL" />
-                    </Columns>
-                </MudDataGrid>
+                <MudTabs Rounded="true" @bind-ActivePanelIndex="_activeTabIndex">
+                    <MudTabPanel Text="Trades">
+                        <MudDataGrid T="TradingHistoryEntry"
+                                     Items="ViewModel.Trades"
+                                     Dense="true"
+                                     Hover="true"
+                                     FixedHeader="true"
+                                     Height="420px">
+                            <Columns>
+                                <TemplateColumn Title="Date">
+                                    <CellTemplate>
+                                        <MudStack Spacing="0">
+                                            <MudText Typo="Typo.body2">@FormatTimestamp(context.Item.Timestamp)</MudText>
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.TransactionType</MudText>
+                                        </MudStack>
+                                    </CellTemplate>
+                                </TemplateColumn>
+                                <TemplateColumn Title="Trade"
+                                                HeaderStyle="min-width: 320px; width: 320px;"
+                                                CellStyle="min-width: 320px;">
+                                    <CellTemplate>
+                                        @($"{context.Item.Side} {context.Item.Size} {context.Item.Symbol}")
+                                    </CellTemplate>
+                                </TemplateColumn>
+                                <TemplateColumn Title="Price">
+                                    <CellTemplate>
+                                        @context.Item.Price
+                                    </CellTemplate>
+                                </TemplateColumn>
+                                <TemplateColumn Title="Value">
+                                    <CellTemplate>
+                                        @($"{FormatValue(context.Item.Size, context.Item.Price)} {context.Item.Currency}")
+                                    </CellTemplate>
+                                </TemplateColumn>
+                                <TemplateColumn Title="Fee">
+                                    <CellTemplate>
+                                        @($"{context.Item.Fee} {context.Item.Currency}")
+                                    </CellTemplate>
+                                </TemplateColumn>
+                                <PropertyColumn Property="x => x.Calculated.SizeAfter" Title="Size after" />
+                                <PropertyColumn Property="x => x.Calculated.AvgPriceAfter" Title="Avg price after" />
+                                <PropertyColumn Property="x => x.Calculated.RealizedPnl" Title="Realized PnL" />
+                                <PropertyColumn Property="x => x.Calculated.CumulativePnl" Title="Cumulative PnL" />
+                            </Columns>
+                        </MudDataGrid>
+                    </MudTabPanel>
+                    <MudTabPanel Text="Summary">
+                        @if (ViewModel.TradeCycleSummaries.Count == 0)
+                        {
+                            <MudText Typo="Typo.body2">No fully closed trade cycles found.</MudText>
+                        }
+                        else
+                        {
+                            <MudTable T="TradeCycleSummary"
+                                      Items="ViewModel.TradeCycleSummaries"
+                                      Dense="true"
+                                      Hover="true"
+                                      FixedHeader="true"
+                                      Height="420px">
+                                <HeaderContent>
+                                    <MudTh>Direction</MudTh>
+                                    <MudTh>Entry Time Range</MudTh>
+                                    <MudTh>Close Time Range</MudTh>
+                                    <MudTh>Entry Price</MudTh>
+                                    <MudTh>Size</MudTh>
+                                    <MudTh>Close Price</MudTh>
+                                    <MudTh>Fee</MudTh>
+                                    <MudTh>PnL</MudTh>
+                                </HeaderContent>
+                                <RowTemplate>
+                                    <MudTd DataLabel="Direction">@context.Direction</MudTd>
+                                    <MudTd DataLabel="Entry Time Range">@FormatTimeRange(context.EntryStartTimestamp, context.EntryEndTimestamp)</MudTd>
+                                    <MudTd DataLabel="Close Time Range">@FormatTimeRange(context.CloseStartTimestamp, context.CloseEndTimestamp)</MudTd>
+                                    <MudTd DataLabel="Entry Price">@FormatNumber(context.EntryPrice)</MudTd>
+                                    <MudTd DataLabel="Size">@FormatNumber(context.Size)</MudTd>
+                                    <MudTd DataLabel="Close Price">@FormatNumber(context.ClosePrice)</MudTd>
+                                    <MudTd DataLabel="Fee">@FormatNumber(context.Fee)</MudTd>
+                                    <MudTd DataLabel="PnL">@FormatNumber(context.Pnl)</MudTd>
+                                </RowTemplate>
+                            </MudTable>
+                        }
+                    </MudTabPanel>
+                    <MudTabPanel Text="Raw">
+                        @if (string.IsNullOrWhiteSpace(ViewModel.RawJson))
+                        {
+                            <MudText Typo="Typo.body2">No raw data found for this symbol.</MudText>
+                        }
+                        else
+                        {
+                            <MudTextField T="string"
+                                          Value="ViewModel.RawJson"
+                                          ReadOnly="true"
+                                          Lines="26"
+                                          Variant="Variant.Outlined"
+                                          Class="w-100"
+                                          Style="font-family: Consolas, 'Courier New', monospace;" />
+                        }
+                    </MudTabPanel>
+                </MudTabs>
             }
         </MudStack>
     </DialogContent>
@@ -101,8 +138,8 @@
     [CascadingParameter] private IMudDialogInstance? MudDialog { get; set; }
 
     [Parameter, EditorRequired] public TradingSymbolDialogViewModel ViewModel { get; set; } = default!;
-    private bool _showRaw;
     private PropertyChangedEventHandler? _viewModelChangedHandler;
+    private int _activeTabIndex;
 
     protected override void OnInitialized()
     {
@@ -129,7 +166,7 @@
         {
             return DateTimeOffset.FromUnixTimeMilliseconds(timestamp.Value)
                 .ToLocalTime()
-                .ToString("g");
+                .ToString("g", CultureInfo.CurrentCulture);
         }
         catch
         {
@@ -142,9 +179,61 @@
         return (qty * price).ToString("0.##########", CultureInfo.InvariantCulture);
     }
 
+    private static string FormatNumber(decimal value)
+    {
+        return value.ToString("0.##########", CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatTimeRange(long startTimestamp, long endTimestamp)
+    {
+        var start = ToLocalDateTime(startTimestamp);
+        var end = ToLocalDateTime(endTimestamp);
+        if (!start.HasValue || !end.HasValue)
+        {
+            var startText = FormatTimestamp(startTimestamp);
+            var endText = FormatTimestamp(endTimestamp);
+            return string.Equals(startText, endText, StringComparison.Ordinal)
+                ? startText
+                : $"{startText} -> {endText}";
+        }
+
+        if (start.Value == end.Value)
+        {
+            return start.Value.ToString("g", CultureInfo.CurrentCulture);
+        }
+
+        if (start.Value.Date == end.Value.Date)
+        {
+            var startText = start.Value.ToString("g", CultureInfo.CurrentCulture);
+            var endText = end.Value.ToString("t", CultureInfo.CurrentCulture);
+            return $"{startText} -> {endText}";
+        }
+
+        return $"{start.Value.ToString("g", CultureInfo.CurrentCulture)} -> {end.Value.ToString("g", CultureInfo.CurrentCulture)}";
+    }
+
+    private static DateTime? ToLocalDateTime(long timestamp)
+    {
+        if (timestamp <= 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            return DateTimeOffset.FromUnixTimeMilliseconds(timestamp).ToLocalTime().DateTime;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private async Task CopyTableAsMarkdownAsync()
     {
-        var markdown = ViewModel.BuildTradesMarkdownTable();
+        var markdown = _activeTabIndex == 1
+            ? ViewModel.BuildTradeCycleSummaryMarkdownTable()
+            : ViewModel.BuildTradesMarkdownTable();
         if (string.IsNullOrWhiteSpace(markdown))
         {
             return;

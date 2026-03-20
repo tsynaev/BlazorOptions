@@ -1,5 +1,22 @@
 # Trading History
 
+## Symbol dialog summary
+
+When you open a symbol from trading history, the dialog now includes a `Summary` tab.
+
+The summary groups fully closed round-trip cycles for that symbol and shows:
+
+- Direction as `Open/Close Long` or `Open/Close Short`
+- Entry time range from the first opening fill to the last opening fill
+- Close time range from the first closing fill to the last closing fill
+- Entry price as the VWAP of all opening fills
+- Size as the absolute opened size of the cycle
+- Close price as the VWAP of all closing fills
+- Total fees across all fills in the cycle
+- Net PnL after fees
+
+Only fully closed cycles are listed. Open positions and partial cycles are not shown in the summary table.
+
 The Trading History feature pulls and analyzes Bybit transaction logs, with paging for fast initial load.
 
 ## Core capabilities

@@ -84,7 +84,8 @@ builder.Services.AddScoped<VolatilitySkewViewModel>();
 builder.Services.AddScoped<StraddleFairValueViewModel>();
 builder.Services.AddScoped<BlockTradesViewModel>();
 builder.Services.AddDialog<PositionCreateDialog, PositionCreateDialogViewModel>();
-builder.Services.AddDialog<TradingSymbolDialog, TradingSymbolDialogViewModel>();
+builder.Services.AddDialog<TradingSymbolDialog, TradingSymbolDialogViewModel>(
+    viewModel => string.IsNullOrWhiteSpace(viewModel.Symbol) ? nameof(TradingSymbolDialog) : viewModel.Symbol);
 builder.Services.AddDialog<TradingHistorySelectionDialog, TradingHistorySelectionDialogViewModel>();
 builder.Services.AddMudServices();
 

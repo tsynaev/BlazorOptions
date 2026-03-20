@@ -7,7 +7,9 @@ namespace BlazorOptions.Services;
 
 public static class ServiceCollectionDialogExtensions
 {
-    public static IServiceCollection AddDialog<TDialog, TViewModel>(this IServiceCollection services)
+    public static IServiceCollection AddDialog<TDialog, TViewModel>(
+        this IServiceCollection services,
+        Func<TViewModel, string>? titleSelector = null)
         where TDialog : class, IComponent
         where TViewModel : class
     {
@@ -27,7 +29,13 @@ public static class ServiceCollectionDialogExtensions
                 FullWidth = true
             };
 
-            _ = dialogService.ShowAsync<TDialog>(typeof(TDialog).Name, parameters, options);
+            var title = titleSelector?.Invoke(viewModel);
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                title = typeof(TDialog).Name;
+            }
+
+            _ = dialogService.ShowAsync<TDialog>(title, parameters, options);
             return Task.CompletedTask;
         });
     }
