@@ -1,0 +1,19 @@
+<MudText Typo="Typo.subtitle2">Notes</MudText>
+<MudTextField T="string"
+              Value="@ViewModel.Notes"
+              ValueChanged="@OnNotesChanged"
+              Variant="Variant.Outlined"
+              Margin="Margin.Dense"
+              Lines="8"
+              FullWidth="true"
+              Placeholder="Write notes about this position..." />
+
+@code {
+    [Parameter, EditorRequired] public PositionNotesPanelViewModel ViewModel { get; set; } = default!;
+
+    private Task OnNotesChanged(string? notes)
+    {
+        ViewModel.Notes = notes ?? string.Empty;
+        return Task.CompletedTask;
+    }
+}

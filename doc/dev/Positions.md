@@ -54,6 +54,13 @@ Route: `/position/{positionId}`
 - Candles default to `1H` and `48h` window.
 - Range changes load only missing candle segments.
 
+## Responsive Layout
+
+- `Position.razor` should remain a layout shell that chooses between desktop and mobile composition.
+- Repeated section markup is split into shared components (`PositionChartSettingsPanel`, `PositionNotesPanel`, `PositionEquityPanel`, `PositionMoreActionsPanel`, `PortfoliosPanel`) so desktop/mobile layout changes do not duplicate business-facing UI blocks.
+- Panel components should receive one child view model each (`PositionChartSettingsPanelViewModel`, `PositionNotesPanelViewModel`, `PositionEquityPanelViewModel`, `PositionMoreActionsPanelViewModel`) instead of many primitive parameters and callbacks.
+- Mobile keeps a fixed top shell (title, chart, tabs) and renders section content below it; desktop keeps the chart column and details column as separate regions.
+
 ## Marker Rules
 
 - Included `Order` and `New` legs: compact order markers.

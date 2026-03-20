@@ -1,0 +1,25 @@
+<MudStack Spacing="1">
+    <MudText Typo="Typo.h6">More actions</MudText>
+    <MudButton Variant="Variant.Filled"
+               Color="Color.Primary"
+               StartIcon="@Icons.Material.Filled.Settings"
+               OnClick="ViewModel.OpenPositionSettingsAsync">
+        Position settings
+    </MudButton>
+    <MudButton Variant="Variant.Outlined"
+               Color="Color.Default"
+               StartIcon="@Icons.Material.Filled.AddCircle"
+               OnClick="ViewModel.AddPortfolioAsync">
+        Add portfolio
+    </MudButton>
+    <MudButton Variant="Variant.Outlined"
+               Color="Color.Default"
+               StartIcon="@Icons.Material.Filled.Home"
+               Href="/">
+        Open dashboard
+    </MudButton>
+</MudStack>
+
+@code {
+    [Parameter, EditorRequired] public PositionMoreActionsPanelViewModel ViewModel { get; set; } = default!;
+}

@@ -1,0 +1,9 @@
+<MudText Typo="Typo.h6">Exchange wallet</MudText>
+<WalletSummary ShowEquity="true"
+               ShowWalletBalance="true"
+               ShowUpdatedTimestamp="@ViewModel.ShowUpdatedTimestamp"
+               CollapseToSingleColumnOnMobile="true" />
+
+@code {
+    [Parameter, EditorRequired] public PositionEquityPanelViewModel ViewModel { get; set; } = default!;
+}

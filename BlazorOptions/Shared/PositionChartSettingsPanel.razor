@@ -1,0 +1,68 @@
+<MudStack Spacing="2">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="position-summary-row">
+        <MudChip T="string" Variant="Variant.Filled" Size="Size.Small" Color="@ViewModel.TotalPnlColor">
+            @ViewModel.TotalPnlText
+        </MudChip>
+        <MudChip T="string"
+                 Variant="Variant.Outlined"
+                 Size="Size.Small"
+                 Color="@(ViewModel.IsLive ? Color.Success : Color.Default)"
+                 OnClick="ViewModel.ToggleLiveAsync">
+            Live: @(ViewModel.IsLive ? "On" : "Off")
+        </MudChip>
+        <MudChip T="string"
+                 Variant="Variant.Outlined"
+                 Size="Size.Small"
+                 Color="@(ViewModel.ShowCandles ? Color.Info : Color.Default)"
+                 OnClick="ViewModel.ToggleCandlesAsync">
+            Candles: @(ViewModel.ShowCandles ? "On" : "Off")
+        </MudChip>
+        <MudChip T="string"
+                 Variant="Variant.Outlined"
+                 Size="Size.Small"
+                 Color="@(ViewModel.ShowDayMinMaxMarkers ? Color.Success : Color.Default)"
+                 OnClick="ViewModel.ToggleDayMinMaxMarkersAsync">
+            Day Min/Max: @(ViewModel.ShowDayMinMaxMarkers ? "On" : "Off")
+        </MudChip>
+        <MudChip T="string"
+                 Variant="Variant.Outlined"
+                 Size="Size.Small"
+                 Color="@(ViewModel.ShowOrderMarkers ? Color.Info : Color.Default)"
+                 OnClick="ViewModel.ToggleOrderMarkersAsync">
+            Orders: @(ViewModel.ShowOrderMarkers ? "On" : "Off")
+        </MudChip>
+        <MudChip T="string"
+                 Variant="Variant.Outlined"
+                 Size="Size.Small"
+                 Color="@(ViewModel.ShowSkewShift ? Color.Warning : Color.Default)"
+                 OnClick="ViewModel.ToggleSkewShiftAsync">
+            Skew: @(ViewModel.ShowSkewShift ? "On" : "Off")
+        </MudChip>
+    </MudStack>
+
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="chart-controls-row">
+        <MudText Typo="Typo.subtitle2">Valuation timeline</MudText>
+        <MudSpacer />
+        <MudText Typo="Typo.caption" Class="ml-2">Index Price</MudText>
+        <MudNumericField T="decimal?"
+                         Value="@ViewModel.SelectedPrice"
+                         ValueChanged="ViewModel.SetSelectedPriceAsync"
+                         Immediate="true"
+                         Variant="Variant.Outlined"
+                         Margin="Margin.Dense"
+                         Clearable="true"
+                         Adornment="Adornment.End"
+                         AdornmentText="USDT"
+                         Class="temp-price-field" />
+    </MudStack>
+
+    <ValuationTimelinePicker MinDateTime="@ViewModel.MinDateTimeUtc"
+                             MaxDateTime="@ViewModel.MaxDateTimeUtc"
+                             SelectedDateTime="@ViewModel.SelectedDateTimeUtc"
+                             SelectedDateTimeChanged="ViewModel.SetValuationDateAsync"
+                             ExpirationDates="@ViewModel.ExpirationDatesUtc" />
+</MudStack>
+
+@code {
+    [Parameter, EditorRequired] public PositionChartSettingsPanelViewModel ViewModel { get; set; } = default!;
+}

@@ -127,46 +127,9 @@ else
                 <div class="position-chart-column desktop-chart-column">
                     <MudPaper Class="chart-surface" Elevation="0">
                         <MudStack Spacing="2">
-                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="position-summary-row desktop-chart-section">
-                                <MudChip T="string" Variant="Variant.Filled" Size="Size.Small" Color="@ResolvePnlColor(ResolveTotalCombinedPnl())">
-                                    Total P/L: @FormatPrice(ResolveTotalCombinedPnl()) (@FormatPercent(ResolveTotalCombinedPnlPercent()))
-                                </MudChip>
-                                <MudChip T="string"
-                                         Variant="Variant.Outlined"
-                                         Size="Size.Small"
-                                         Color="@(ViewModel.IsLive ? Color.Success : Color.Default)"
-                                         OnClick="ToggleLive">
-                                    Live: @(ViewModel.IsLive ? "On" : "Off")
-                                </MudChip>
-                                <MudChip T="string"
-                                         Variant="Variant.Outlined"
-                                         Size="Size.Small"
-                                         Color="@(ViewModel.ShowCandles ? Color.Info : Color.Default)"
-                                         OnClick="ToggleCandles">
-                                    Candles: @(ViewModel.ShowCandles ? "On" : "Off")
-                                </MudChip>
-                                <MudChip T="string"
-                                         Variant="Variant.Outlined"
-                                         Size="Size.Small"
-                                         Color="@(ViewModel.ShowDayMinMaxMarkers ? Color.Success : Color.Default)"
-                                         OnClick="ToggleDayMinMaxMarkers">
-                                    Day Min/Max: @(ViewModel.ShowDayMinMaxMarkers ? "On" : "Off")
-                                </MudChip>
-                                <MudChip T="string"
-                                         Variant="Variant.Outlined"
-                                         Size="Size.Small"
-                                         Color="@(ViewModel.ShowOrderMarkers ? Color.Info : Color.Default)"
-                                         OnClick="ToggleOrderMarkers">
-                                    Orders: @(ViewModel.ShowOrderMarkers ? "On" : "Off")
-                                </MudChip>
-                                <MudChip T="string"
-                                         Variant="Variant.Outlined"
-                                         Size="Size.Small"
-                                         Color="@(ViewModel.ShowSkewShift ? Color.Warning : Color.Default)"
-                                         OnClick="ToggleSkewShift">
-                                    Skew: @(ViewModel.ShowSkewShift ? "On" : "Off")
-                                </MudChip>
-                            </MudStack>
+                            <div class="desktop-chart-section">
+                                <PositionChartSettingsPanel ViewModel="@_chartSettingsPanelViewModel" />
+                            </div>
 
                             <PayoffChart Strategies="@DisplayChartStrategies"
                                          SelectedPrice="@DisplaySelectedPrice"
@@ -181,42 +144,13 @@ else
                                          TimeRange="@ViewModel.ChartTimeRange"
                                          TimeRangeChanged="HandleChartTimeRangeChanged" />
 
-                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="chart-controls-row desktop-chart-section">
-                                <MudText Typo="Typo.subtitle2">Valuation timeline</MudText>
-                                <MudSpacer />
-                                <MudText Typo="Typo.caption" Class="ml-2">Index Price</MudText>
-                                <MudNumericField T="decimal?"
-                                                 Value="@ViewModel.SelectedPrice"
-                                                 ValueChanged="OnTemporaryPriceChanged"
-                                                 Immediate="true"
-                                                 Variant="Variant.Outlined"
-                                                 Margin="Margin.Dense"
-                                                 Clearable="true"
-                                                 Adornment="Adornment.End"
-                                                 AdornmentText="USDT"
-                                                 Class="temp-price-field" />
-                            </MudStack>
-                            <div class="desktop-chart-section">
-                                <ValuationTimelinePicker MinDateTime="@DateTime.UtcNow"
-                                                         MaxDateTime="@ResolveValuationTimelineEndUtc()"
-                                                         SelectedDateTime="@ViewModel.ValuationDate"
-                                                         SelectedDateTimeChanged="OnValuationTimelineChanged"
-                                                         ExpirationDates="@GetIncludedLegExpirationsUtc()" />
-                            </div>
                         </MudStack>
                     </MudPaper>
 
                     @if (HasActivePosition)
                     {
                         <MudPaper Class="notes-panel desktop-notes-panel" Elevation="0">
-                            <MudText Typo="Typo.subtitle2">Notes</MudText>
-                            <MudTextField T="string"
-                                          @bind-Value="@ViewModel.Position.Notes"
-                                          Variant="Variant.Outlined"
-                                          Margin="Margin.Dense"
-                                          Lines="8"
-                                          FullWidth="true"
-                                          Placeholder="Write notes about this position..." />
+                            <PositionNotesPanel ViewModel="@_notesPanelViewModel" />
                         </MudPaper>
                     }
                 </div>
@@ -226,80 +160,11 @@ else
                     <div class="position-details-column">
                         <div class="position-sections">
                             <MudPaper Class="@BuildSectionClass(MobileTab.Chart, "chart-settings-panel mobile-only-section")" Elevation="0">
-                                <MudStack Spacing="2">
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="position-summary-row">
-                                        <MudChip T="string" Variant="Variant.Filled" Size="Size.Small" Color="@ResolvePnlColor(ResolveTotalCombinedPnl())">
-                                            Total P/L: @FormatPrice(ResolveTotalCombinedPnl()) (@FormatPercent(ResolveTotalCombinedPnlPercent()))
-                                        </MudChip>
-                                        <MudChip T="string"
-                                                 Variant="Variant.Outlined"
-                                                 Size="Size.Small"
-                                                 Color="@(ViewModel.IsLive ? Color.Success : Color.Default)"
-                                                 OnClick="ToggleLive">
-                                            Live: @(ViewModel.IsLive ? "On" : "Off")
-                                        </MudChip>
-                                        <MudChip T="string"
-                                                 Variant="Variant.Outlined"
-                                                 Size="Size.Small"
-                                                 Color="@(ViewModel.ShowCandles ? Color.Info : Color.Default)"
-                                                 OnClick="ToggleCandles">
-                                            Candles: @(ViewModel.ShowCandles ? "On" : "Off")
-                                        </MudChip>
-                                        <MudChip T="string"
-                                                 Variant="Variant.Outlined"
-                                                 Size="Size.Small"
-                                                 Color="@(ViewModel.ShowDayMinMaxMarkers ? Color.Success : Color.Default)"
-                                                 OnClick="ToggleDayMinMaxMarkers">
-                                            Day Min/Max: @(ViewModel.ShowDayMinMaxMarkers ? "On" : "Off")
-                                        </MudChip>
-                                        <MudChip T="string"
-                                                 Variant="Variant.Outlined"
-                                                 Size="Size.Small"
-                                                 Color="@(ViewModel.ShowOrderMarkers ? Color.Info : Color.Default)"
-                                                 OnClick="ToggleOrderMarkers">
-                                            Orders: @(ViewModel.ShowOrderMarkers ? "On" : "Off")
-                                        </MudChip>
-                                        <MudChip T="string"
-                                                 Variant="Variant.Outlined"
-                                                 Size="Size.Small"
-                                                 Color="@(ViewModel.ShowSkewShift ? Color.Warning : Color.Default)"
-                                                 OnClick="ToggleSkewShift">
-                                            Skew: @(ViewModel.ShowSkewShift ? "On" : "Off")
-                                        </MudChip>
-                                    </MudStack>
-
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="chart-controls-row">
-                                        <MudText Typo="Typo.subtitle2">Valuation timeline</MudText>
-                                        <MudSpacer />
-                                        <MudText Typo="Typo.caption" Class="ml-2">Index Price</MudText>
-                                        <MudNumericField T="decimal?"
-                                                         Value="@ViewModel.SelectedPrice"
-                                                         ValueChanged="OnTemporaryPriceChanged"
-                                                         Immediate="true"
-                                                         Variant="Variant.Outlined"
-                                                         Margin="Margin.Dense"
-                                                         Clearable="true"
-                                                         Adornment="Adornment.End"
-                                                         AdornmentText="USDT"
-                                                         Class="temp-price-field" />
-                                    </MudStack>
-                                    <ValuationTimelinePicker MinDateTime="@DateTime.UtcNow"
-                                                             MaxDateTime="@ResolveValuationTimelineEndUtc()"
-                                                             SelectedDateTime="@ViewModel.ValuationDate"
-                                                             SelectedDateTimeChanged="OnValuationTimelineChanged"
-                                                             ExpirationDates="@GetIncludedLegExpirationsUtc()" />
-                                </MudStack>
+                                <PositionChartSettingsPanel ViewModel="@_chartSettingsPanelViewModel" />
                             </MudPaper>
 
                             <MudPaper Class="@BuildSectionClass(MobileTab.Note, "notes-panel mobile-only-section")" Elevation="0">
-                                <MudText Typo="Typo.subtitle2">Notes</MudText>
-                                <MudTextField T="string"
-                                              @bind-Value="@ViewModel.Position.Notes"
-                                              Variant="Variant.Outlined"
-                                              Margin="Margin.Dense"
-                                              Lines="8"
-                                              FullWidth="true"
-                                              Placeholder="Write notes about this position..." />
+                                <PositionNotesPanel ViewModel="@_notesPanelViewModel" />
                             </MudPaper>
 
                             <MudPaper Class="@BuildSectionClass(MobileTab.Legs, "position-panel-surface")" Elevation="0">
@@ -314,35 +179,11 @@ else
                             }
 
                             <MudPaper Class="@BuildSectionClass(MobileTab.Equity, "equity-panel mobile-only-section")" Elevation="0">
-                                <MudText Typo="Typo.h6">Exchange wallet</MudText>
-                                <WalletSummary ShowEquity="true"
-                                               ShowWalletBalance="true"
-                                               ShowUpdatedTimestamp="true"
-                                               CollapseToSingleColumnOnMobile="true" />
+                                <PositionEquityPanel ViewModel="@_equityPanelViewModel" />
                             </MudPaper>
 
                             <MudPaper Class="@BuildSectionClass(MobileTab.More, "more-actions-panel mobile-only-section")" Elevation="0">
-                                <MudStack Spacing="1">
-                                    <MudText Typo="Typo.h6">More actions</MudText>
-                                    <MudButton Variant="Variant.Filled"
-                                               Color="Color.Primary"
-                                               StartIcon="@Icons.Material.Filled.Settings"
-                                               OnClick="OpenPositionSettingsDialogAsync">
-                                        Position settings
-                                    </MudButton>
-                                    <MudButton Variant="Variant.Outlined"
-                                               Color="Color.Default"
-                                               StartIcon="@Icons.Material.Filled.AddCircle"
-                                               OnClick="async () => await ViewModel.AddCollectionAsync()">
-                                        Add portfolio
-                                    </MudButton>
-                                    <MudButton Variant="Variant.Outlined"
-                                               Color="Color.Default"
-                                               StartIcon="@Icons.Material.Filled.Home"
-                                               Href="/">
-                                        Open dashboard
-                                    </MudButton>
-                                </MudStack>
+                                <PositionMoreActionsPanel ViewModel="@_moreActionsPanelViewModel" />
                             </MudPaper>
                         </div>
                     </div>
@@ -787,6 +628,10 @@ else
     private CancellationTokenSource? _liveRenderCts;
     private static readonly TimeSpan LiveRenderDebounce = TimeSpan.FromMilliseconds(120);
     private MobileTab _activeMobileTab = MobileTab.Legs;
+    private PositionChartSettingsPanelViewModel _chartSettingsPanelViewModel = default!;
+    private PositionNotesPanelViewModel _notesPanelViewModel = default!;
+    private PositionEquityPanelViewModel _equityPanelViewModel = default!;
+    private PositionMoreActionsPanelViewModel _moreActionsPanelViewModel = default!;
 
 
 
@@ -795,6 +640,21 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        _chartSettingsPanelViewModel = new PositionChartSettingsPanelViewModel(
+            ViewModel,
+            OnTemporaryPriceChanged,
+            OnValuationTimelineChanged,
+            ToggleLive,
+            ToggleCandles,
+            ToggleDayMinMaxMarkers,
+            ToggleOrderMarkers,
+            ToggleSkewShift);
+        _notesPanelViewModel = new PositionNotesPanelViewModel(ViewModel);
+        _equityPanelViewModel = new PositionEquityPanelViewModel();
+        _moreActionsPanelViewModel = new PositionMoreActionsPanelViewModel(
+            OpenPositionSettingsDialogAsync,
+            AddPortfolioAsync);
+
         _isRouteLoading = true;
         try
         {
@@ -963,6 +823,11 @@ else
     {
         ViewModel.SetShowSkewShift(!ViewModel.ShowSkewShift);
         return InvokeAsync(StateHasChanged);
+    }
+
+    private Task AddPortfolioAsync()
+    {
+        return ViewModel.AddCollectionAsync();
     }
 
     private async Task HandleChartTimeRangeChanged(TimeRange range)
@@ -1267,127 +1132,6 @@ else
         var quoteAsset = ResolveAssetLabel(position.QuoteAsset);
         var name = string.IsNullOrWhiteSpace(position.Name) ? "Position" : position.Name.Trim();
         return $"{baseAsset}/{quoteAsset} - {name}";
-    }
-
-    private decimal? ResolveTotalTempPnl()
-    {
-        if (!HasActivePosition)
-        {
-            return null;
-        }
-
-        decimal total = 0;
-        var hasValue = false;
-        foreach (var collection in ViewModel.Collections)
-        {
-            if (!collection.Collection.IsVisible)
-            {
-                continue;
-            }
-
-            var value = collection.TotalTempPnl;
-            if (!value.HasValue)
-            {
-                continue;
-            }
-
-            total += value.Value;
-            hasValue = true;
-        }
-
-        return hasValue ? total : null;
-    }
-
-    private static string FormatPrice(decimal? price)
-    {
-        return price.HasValue ? price.Value.ToString("0.00") : "-";
-    }
-
-    private static Color ResolvePnlColor(decimal? value)
-    {
-        if (!value.HasValue)
-        {
-            return Color.Default;
-        }
-
-        return value.Value >= 0 ? Color.Success : Color.Error;
-    }
-
-    private decimal? ResolveClosedNetPnl()
-    {
-        var closed = HasActivePosition ? ViewModel.Position.Closed : null;
-        if (closed is null || !closed.Include)
-        {
-            return null;
-        }
-
-        return closed.TotalNet;
-    }
-
-    private decimal? ResolveTotalCombinedPnl()
-    {
-        var temp = ResolveTotalTempPnl();
-        var closed = ResolveClosedNetPnl();
-
-        if (!temp.HasValue && !closed.HasValue)
-        {
-            return null;
-        }
-
-        return (temp ?? 0m) + (closed ?? 0m);
-    }
-
-    private decimal ResolvePortfolioEntryValue()
-    {
-        if (!HasActivePosition)
-        {
-            return 0m;
-        }
-
-        decimal total = 0m;
-        foreach (var collection in ViewModel.Collections)
-        {
-            if (!collection.Collection.IsVisible)
-            {
-                continue;
-            }
-
-            foreach (var leg in collection.Legs)
-            {
-                if (!leg.Leg.IsIncluded || leg.Leg.Type == LegType.Future || !leg.Leg.Price.HasValue)
-                {
-                    continue;
-                }
-
-                total += Math.Abs(leg.Leg.Size * leg.Leg.Price.Value);
-            }
-        }
-
-        return total;
-    }
-
-    private decimal? ResolveTotalCombinedPnlPercent()
-    {
-        var totalPnl = ResolveTotalCombinedPnl();
-        if (!totalPnl.HasValue)
-        {
-            return null;
-        }
-
-        var entryValue = ResolvePortfolioEntryValue();
-        if (entryValue <= 0m)
-        {
-            return null;
-        }
-
-        return totalPnl.Value / entryValue * 100m;
-    }
-
-    private static string FormatPercent(decimal? value)
-    {
-        return value.HasValue
-            ? $"{value.Value:+0.00;-0.00;0.00}%"
-            : "-";
     }
 
     private void SetActiveMobileTab(MobileTab tab)
