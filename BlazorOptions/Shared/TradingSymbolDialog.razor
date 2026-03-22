@@ -184,14 +184,26 @@
         return value.ToString("0.##########", CultureInfo.InvariantCulture);
     }
 
-    private static string FormatTimeRange(long startTimestamp, long endTimestamp)
+    private static string FormatNumber(decimal? value)
     {
-        var start = ToLocalDateTime(startTimestamp);
-        var end = ToLocalDateTime(endTimestamp);
+        return value.HasValue
+            ? value.Value.ToString("0.##########", CultureInfo.InvariantCulture)
+            : string.Empty;
+    }
+
+    private static string FormatTimeRange(long? startTimestamp, long? endTimestamp)
+    {
+        if (!startTimestamp.HasValue || !endTimestamp.HasValue)
+        {
+            return string.Empty;
+        }
+
+        var start = ToLocalDateTime(startTimestamp.Value);
+        var end = ToLocalDateTime(endTimestamp.Value);
         if (!start.HasValue || !end.HasValue)
         {
-            var startText = FormatTimestamp(startTimestamp);
-            var endText = FormatTimestamp(endTimestamp);
+            var startText = FormatTimestamp(startTimestamp.Value);
+            var endText = FormatTimestamp(endTimestamp.Value);
             return string.Equals(startText, endText, StringComparison.Ordinal)
                 ? startText
                 : $"{startText} -> {endText}";

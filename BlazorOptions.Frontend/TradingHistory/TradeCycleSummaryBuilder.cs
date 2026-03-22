@@ -73,6 +73,11 @@ public static class TradeCycleSummaryBuilder
             previousSizeAfter = currentSizeAfter;
         }
 
+        if (currentCycle is not null && currentCycle.TryBuild(out var openSummary))
+        {
+            summaries.Add(openSummary);
+        }
+
         return summaries;
     }
 
@@ -131,9 +136,9 @@ public static class TradeCycleSummaryBuilder
 
         public long OpenEndTimestamp { get; private set; }
 
-        public long CloseStartTimestamp { get; private set; } = -1;
+        public long? CloseStartTimestamp { get; private set; }
 
-        public long CloseEndTimestamp { get; private set; } = -1;
+        public long? CloseEndTimestamp { get; private set; }
 
         public void AddOpeningFill(long timestamp, decimal price, decimal quantity, decimal fee)
         {
@@ -149,7 +154,7 @@ public static class TradeCycleSummaryBuilder
             _closeQuantity += quantity;
             _fee += fee;
 
-            if (CloseStartTimestamp < 0)
+            if (!CloseStartTimestamp.HasValue)
             {
                 CloseStartTimestamp = timestamp;
             }
@@ -161,16 +166,29 @@ public static class TradeCycleSummaryBuilder
         {
             summary = default!;
 
-            if (_openQuantity <= 0m || _closeQuantity <= 0m || CloseStartTimestamp < 0 || CloseEndTimestamp < 0)
+            if (_openQuantity <= 0m)
             {
                 return false;
             }
 
             var entryPrice = _openNotional / _openQuantity;
-            var closePrice = _closeNotional / _closeQuantity;
-            var grossPnl = DirectionSign > 0
-                ? (closePrice - entryPrice) * _openQuantity
-                : (entryPrice - closePrice) * _openQuantity;
+            var hasClose = _closeQuantity > 0m && CloseStartTimestamp.HasValue && CloseEndTimestamp.HasValue;
+            decimal? closePrice = null;
+            decimal? pnl = null;
+
+            if (hasClose)
+            {
+                closePrice = _closeNotional / _closeQuantity;
+                var grossPnl = DirectionSign > 0
+                    ? (closePrice.Value - entryPrice) * _openQuantity
+                    : (entryPrice - closePrice.Value) * _openQuantity;
+                pnl = grossPnl - _fee;
+            }
+            else
+            {
+                // Open cycles only have realized drag from fees until a closing fill exists.
+                pnl = -_fee;
+            }
 
             summary = new TradeCycleSummary
             {
@@ -178,12 +196,14 @@ public static class TradeCycleSummaryBuilder
                 EntryEndTimestamp = OpenEndTimestamp,
                 CloseStartTimestamp = CloseStartTimestamp,
                 CloseEndTimestamp = CloseEndTimestamp,
-                Direction = DirectionSign > 0 ? "Open/Close Long" : "Open/Close Short",
+                Direction = hasClose
+                    ? DirectionSign > 0 ? "Open/Close Long" : "Open/Close Short"
+                    : DirectionSign > 0 ? "Open Long" : "Open Short",
                 EntryPrice = entryPrice,
                 Size = _openQuantity,
                 ClosePrice = closePrice,
                 Fee = _fee,
-                Pnl = grossPnl - _fee
+                Pnl = pnl
             };
             return true;
         }

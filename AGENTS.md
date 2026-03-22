@@ -36,6 +36,7 @@
 - Performance is critical; aim for responsive interactions especially in chart and leg editing flows.
 - Minimize memory usage where possible, particularly during chart rendering and leg operations.
 - When feature behavior changes, update existing docs or create new `.md` files under the `doc` folder.
+- When the user asks to commit, write the commit message based on all changes currently present in the working directory, not only the most recent requested edit.
 
 ## Testing
 - don't run tests

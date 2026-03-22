@@ -91,6 +91,28 @@ public sealed class TradeCycleSummaryBuilderTests
         summaries[1].CloseEndTimestamp.Should().Be(ToUnixTimeMilliseconds("2026-03-20T18:02:00Z"));
     }
 
+    [TestMethod]
+    public void BuildTradeCycleSummaries_IncludesOpenLongCycle()
+    {
+        var rows = new[]
+        {
+            CreateRow("2026-03-22T09:00:00Z", "BUY 2 ETH-28MAR26-2200-C", 12m, 0.15m, 2m),
+            CreateRow("2026-03-22T09:05:00Z", "BUY 1 ETH-28MAR26-2200-C", 13m, 0.10m, 3m)
+        };
+
+        var summaries = TradeCycleSummaryBuilder.BuildTradeCycleSummaries(rows);
+
+        summaries.Should().ContainSingle();
+        summaries[0].Direction.Should().Be("Open Long");
+        summaries[0].EntryPrice.Should().Be(12.333333333333333333333333333m);
+        summaries[0].Size.Should().Be(3m);
+        summaries[0].Fee.Should().Be(0.25m);
+        summaries[0].CloseStartTimestamp.Should().BeNull();
+        summaries[0].CloseEndTimestamp.Should().BeNull();
+        summaries[0].ClosePrice.Should().BeNull();
+        summaries[0].Pnl.Should().Be(-0.25m);
+    }
+
     private static TradeRow CreateRow(string timestampUtc, string trade, decimal price, decimal fee, decimal sizeAfter)
     {
         return new TradeRow

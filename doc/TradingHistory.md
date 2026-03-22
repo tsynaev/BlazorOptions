@@ -15,7 +15,7 @@ The summary groups fully closed round-trip cycles for that symbol and shows:
 - Total fees across all fills in the cycle
 - Net PnL after fees
 
-Only fully closed cycles are listed. Open positions and partial cycles are not shown in the summary table.
+Closed cycles are listed with close price and net PnL. Open positions are also listed, with close-specific columns left empty until the cycle closes.
 
 The Trading History feature pulls and analyzes Bybit transaction logs, with paging for fast initial load.
 

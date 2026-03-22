@@ -266,6 +266,8 @@ public sealed class TradingSymbolDialogViewModel : Bindable
         var cumulativeByCoin = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in orderedAsc)
         {
+            NormalizeDeliveryDisplay(entry);
+
             var settleCoin = string.IsNullOrWhiteSpace(entry.Currency) ? "_unknown" : entry.Currency;
             cumulativeByCoin.TryGetValue(settleCoin, out var current);
 
@@ -281,6 +283,116 @@ public sealed class TradingSymbolDialogViewModel : Bindable
         return orderedAsc;
     }
 
+    private static void NormalizeDeliveryDisplay(TradingHistoryEntry entry)
+    {
+        if (!string.Equals(entry.TransactionType, "DELIVERY", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(entry.RawJson))
+        {
+            return;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(entry.RawJson);
+            var primary = doc.RootElement;
+            if (primary.ValueKind == JsonValueKind.Array)
+            {
+                primary = primary.EnumerateArray().FirstOrDefault();
+            }
+
+            if (primary.ValueKind != JsonValueKind.Object)
+            {
+                return;
+            }
+
+            var delivery = ReadDecimal(primary, "deliveryPrice", "tradePrice", "price", "execPrice");
+            var strike = ReadDecimal(primary, "strike");
+            var optType = '\0';
+
+            if (TryGetOptionDetails(entry.Symbol, out var symbolOptType, out var symbolStrike))
+            {
+                optType = symbolOptType;
+                if (strike == 0m)
+                {
+                    strike = symbolStrike;
+                }
+            }
+
+            if (optType == 'C')
+            {
+                entry.Price = Math.Max(delivery - strike, 0m);
+            }
+            else if (optType == 'P')
+            {
+                entry.Price = Math.Max(strike - delivery, 0m);
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    private static decimal ReadDecimal(JsonElement element, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (!element.TryGetProperty(name, out var value))
+            {
+                continue;
+            }
+
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetDecimal(out var number))
+            {
+                return number;
+            }
+
+            if (value.ValueKind == JsonValueKind.String)
+            {
+                var raw = value.GetString();
+                if (decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
+                {
+                    return parsed;
+                }
+            }
+        }
+
+        return 0m;
+    }
+
+    private static bool TryGetOptionDetails(string? symbol, out char optType, out decimal strike)
+    {
+        optType = '\0';
+        strike = 0m;
+
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return false;
+        }
+
+        var parts = symbol.Trim().ToUpperInvariant()
+            .Split('-', StringSplitOptions.RemoveEmptyEntries);
+
+        for (var i = 0; i < parts.Length; i++)
+        {
+            if (parts[i] == "C" || parts[i] == "P")
+            {
+                optType = parts[i][0];
+                if (i > 0)
+                {
+                    decimal.TryParse(parts[i - 1], NumberStyles.Any, CultureInfo.InvariantCulture, out strike);
+                }
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static IReadOnlyList<TradeRow> BuildTradeRows(IReadOnlyList<TradingHistoryEntry> entries)
     {
         if (entries.Count == 0)
@@ -289,7 +401,9 @@ public sealed class TradingSymbolDialogViewModel : Bindable
         }
 
         return entries
-            .Where(entry => string.Equals(entry.TransactionType, "TRADE", StringComparison.OrdinalIgnoreCase))
+            .Where(entry =>
+                string.Equals(entry.TransactionType, "TRADE", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(entry.TransactionType, "DELIVERY", StringComparison.OrdinalIgnoreCase))
             .Select(entry => new TradeRow
             {
                 Timestamp = entry.Timestamp,
@@ -311,6 +425,13 @@ public sealed class TradingSymbolDialogViewModel : Bindable
         return value.ToString("0.##########", CultureInfo.InvariantCulture);
     }
 
+    private static string FormatNumber(decimal? value)
+    {
+        return value.HasValue
+            ? value.Value.ToString("0.##########", CultureInfo.InvariantCulture)
+            : string.Empty;
+    }
+
     private static string FormatTimestamp(long? timestamp)
     {
         if (!timestamp.HasValue || timestamp.Value <= 0)
@@ -330,14 +451,19 @@ public sealed class TradingSymbolDialogViewModel : Bindable
         }
     }
 
-    private static string FormatTimeRange(long startTimestamp, long endTimestamp)
+    private static string FormatTimeRange(long? startTimestamp, long? endTimestamp)
     {
-        var start = ToLocalDateTime(startTimestamp);
-        var end = ToLocalDateTime(endTimestamp);
+        if (!startTimestamp.HasValue || !endTimestamp.HasValue)
+        {
+            return string.Empty;
+        }
+
+        var start = ToLocalDateTime(startTimestamp.Value);
+        var end = ToLocalDateTime(endTimestamp.Value);
         if (!start.HasValue || !end.HasValue)
         {
-            var startText = FormatTimestamp(startTimestamp);
-            var endText = FormatTimestamp(endTimestamp);
+            var startText = FormatTimestamp(startTimestamp.Value);
+            var endText = FormatTimestamp(endTimestamp.Value);
             return string.Equals(startText, endText, StringComparison.Ordinal)
                 ? startText
                 : $"{startText} -> {endText}";
