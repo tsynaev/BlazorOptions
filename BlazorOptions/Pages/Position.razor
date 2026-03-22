@@ -174,7 +174,7 @@ else
                             @if (ViewModel.ClosedPositions is not null)
                             {
                                 <MudPaper Class="@BuildSectionClass(MobileTab.Trades, "position-panel-surface")" Elevation="0">
-                                    <ClosedPositionsPanel ViewModel="@ViewModel.ClosedPositions" />
+                                    <TradesPanel ViewModel="@ViewModel.ClosedPositions" />
                                 </MudPaper>
                             }
 

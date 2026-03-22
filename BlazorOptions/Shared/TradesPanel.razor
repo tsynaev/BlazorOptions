@@ -1,0 +1,354 @@
+@using BlazorOptions.ViewModels
+@using Microsoft.AspNetCore.Components.Web
+@using MudBlazor
+@using System.Collections.ObjectModel
+@using System.Linq
+
+@if (ViewModel is not null)
+{
+    <MudCard Class="closed-positions-card">
+        <MudCardHeader>
+            <MudStack Spacing="1" Class="flex-grow-1">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="closed-positions-header-row">
+                    <MudCheckBox T="bool"
+                                 Value="@ViewModel.Model.Include"
+                                 ValueChanged="async value => await ViewModel.SetIncludeAsync(value)"
+                                 />
+                    <MudText Typo="Typo.h6">Trades</MudText>
+                    <MudText Typo="Typo.caption" Class="closed-positions-summary">
+                        Net: @ViewModel.Model.TotalNet.ToString("0.##")
+                    </MudText>
+                    <MudText Typo="Typo.caption" Class="closed-positions-summary">
+                        PnL: @ViewModel.Model.TotalClosePnl.ToString("0.##") | Fee: @ViewModel.Model.TotalFee.ToString("0.##")
+                    </MudText>
+                    <MudSpacer />
+                </MudStack>
+            </MudStack>
+        </MudCardHeader>
+        <MudCardContent>
+            @if (ViewModel.TradeSummaries.Count == 0)
+            {
+                <MudText Typo="Typo.body2">No trades found for the tracked symbols.</MudText>
+            }
+            else
+            {
+                <MudTable Items="ViewModel.TradeSummaries"
+                          Dense="true"
+                          Hover="true"
+                          Class="closed-positions-table">
+                    <HeaderContent>
+                        <MudTh>Symbol</MudTh>
+                        <MudTh>Size</MudTh>
+                        <MudTh>PnL</MudTh>
+                        <MudTh>Open</MudTh>
+                        <MudTh>Close</MudTh>
+                        <MudTh>Fee</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Symbol">
+                            <MudStack Spacing="0">
+                                <MudLink OnClick="() => OpenSymbolDialogAsync(context.Symbol, context.SinceDate)">@context.Symbol</MudLink>
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Summary.Direction</MudText>
+                            </MudStack>
+                        </MudTd>
+                        <MudTd DataLabel="Size">@FormatNumber(context.Summary.Size)</MudTd>
+                        <MudTd DataLabel="PnL">
+                            <MudText Typo="Typo.body2" Color="@ResolvePnlColor(context.Summary.Pnl)">
+                                @FormatMoney(context.Summary.Pnl)
+                            </MudText>
+                        </MudTd>
+                        <MudTd DataLabel="Open">
+                            <MudStack Spacing="0">
+                                <MudText Typo="Typo.body2">@FormatMoney(context.Summary.EntryPrice)</MudText>
+                                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="closed-positions-time-caption">
+                                    @FormatTimeRange(context.Summary.EntryStartTimestamp, context.Summary.EntryEndTimestamp)
+                                </MudText>
+                            </MudStack>
+                        </MudTd>
+                        <MudTd DataLabel="Close">
+                            <MudStack Spacing="0">
+                                <MudText Typo="Typo.body2">@FormatMoney(context.Summary.ClosePrice)</MudText>
+                                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="closed-positions-time-caption">
+                                    @FormatTimeRange(context.Summary.CloseStartTimestamp, context.Summary.CloseEndTimestamp)
+                                </MudText>
+                            </MudStack>
+                        </MudTd>
+                        <MudTd DataLabel="Fee">@FormatMoney(context.Summary.Fee)</MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+
+            <MudExpansionPanels Class="mt-4">
+                <MudExpansionPanel Text="Tracked Symbols">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="closed-positions-input-row mb-4">
+                        <MudTextField T="string"
+                                      @bind-Value="ViewModel.AddSymbolInput"
+                                      Label="Add symbols"
+                                      Placeholder="Paste symbols, one per line"
+                                      Variant="Variant.Outlined"
+                                      Margin="Margin.Dense"
+                                      Immediate="true"
+                                      OnKeyDown="HandleAddSymbolKeyDown"
+                                      Lines="4"
+                                      Class="closed-positions-symbol-input" />
+                        <MudButton Variant="Variant.Filled"
+                                   Color="Color.Primary"
+                                   OnClick="async () => await ViewModel.AddSymbolAsync()">
+                            Add
+                        </MudButton>
+                        <MudButton Variant="Variant.Outlined"
+                                   Color="Color.Default"
+                                   OnClick="OpenTradesDialogAsync">
+                            Select trades
+                        </MudButton>
+                    </MudStack>
+                    <MudTable Items="ViewModel.ClosedPositions"
+                              Dense="true"
+                              Hover="true"
+                              Class="closed-positions-table">
+                        <HeaderContent>
+                            <MudTh>Since</MudTh>
+                            <MudTh>Symbol</MudTh>
+                            <MudTh></MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <ClosedPositionRow ViewModel="context" OnOpenSymbolDialog="OpenSymbolDialogAsync" @key="context.Model.Id" />
+                        </RowTemplate>
+                    </MudTable>
+                </MudExpansionPanel>
+            </MudExpansionPanels>
+        </MudCardContent>
+    </MudCard>
+}
+
+@code {
+    [Parameter, EditorRequired] public ClosedPositionsViewModel ViewModel { get; set; } = default!;
+
+    [Inject] private INavigationService NavigationService { get; set; } = default!;
+
+    private ClosedPositionsViewModel? _lastViewModel;
+
+    protected override void OnParametersSet()
+    {
+        if (ViewModel is null)
+        {
+            return;
+        }
+
+        if (!ReferenceEquals(_lastViewModel, ViewModel))
+        {
+            _lastViewModel = ViewModel;
+            _ = ViewModel.InitializeAsync();
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        ViewModel.PropertyChanged += (_, _) => InvokeAsync(StateHasChanged);
+        ViewModel.ClosedPositions.CollectionChanged += (_, _) => InvokeAsync(StateHasChanged);
+    }
+
+    private Task HandleAddSymbolKeyDown(KeyboardEventArgs args)
+    {
+        return ViewModel.OnAddSymbolKeyDown(args.Key, args.CtrlKey, args.MetaKey);
+    }
+
+
+    private async Task OpenSymbolDialogAsync(string symbol, DateTime? sinceDate)
+    {
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return;
+        }
+
+        await NavigationService.NavigateToAsync<TradingSymbolDialogViewModel>(viewModel =>
+            viewModel.LoadAsync(symbol, string.Empty, sinceDate));
+    }
+
+    private async Task OpenTradesDialogAsync()
+    {
+        var existingSymbols = ViewModel.ClosedPositions
+            .Select(item => item.Model.Symbol)
+            .Where(symbol => !string.IsNullOrWhiteSpace(symbol))
+            .ToList();
+
+        var baseAsset = ViewModel.BaseAsset;
+        var dialogViewModel = await NavigationService.NavigateToAsync<TradingHistorySelectionDialogViewModel>(
+            viewModel => viewModel.InitializeAsync(existingSymbols, baseAsset));
+
+        var selectedSymbols = await dialogViewModel.WaitForSelectionAsync();
+        if (selectedSymbols is null || selectedSymbols.Count == 0)
+        {
+            return;
+        }
+
+        ViewModel.SetAddSymbolInput(selectedSymbols);
+        await ViewModel.AddSymbolAsync();
+    }
+
+    private static string FormatNumber(decimal value)
+    {
+        return value.ToString("0.##########", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatMoney(decimal value)
+    {
+        var abs = Math.Abs(value);
+        var format = abs >= 0.01m || abs == 0m
+            ? "0.##"
+            : "0.##########";
+        return value.ToString(format, System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatNumber(decimal? value)
+    {
+        return value.HasValue
+            ? value.Value.ToString("0.##########", System.Globalization.CultureInfo.InvariantCulture)
+            : string.Empty;
+    }
+
+    private static string FormatMoney(decimal? value)
+    {
+        return value.HasValue ? FormatMoney(value.Value) : string.Empty;
+    }
+
+    private static string FormatTimestamp(long? timestamp)
+    {
+        if (!timestamp.HasValue || timestamp.Value <= 0)
+        {
+            return "N/A";
+        }
+
+        try
+        {
+            return DateTimeOffset.FromUnixTimeMilliseconds(timestamp.Value)
+                .ToLocalTime()
+                .ToString("g", System.Globalization.CultureInfo.CurrentCulture);
+        }
+        catch
+        {
+            return "N/A";
+        }
+    }
+
+    private static string FormatTimeRange(long? startTimestamp, long? endTimestamp)
+    {
+        if (!startTimestamp.HasValue || !endTimestamp.HasValue)
+        {
+            return string.Empty;
+        }
+
+        var start = ToLocalDateTime(startTimestamp.Value);
+        var end = ToLocalDateTime(endTimestamp.Value);
+        if (!start.HasValue || !end.HasValue)
+        {
+            var startText = FormatTimestamp(startTimestamp.Value);
+            var endText = FormatTimestamp(endTimestamp.Value);
+            return string.Equals(startText, endText, StringComparison.Ordinal)
+                ? startText
+                : $"{startText} -> {endText}";
+        }
+
+        if (start.Value == end.Value)
+        {
+            return start.Value.ToString("g", System.Globalization.CultureInfo.CurrentCulture);
+        }
+
+        if (start.Value.Date == end.Value.Date)
+        {
+            var startText = start.Value.ToString("g", System.Globalization.CultureInfo.CurrentCulture);
+            var endText = end.Value.ToString("t", System.Globalization.CultureInfo.CurrentCulture);
+            return $"{startText} -> {endText}";
+        }
+
+        return $"{start.Value.ToString("g", System.Globalization.CultureInfo.CurrentCulture)} -> {end.Value.ToString("g", System.Globalization.CultureInfo.CurrentCulture)}";
+    }
+
+    private static DateTime? ToLocalDateTime(long timestamp)
+    {
+        if (timestamp <= 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            return DateTimeOffset.FromUnixTimeMilliseconds(timestamp).ToLocalTime().DateTime;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static Color ResolvePnlColor(decimal? pnl)
+    {
+        if (!pnl.HasValue)
+        {
+            return Color.Default;
+        }
+
+        if (pnl.Value > 0m)
+        {
+            return Color.Success;
+        }
+
+        if (pnl.Value < 0m)
+        {
+            return Color.Error;
+        }
+
+        return Color.Default;
+    }
+}
+
+<style>
+    .closed-positions-card .mud-card-header-content {
+        width: 100%;
+    }
+
+    .closed-positions-summary {
+        opacity: 0.8;
+    }
+
+    .closed-positions-symbol-input {
+        min-width: 220px;
+    }
+
+    .closed-positions-since-date {
+        width: 120px;
+        min-width: 120px;
+    }
+
+    .closed-positions-since-time {
+        width: 110px;
+        min-width: 110px;
+    }
+
+    .closed-positions-time-caption {
+        font-size: 0.68rem;
+        line-height: 1.1;
+    }
+
+    @@media (max-width: 600px) {
+        .closed-positions-header-row {
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .closed-positions-summary {
+            display: block;
+            width: 100%;
+        }
+
+        .closed-positions-input-row {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .closed-positions-symbol-input {
+            width: 100%;
+            min-width: 0;
+        }
+    }
+</style>

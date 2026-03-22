@@ -17,6 +17,13 @@ The summary groups fully closed round-trip cycles for that symbol and shows:
 
 Closed cycles are listed with close price and net PnL. Open positions are also listed, with close-specific columns left empty until the cycle closes.
 
+## Position trades
+
+On the position page, the `Trades` panel now shows the same trade-cycle summary format across all tracked symbols in the position.
+
+The main table combines all tracked symbols into one timeline and adds a `Symbol` column.
+The `Tracked Symbols` section is used only to manage which symbols belong to the position and from which date/time their trades should be included. By default, the date comes from the position creation time, and it can be left empty for a symbol.
+
 The Trading History feature pulls and analyzes Bybit transaction logs, with paging for fast initial load.
 
 ## Core capabilities

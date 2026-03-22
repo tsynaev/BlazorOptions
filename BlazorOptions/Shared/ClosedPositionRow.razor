@@ -56,23 +56,6 @@
         </MudLink>
     </MudStack>
 </MudTd>
-<MudTd DataLabel="Size">
-    <MudText Typo="Typo.body2">@ViewModel.Model.CloseQty.ToString("0.##")</MudText>
-</MudTd>
-<MudTd DataLabel="Avg. Entry Price">
-    <MudText Typo="Typo.body2">@ViewModel.Model.AvgEntryPrice.ToString("0.##")</MudText>
-</MudTd>
-<MudTd DataLabel="Avg. Close Price">
-    <MudText Typo="Typo.body2">@ViewModel.Model.AvgClosePrice.ToString("0.##")</MudText>
-</MudTd>
-<MudTd DataLabel="Close P&amp;L">
-    <MudText Typo="Typo.body2" Color="@(ViewModel.Model.Realized >= 0 ? Color.Success : Color.Error)">
-        @ViewModel.Model.Realized.ToString("0.##")
-    </MudText>
-</MudTd>
-<MudTd DataLabel="Fee">
-    <MudText Typo="Typo.body2">@ViewModel.Model.FeeTotal.ToString("0.##")</MudText>
-</MudTd>
 <MudTd DataLabel="Actions" Style="text-align:right;">
     <MudIconButton Icon="@Icons.Material.Filled.Delete"
                    Color="Color.Error"

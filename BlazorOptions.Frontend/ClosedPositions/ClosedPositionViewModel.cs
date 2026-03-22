@@ -149,6 +149,18 @@ public sealed class ClosedPositionViewModel : Bindable
         return SetSinceDateAsync(combined);
     }
 
+    public async Task<IReadOnlyList<TradeCycleSummary>> LoadTradeCycleSummariesAsync()
+    {
+        if (string.IsNullOrWhiteSpace(Model.Symbol))
+        {
+            return Array.Empty<TradeCycleSummary>();
+        }
+
+        var entries = await _tradingHistoryPort.LoadBySymbolAsync(Model.Symbol, null, ResolveSinceTimestamp(forceFull: true));
+        var tradeRows = TradingHistoryTradeRowProjection.BuildTradeRows(entries);
+        return TradeCycleSummaryBuilder.BuildTradeCycleSummaries(tradeRows);
+    }
+
     private async Task RaiseUpdateCompleted()
     {
         if (UpdateCompleted != null)
