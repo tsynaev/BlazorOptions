@@ -21,6 +21,8 @@
 - Position aggregate and persistence models (`PositionModel`, `LegsCollectionModel`, `LegModel`, `ClosedModel`, `ClosedPositionModel`) live in `BlazorOptions.API` and are reused by Frontend/Server.
 - Position persistence uses API models directly; DTO types and mappers are removed.
 - API project namespaces must use `BlazorOptions.API.*` (do not place API classes under `BlazorOptions.ViewModels`).
+- The position page currently works with a single portfolio/collection. Multi-portfolio workflows are planned for the future `Options Calculator` feature.
+- Position persistence payloads should be versioned in JSON. Save the latest version and handle older payload migrations in the persistence layer instead of adding legacy fields to current models.
 
 ## Coding
 
@@ -57,3 +59,4 @@
 - Documentation structure:
 - End-user feature descriptions must be written in Markdown and stored under `doc/` (user point of view, no class/variable names).
 - Developer-facing implementation/architecture documentation must be stored under `doc/dev/` (technical details, classes, services, and code-level decisions are allowed).
+- Write documentation in terms of supported behavior and available feature paths. Avoid framing docs around what the app should not do.

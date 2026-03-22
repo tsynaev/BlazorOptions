@@ -1,6 +1,7 @@
 using BlazorOptions.API.Common;
 using BlazorOptions.API.Positions;
 using BlazorOptions.Services;
+using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -243,9 +244,7 @@ public sealed class HomeDashboardViewModel : Bindable
 
     private static List<LegModel> ResolveDashboardLegs(PositionModel model)
     {
-        var allLegs = model.Collections
-            .SelectMany(collection => collection.Legs)
-            .ToList();
+        var allLegs = model.Legs.ToList();
         var hasActiveLegs = allLegs.Any(leg => leg.Status == LegStatus.Active);
 
         return allLegs
@@ -733,7 +732,7 @@ public sealed class HomeDashboardViewModel : Bindable
     private async Task EnsureOptionChainsAsync(IReadOnlyList<PositionModel> models)
     {
         var baseAssets = models
-            .Where(model => model.Collections.SelectMany(collection => collection.Legs).Any(leg => leg.Type != LegType.Future))
+            .Where(model => model.Legs.Any(leg => leg.Type != LegType.Future))
             .Select(model => model.BaseAsset?.Trim())
             .Where(asset => !string.IsNullOrWhiteSpace(asset))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -775,7 +774,7 @@ public sealed class HomeDashboardViewModel : Bindable
                 return Array.Empty<PositionModel>();
             }
 
-            return JsonSerializer.Deserialize<PositionModel[]>(payload, DashboardCacheJsonOptions) ?? Array.Empty<PositionModel>();
+            return PositionPayloadSerializer.DeserializeMany(payload, DashboardCacheJsonOptions);
         }
         catch
         {
@@ -787,7 +786,7 @@ public sealed class HomeDashboardViewModel : Bindable
     {
         try
         {
-            var payload = JsonSerializer.Serialize(models, DashboardCacheJsonOptions);
+            var payload = PositionPayloadSerializer.SerializeMany(models, DashboardCacheJsonOptions);
             await _localStorageService.SetItemAsync(DashboardCacheStorageKey, payload);
         }
         catch
@@ -841,22 +840,19 @@ public sealed class HomeDashboardViewModel : Bindable
             .Cast<LegModel>()
             .ToArray();
 
-        foreach (var collection in model.Collections)
-        {
-            SyncDashboardOrderLegs(collection, orderLegs, activeLegs);
-            SyncDashboardReadOnlyLegs(collection, activeLegs);
-        }
+        SyncDashboardOrderLegs(model.Legs, orderLegs, activeLegs);
+        SyncDashboardReadOnlyLegs(model.Legs, activeLegs);
     }
 
     private static void SyncDashboardOrderLegs(
-        LegsCollectionModel collection,
+        ObservableCollection<LegModel> legs,
         IReadOnlyList<LegModel> orderLegs,
         IReadOnlyList<LegModel> activeLegs)
     {
         var openOrderLegs = orderLegs
             .Where(leg => !string.IsNullOrWhiteSpace(leg.ReferenceId))
             .ToDictionary(leg => leg.ReferenceId!, StringComparer.OrdinalIgnoreCase);
-        var existingOrderLegs = collection.Legs
+        var existingOrderLegs = legs
             .Where(leg => leg.Status == LegStatus.Order)
             .ToList();
 
@@ -869,12 +865,12 @@ public sealed class HomeDashboardViewModel : Bindable
 
             if (!openOrderLegs.TryGetValue(referenceId, out var snapshotLeg))
             {
-                if (TryConvertDashboardExecutedOrderToActive(collection, existing, activeLegs))
+                if (TryConvertDashboardExecutedOrderToActive(legs, existing, activeLegs))
                 {
                     continue;
                 }
 
-                collection.Legs.Remove(existing);
+                legs.Remove(existing);
                 continue;
             }
 
@@ -883,7 +879,7 @@ public sealed class HomeDashboardViewModel : Bindable
     }
 
     private static void SyncDashboardReadOnlyLegs(
-        LegsCollectionModel collection,
+        ObservableCollection<LegModel> legs,
         IReadOnlyList<LegModel> activeLegs)
     {
         var lookup = activeLegs
@@ -891,7 +887,7 @@ public sealed class HomeDashboardViewModel : Bindable
             .GroupBy(leg => leg.Symbol!.Trim(), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
 
-        foreach (var leg in collection.Legs)
+        foreach (var leg in legs)
         {
             if (leg.Status == LegStatus.Order)
             {
@@ -944,7 +940,7 @@ public sealed class HomeDashboardViewModel : Bindable
     }
 
     private static bool TryConvertDashboardExecutedOrderToActive(
-        LegsCollectionModel collection,
+        ObservableCollection<LegModel> legs,
         LegModel orderLeg,
         IReadOnlyList<LegModel> activeLegs)
     {
@@ -960,14 +956,14 @@ public sealed class HomeDashboardViewModel : Bindable
             return false;
         }
 
-        if (collection.Legs.Any(existing =>
+        if (legs.Any(existing =>
                 !ReferenceEquals(existing, orderLeg)
                 && existing.IsReadOnly
                 && existing.Status != LegStatus.Order
                 && string.Equals(existing.Symbol, matchedPositionLeg.Symbol, StringComparison.OrdinalIgnoreCase)
                 && Math.Sign(existing.Size) == Math.Sign(matchedPositionLeg.Size)))
         {
-            collection.Legs.Remove(orderLeg);
+            legs.Remove(orderLeg);
             return true;
         }
 
@@ -1134,6 +1130,8 @@ public sealed class HomeDashboardViewModel : Bindable
             Name = model.Name,
             Notes = model.Notes,
             CreationTimeUtc = model.CreationTimeUtc,
+            Color = model.Color,
+            Legs = new(model.Legs.Select(leg => leg.Clone())),
             ChartRange = model.ChartRange,
             Closed = new ClosedModel
             {
@@ -1141,15 +1139,7 @@ public sealed class HomeDashboardViewModel : Bindable
                 TotalClosePnl = model.Closed.TotalClosePnl,
                 TotalFee = model.Closed.TotalFee,
                 Positions = new(model.Closed.Positions.Select(CloneClosedPosition))
-            },
-            Collections = new(model.Collections.Select(collection => new LegsCollectionModel
-            {
-                Id = collection.Id,
-                Name = collection.Name,
-                Color = collection.Color,
-                IsVisible = collection.IsVisible,
-                Legs = new(collection.Legs.Select(leg => leg.Clone()))
-            }))
+            }
         };
     }
 

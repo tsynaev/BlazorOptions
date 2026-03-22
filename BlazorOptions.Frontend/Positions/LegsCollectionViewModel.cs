@@ -296,11 +296,6 @@ public sealed class LegsCollectionViewModel : IDisposable
         return QuickAdd.OnQuickLegKeyDown(key);
     }
 
-    public async Task DuplicateCollectionAsync()
-    {
-        await Position.DuplicateCollectionAsync(Collection);
-    }
-
     public Task CopySymbolsToClosedPositionsAsync()
     {
         if (Position?.ClosedPositions is null)

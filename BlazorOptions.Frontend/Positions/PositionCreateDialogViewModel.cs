@@ -130,15 +130,13 @@ public sealed class PositionCreateDialogViewModel : Bindable
             CreationTimeUtc = ResolveCreationTimeUtc(selectedBybitPositions)
         };
 
-        var collection = PositionViewModel.CreateCollection(position, PositionViewModel.GetNextCollectionName(position));
-
         if (initialLegs is not null && initialLegs.Count > 0)
         {
             foreach (var leg in initialLegs)
             {
                 var cloned = leg.Clone();
                 cloned.Symbol = ResolveLegSymbolForPosition(cloned, position);
-                collection.Legs.Add(cloned);
+                position.Legs.Add(cloned);
             }
         }
 
@@ -161,11 +159,10 @@ public sealed class PositionCreateDialogViewModel : Bindable
                 leg.Price = exchangePosition.AvgPrice;
                 leg.Symbol = exchangePosition.Symbol;
                 leg.ImpliedVolatility = null;
-                collection.Legs.Add(leg);
+                position.Legs.Add(leg);
             }
         }
 
-        position.Collections.Add(collection);
         return position;
     }
 

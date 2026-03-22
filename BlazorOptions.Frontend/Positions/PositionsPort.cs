@@ -21,14 +21,15 @@ public sealed class PositionsPort : IPositionsPort
     public async Task<IReadOnlyList<PositionModel>> LoadPositionsAsync()
     {
         var response = await SendAsync(HttpMethod.Get, "api/positions");
-        var items = await response.Content.ReadFromJsonAsync<PositionModel[]>(JsonOptions);
-        return items ?? Array.Empty<PositionModel>();
+        var payload = await response.Content.ReadAsStringAsync();
+        return PositionPayloadSerializer.DeserializeMany(payload, JsonOptions);
     }
 
     public async Task<PositionModel?> LoadPositionAsync(Guid positionId)
     {
         var response = await SendAsync(HttpMethod.Get, $"api/positions/{positionId}");
-        return await response.Content.ReadFromJsonAsync<PositionModel>(JsonOptions);
+        var payload = await response.Content.ReadAsStringAsync();
+        return PositionPayloadSerializer.Deserialize(payload, JsonOptions);
     }
 
     public async Task SavePositionsAsync(IReadOnlyList<PositionModel> positions)

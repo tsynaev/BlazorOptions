@@ -13,19 +13,6 @@ public sealed class PositionViewModel : IDisposable
     private static readonly TimeSpan CandleBucket = TimeSpan.FromHours(1);
     private static readonly TimeSpan DefaultCandlesWindow = TimeSpan.FromHours(48);
     private const int MaxChartCandles = 5000;
-    private static readonly string[] CollectionPalette =
-    {
-        "#00A6FB",
-        "#FF6F61",
-        "#7DDE92",
-        "#F9C74F",
-        "#9B5DE5",
-        "#F15BB5",
-        "#00BBF9",
-        "#00F5D4",
-        "#B5179E"
-    };
-
     private readonly OptionsService _optionsService;
     private readonly IPositionsPort _positionsPort;
     private readonly LegsCollectionViewModelFactory _collectionFactory;
@@ -108,20 +95,11 @@ public sealed class PositionViewModel : IDisposable
             }
 
             _position = value;
-            if (_position.Collections.Count == 0)
-            {
-                _position.Collections.Add(CreateCollection(_position, GetNextCollectionName(_position)));
-            }
             if (_position.Closed is null)
             {
                 _position.Closed = new ClosedModel();
             }
-            Collections = new ObservableCollection<LegsCollectionViewModel>();
-
-            foreach (var collection in _position.Collections)
-            {
-                Collections.Add(CreateCollectionViewModel(collection));
-            }
+            LegsCollection = CreateCollectionViewModel(CreateWorkingCollection(_position));
 
             ClosedPositions = _closedPositionsFactory.Create(this, _position);
 
@@ -150,7 +128,7 @@ public sealed class PositionViewModel : IDisposable
         }
     }
 
-    public ObservableCollection<LegsCollectionViewModel> Collections { get; private set; } = new();
+    public LegsCollectionViewModel LegsCollection { get; private set; } = null!;
 
     public ClosedPositionsViewModel ClosedPositions { get; private set; } = null!;
 
@@ -242,7 +220,7 @@ public sealed class PositionViewModel : IDisposable
             return;
         }
 
-        foreach (var leg in _position.Collections.SelectMany(collection => collection.Legs))
+        foreach (var leg in _position.Legs)
         {
             if ((leg.Status == LegStatus.New || leg.Status == LegStatus.Order) && leg.IsIncluded)
             {
@@ -313,90 +291,15 @@ public sealed class PositionViewModel : IDisposable
             NotifyStateChanged();
         }
     }
-
-
-
-    public async Task AddCollectionAsync()
+    private static LegsCollectionModel CreateWorkingCollection(PositionModel position)
     {
-        var collection = CreateCollection(Position, GetNextCollectionName(Position));
-        Position.Collections.Add(collection);
-        Collections.Add(CreateCollectionViewModel(collection));
-
-        await HandleCollectionUpdatedAsync(LegsCollectionUpdateKind.CollectionChanged);
-    }
-
-    public async Task DuplicateCollectionAsync(LegsCollectionModel source)
-    {
-        var collection = CreateCollection(Position, GetNextCollectionName(Position), source.Legs.Select(x=>x.Clone()));
-        Position.Collections.Add(collection);
-        Collections.Add(CreateCollectionViewModel(collection));
-
-        await HandleCollectionUpdatedAsync(LegsCollectionUpdateKind.CollectionChanged);
-    }
-
-    public async Task<bool> RemoveCollectionAsync(LegsCollectionModel collection)
-    {
-        if (Position.Collections.Count <= 1)
+        return new LegsCollectionModel
         {
-            _notifyUserService.NotifyUser("At least one portfolio is required.");
-            return false;
-        }
-
-        var removed = Position.Collections.Remove(collection);
-        if (!removed)
-        {
-            return false;
-        }
-
-        var viewModel = Collections.FirstOrDefault(item => ReferenceEquals(item.Collection, collection));
-        if (viewModel is not null)
-        {
-            Collections.Remove(viewModel);
-        }
-
-        await HandleCollectionUpdatedAsync(LegsCollectionUpdateKind.CollectionChanged);
-        return true;
-    }
-
-
-    public static LegsCollectionModel CreateCollection(PositionModel position, string name, IEnumerable<LegModel>? legs = null)
-    {
-        var collection = new LegsCollectionModel
-        {
-            Name = name,
-            Color = GetNextCollectionColor(position),
-            IsVisible = true
+            Id = position.Id,
+            Name = "Portfolio",
+            Color = position.Color,
+            Legs = position.Legs
         };
-
-        if (legs is not null)
-        {
-            foreach (var leg in legs)
-            {
-                collection.Legs.Add(leg);
-            }
-        }
-
-        return collection;
-    }
-
-    public static string GetNextCollectionName(PositionModel position)
-    {
-        return $"Portfolio {position.Collections.Count + 1}";
-    }
-
-    public static string GetNextCollectionColor(PositionModel position)
-    {
-        var usedColors = position.Collections.Select(collection => collection.Color)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        foreach (var color in CollectionPalette)
-        {
-            if (!usedColors.Contains(color))
-            {
-                return color;
-            }
-        }
-
-        return CollectionPalette[position.Collections.Count % CollectionPalette.Length];
     }
 
 
@@ -601,15 +504,10 @@ public sealed class PositionViewModel : IDisposable
         _positionsSubscription = null;
         _ordersSubscription?.Dispose();
         _ordersSubscription = null;
-        foreach (var collection in Collections)
+        if (LegsCollection is not null)
         {
-            if (collection is null)
-            {
-                continue;
-            }
-
-            collection.Updated -= HandleCollectionUpdatedAsync;
-            collection.Dispose();
+            LegsCollection.Updated -= HandleCollectionUpdatedAsync;
+            LegsCollection.Dispose();
         }
     }
 
@@ -644,18 +542,15 @@ public sealed class PositionViewModel : IDisposable
             return;
         }
 
-        var collections = Collections;
-        if (collections is null)
+        var collection = LegsCollection;
+        if (collection is null)
         {
             return;
         }
 
-        foreach (var collection in collections)
+        foreach (var legViewModel in collection.Legs)
         {
-            foreach (var legViewModel in collection.Legs)
-            {
-                legViewModel.Update(position);
-            }
+            legViewModel.Update(position);
         }
     }
 
@@ -671,31 +566,29 @@ public sealed class PositionViewModel : IDisposable
 
     private async Task UpdateExchangeMissingFlagsAsync(IReadOnlyList<ExchangePosition> positions)
     {
-        if (Collections.Count == 0)
+        if (LegsCollection is null)
         {
             return;
         }
 
-        var tasks = Collections.Select(collection => collection.UpdateExchangeMissingFlagsAsync(positions));
-        await Task.WhenAll(tasks);
+        await LegsCollection.UpdateExchangeMissingFlagsAsync(positions);
     }
 
     private async Task ApplyExchangeSnapshotsToCollectionsAsync()
     {
-        if (Collections.Count == 0)
+        if (LegsCollection is null)
         {
             return;
         }
 
         var positions = _lastPositionsSnapshot;
         var orders = _lastOrdersSnapshot;
-        var tasks = Collections.Select(collection => collection.ApplyExchangeSnapshotsAsync(positions, orders));
-        await Task.WhenAll(tasks);
+        await LegsCollection.ApplyExchangeSnapshotsAsync(positions, orders);
     }
 
     private async Task MoveClosedExchangePositionsToClosedAsync(IReadOnlyList<ExchangePosition> positions)
     {
-        if (Collections.Count == 0 || ClosedPositions is null)
+        if (LegsCollection is null || ClosedPositions is null)
         {
             return;
         }
@@ -712,32 +605,29 @@ public sealed class PositionViewModel : IDisposable
         }
 
         var copiedSymbols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var collection in Collections)
+        var staleLegs = LegsCollection.Legs
+            .Where(leg =>
+                leg.Leg.IsReadOnly
+                && leg.Leg.Status != LegStatus.Order
+                && !string.IsNullOrWhiteSpace(leg.Leg.Symbol)
+                && !openKeys.Contains(BuildPositionKey(leg.Leg.Symbol!, leg.Leg.Size)))
+            .ToList();
+
+        foreach (var legViewModel in staleLegs)
         {
-            var staleLegs = collection.Legs
-                .Where(leg =>
-                    leg.Leg.IsReadOnly
-                    && leg.Leg.Status != LegStatus.Order
-                    && !string.IsNullOrWhiteSpace(leg.Leg.Symbol)
-                    && !openKeys.Contains(BuildPositionKey(leg.Leg.Symbol!, leg.Leg.Size)))
-                .ToList();
-
-            foreach (var legViewModel in staleLegs)
+            var leg = legViewModel.Leg;
+            var alreadyArchived = leg.Status == LegStatus.Missing && !leg.IsIncluded;
+            if (!alreadyArchived && !string.IsNullOrWhiteSpace(leg.Symbol))
             {
-                var leg = legViewModel.Leg;
-                var alreadyArchived = leg.Status == LegStatus.Missing && !leg.IsIncluded;
-                if (!alreadyArchived && !string.IsNullOrWhiteSpace(leg.Symbol))
-                {
-                    copiedSymbols.Add(leg.Symbol.Trim());
-                }
-
-                if (leg.IsIncluded)
-                {
-                    leg.IsIncluded = false;
-                }
-
-                legViewModel.SetLegStatus(LegStatus.Missing, "Exchange position not found for this leg.");
+                copiedSymbols.Add(leg.Symbol.Trim());
             }
+
+            if (leg.IsIncluded)
+            {
+                leg.IsIncluded = false;
+            }
+
+            legViewModel.SetLegStatus(LegStatus.Missing, "Exchange position not found for this leg.");
         }
 
         if (copiedSymbols.Count == 0)
@@ -843,17 +733,19 @@ public sealed class PositionViewModel : IDisposable
         var currentPrice = _isLive ? _livePrice : _selectedPrice ?? _livePrice;
 
         if (_currentPrice == currentPrice
-            && Collections.All(collection => collection.IsLive == _isLive && collection.ValuationDate == _valuationDate))
+            && LegsCollection is not null
+            && LegsCollection.IsLive == _isLive
+            && LegsCollection.ValuationDate == _valuationDate)
         {
             return;
         }
 
         _currentPrice = currentPrice;
-        foreach (var collection in Collections)
+        if (LegsCollection is not null)
         {
-            collection.CurrentPrice = currentPrice;
-            collection.IsLive = _isLive;
-            collection.ValuationDate = _valuationDate;
+            LegsCollection.CurrentPrice = currentPrice;
+            LegsCollection.IsLive = _isLive;
+            LegsCollection.ValuationDate = _valuationDate;
         }
     }
 
@@ -1088,10 +980,14 @@ public sealed class PositionViewModel : IDisposable
             return;
         }
 
-        var collections = Collections ?? new ObservableCollection<LegsCollectionViewModel>();
-        var allLegs = collections.SelectMany(collection => collection.Legs).ToList();
-        var visibleCollections = collections.Where(collection => collection.IsVisible).ToList();
-        var rangeLegs = visibleCollections.SelectMany(collection => collection.Legs).ToList();
+        var collection = LegsCollection;
+        if (collection is null)
+        {
+            return;
+        }
+
+        var allLegs = collection.Legs.ToList();
+        var rangeLegs = collection.Legs.ToList();
         var closedPositionsTotal = Position.Closed.Include ? Position.Closed.TotalNet : 0m;
 
         if (rangeLegs.Count == 0)
@@ -1112,71 +1008,63 @@ public sealed class PositionViewModel : IDisposable
 
         ChartStrategies.Clear();
         ChartMarkers.Clear();
-        foreach (var collection in collections)
+        var collectionLegs = ResolveLegsForCalculation(collection.Legs).Where(leg => leg.IsIncluded).ToList();
+        var skewContext = BuildSkewContext(collectionLegs);
+        var profits = xs
+            .Select(price => CalculateExpiryProfitForChartPrice(collectionLegs, price, valuationDate, displayPrice))
+            .ToArray();
+        var theoreticalProfits = xs
+            .Select(price => CalculateTempProfitForChartPrice(collectionLegs, price, valuationDate, displayPrice, skewContext))
+            .ToArray();
+
+        if (Math.Abs(closedPositionsTotal) > 0.0001m)
         {
-            var collectionLegs = ResolveLegsForCalculation(collection.Legs).Where(leg => leg.IsIncluded).ToList();
-            var skewContext = BuildSkewContext(collectionLegs);
-            var profits = xs
-                .Select(price => CalculateExpiryProfitForChartPrice(collectionLegs, price, valuationDate, displayPrice))
-                .ToArray();
-            var theoreticalProfits = xs
-                .Select(price => CalculateTempProfitForChartPrice(collectionLegs, price, valuationDate, displayPrice, skewContext))
-                .ToArray();
-
-            if (Math.Abs(closedPositionsTotal) > 0.0001m)
+            for (var i = 0; i < profits.Length; i++)
             {
-                for (var i = 0; i < profits.Length; i++)
-                {
-                    profits[i] += closedPositionsTotal;
-                }
-
-                for (var i = 0; i < theoreticalProfits.Length; i++)
-                {
-                    theoreticalProfits[i] += closedPositionsTotal;
-                }
+                profits[i] += closedPositionsTotal;
             }
 
-            var tempPoints = BuildPayoffPoints(xs, theoreticalProfits);
-            var expiryPoints = BuildPayoffPoints(xs, profits);
-            ChartStrategies.Add(new StrategySeries(
-                collection.Collection.Id.ToString(),
-                collection.Name,
-                collection.Color,
-                true,
-                tempPoints,
-                expiryPoints,
-                collection.IsVisible));
-
-            if (!collection.IsVisible)
+            for (var i = 0; i < theoreticalProfits.Length; i++)
             {
-                continue;
+                theoreticalProfits[i] += closedPositionsTotal;
+            }
+        }
+
+        var tempPoints = BuildPayoffPoints(xs, theoreticalProfits);
+        var expiryPoints = BuildPayoffPoints(xs, profits);
+        ChartStrategies.Add(new StrategySeries(
+            collection.Collection.Id.ToString(),
+            collection.Name,
+            collection.Color,
+            true,
+            tempPoints,
+            expiryPoints,
+            true));
+
+        if (ShowOrderMarkers)
+        {
+            foreach (var orderLeg in collection.Legs.Where(item =>
+                         (item.Leg.Status == LegStatus.Order || item.Leg.Status == LegStatus.New)
+                         && item.Leg.Price.HasValue))
+            {
+                if (!TryCreateOrderMarker(orderLeg, collection.Color, out var marker))
+                {
+                    continue;
+                }
+
+                ChartMarkers.Add(marker);
             }
 
-            if (ShowOrderMarkers)
+            foreach (var linkedLeg in collection.Legs.Where(item => item.Leg.Status == LegStatus.Active && item.LinkedOrders.Count > 0))
             {
-                foreach (var orderLeg in collection.Legs.Where(item =>
-                             (item.Leg.Status == LegStatus.Order || item.Leg.Status == LegStatus.New)
-                             && item.Leg.Price.HasValue))
+                foreach (var linkedOrder in linkedLeg.LinkedOrders)
                 {
-                    if (!TryCreateOrderMarker(orderLeg, collection.Color, out var marker))
+                    if (!TryCreateLinkedOrderMarker(linkedLeg, linkedOrder, collection.Color, out var marker))
                     {
                         continue;
                     }
 
                     ChartMarkers.Add(marker);
-                }
-
-                foreach (var linkedLeg in collection.Legs.Where(item => item.Leg.Status == LegStatus.Active && item.LinkedOrders.Count > 0))
-                {
-                    foreach (var linkedOrder in linkedLeg.LinkedOrders)
-                    {
-                        if (!TryCreateLinkedOrderMarker(linkedLeg, linkedOrder, collection.Color, out var marker))
-                        {
-                            continue;
-                        }
-
-                        ChartMarkers.Add(marker);
-                    }
                 }
             }
         }
@@ -2022,16 +1910,6 @@ public sealed class PositionViewModel : IDisposable
                 yield return linkedLeg;
             }
         }
-    }
-
-    private IEnumerable<LegModel> EnumerateAllLegs()
-    {
-        if (Position is null)
-        {
-            return Array.Empty<LegModel>();
-        }
-
-        return Position.Collections.SelectMany(collection => collection.Legs);
     }
 
     private void RefreshValuationDateBounds(IEnumerable<LegViewModel> legs)

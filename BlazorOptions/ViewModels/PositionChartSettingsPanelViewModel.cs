@@ -65,8 +65,7 @@ public sealed class PositionChartSettingsPanelViewModel : Bindable
 
     public DateTime SelectedDateTimeUtc => _positionViewModel.ValuationDate;
 
-    public IReadOnlyList<DateTime> ExpirationDatesUtc => _positionViewModel.Collections
-        .SelectMany(collection => collection.Legs)
+    public IReadOnlyList<DateTime> ExpirationDatesUtc => _positionViewModel.LegsCollection.Legs
         .Where(leg => leg.Leg.IsIncluded && leg.Leg.ExpirationDate.HasValue)
         .Select(leg => DateTime.SpecifyKind(leg.Leg.ExpirationDate!.Value, DateTimeKind.Utc))
         .Distinct()
@@ -89,26 +88,7 @@ public sealed class PositionChartSettingsPanelViewModel : Bindable
 
     private decimal? ResolveTotalTempPnl()
     {
-        decimal total = 0m;
-        var hasValue = false;
-        foreach (var collection in _positionViewModel.Collections)
-        {
-            if (!collection.Collection.IsVisible)
-            {
-                continue;
-            }
-
-            var value = collection.TotalTempPnl;
-            if (!value.HasValue)
-            {
-                continue;
-            }
-
-            total += value.Value;
-            hasValue = true;
-        }
-
-        return hasValue ? total : null;
+        return _positionViewModel.LegsCollection.TotalTempPnl;
     }
 
     private decimal? ResolveClosedNetPnl()
@@ -138,22 +118,14 @@ public sealed class PositionChartSettingsPanelViewModel : Bindable
     private decimal ResolvePortfolioEntryValue()
     {
         decimal total = 0m;
-        foreach (var collection in _positionViewModel.Collections)
+        foreach (var leg in _positionViewModel.LegsCollection.Legs)
         {
-            if (!collection.Collection.IsVisible)
+            if (!leg.Leg.IsIncluded || leg.Leg.Type == LegType.Future || !leg.Leg.Price.HasValue)
             {
                 continue;
             }
 
-            foreach (var leg in collection.Legs)
-            {
-                if (!leg.Leg.IsIncluded || leg.Leg.Type == LegType.Future || !leg.Leg.Price.HasValue)
-                {
-                    continue;
-                }
-
-                total += Math.Abs(leg.Leg.Size * leg.Leg.Price.Value);
-            }
+            total += Math.Abs(leg.Leg.Size * leg.Leg.Price.Value);
         }
 
         return total;

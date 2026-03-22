@@ -10,7 +10,7 @@ The Positions page is where you manage one position at a time and review its pay
 
 ## What You Can Do
 
-- Manage multiple portfolios (collections) inside one position.
+- Manage a single portfolio inside one position.
 - Add legs manually, with quick add, from active exchange positions, or from open orders.
 - When an active position chip is added as a leg, same-symbol open orders are automatically attached as linked orders to that leg.
 - If only a `New` leg exists for a symbol, same-symbol exchange orders stay as separate order chips (they are not auto-linked to the `New` leg).
@@ -30,6 +30,7 @@ The Positions page is where you manage one position at a time and review its pay
 - Linked-order markers are shown for active legs and include all linked orders for that leg.
 - Review per-leg P/L, IV, Greeks, and linked-order expected P/L.
 - Portfolio header shows only total Greeks for included legs.
+- The position page focuses on a single portfolio workspace with leg actions, chart controls, notes, equity, and trade summaries.
 - Each non-futures leg card Greeks row includes a tiny unlabeled switch (with tooltip) to toggle between total leg Greek contribution and per-size Greek values.
 - In non-live mode, when a chart/temporary price is selected, option Greeks in leg cards and portfolio totals are recalculated for that selected underlying price and valuation date.
 - In live mode, chart clicks do not replace the live index price; the highlighted price stays aligned with the current streaming value so chart, cards, and totals use the same context.

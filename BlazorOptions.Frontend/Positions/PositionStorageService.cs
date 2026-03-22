@@ -29,7 +29,7 @@ public class PositionStorageService
 
         try
         {
-            return JsonSerializer.Deserialize<List<PositionModel>>(stored, _serializerOptions) ?? new List<PositionModel>();
+            return PositionPayloadSerializer.DeserializeMany(stored, _serializerOptions).ToList();
         }
         catch
         {
@@ -39,7 +39,7 @@ public class PositionStorageService
 
     public Task SavePositionsAsync(IEnumerable<PositionModel> positions)
     {
-        var payload = JsonSerializer.Serialize(positions, _serializerOptions);
+        var payload = PositionPayloadSerializer.SerializeMany(positions, _serializerOptions);
         return _localStorageService.SetItemAsync(StorageKey, payload).AsTask();
     }
 
@@ -54,7 +54,7 @@ public class PositionStorageService
             positions[index] = position;
         }
 
-        var payload = JsonSerializer.Serialize(positions, _serializerOptions);
+        var payload = PositionPayloadSerializer.SerializeMany(positions, _serializerOptions);
 
         await _localStorageService.SetItemAsync(StorageKey, payload);
     }

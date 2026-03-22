@@ -7,6 +7,9 @@ Route: `/position/{positionId}`
 - One position per page.
 - Position state is loaded by id and persisted through the server positions API.
 - Exchange integrations are accessed through `IExchangeService` child interfaces.
+- `PositionModel` stores only the current active portfolio state (`Legs`, `Color`).
+- Position payload JSON is versioned.
+- The persistence layer always saves the latest payload version and converts older payloads during load.
 
 ## View Model Responsibilities
 
@@ -60,6 +63,7 @@ Route: `/position/{positionId}`
 - Repeated section markup is split into shared components (`PositionChartSettingsPanel`, `PositionNotesPanel`, `PositionEquityPanel`, `PositionMoreActionsPanel`, `PortfoliosPanel`) so desktop/mobile layout changes do not duplicate business-facing UI blocks.
 - Panel components should receive one child view model each (`PositionChartSettingsPanelViewModel`, `PositionNotesPanelViewModel`, `PositionEquityPanelViewModel`, `PositionMoreActionsPanelViewModel`) instead of many primitive parameters and callbacks.
 - Mobile keeps a fixed top shell (title, chart, tabs) and renders section content below it; desktop keeps the chart column and details column as separate regions.
+- The position page works with a single portfolio backed by `PositionModel`. Legacy unversioned payloads that still use `Collections` are converted into `PositionModel.Legs` before the page view model is created.
 
 ## Marker Rules
 

@@ -43,7 +43,7 @@ public sealed class PositionsStore
                 var payload = reader.GetString(0);
                 try
                 {
-                    var item = JsonSerializer.Deserialize<PositionModel>(payload, _serializerOptions);
+                    var item = PositionPayloadSerializer.Deserialize(payload, _serializerOptions);
                     if (item is not null)
                     {
                         items.Add(item);
@@ -79,7 +79,7 @@ public sealed class PositionsStore
             if (await reader.ReadAsync())
             {
                 var payload = reader.GetString(0);
-                return JsonSerializer.Deserialize<PositionModel>(payload, _serializerOptions);
+                return PositionPayloadSerializer.Deserialize(payload, _serializerOptions);
             }
 
             return null;
@@ -133,7 +133,7 @@ public sealed class PositionsStore
                 position.Id = id;
 
                 idParam.Value = id.ToString("N");
-                payloadParam.Value = JsonSerializer.Serialize(position, _serializerOptions);
+                payloadParam.Value = PositionPayloadSerializer.Serialize(position, _serializerOptions);
                 updatedParam.Value = now;
                 sortParam.Value = i;
                 await command.ExecuteNonQueryAsync();
@@ -171,7 +171,7 @@ public sealed class PositionsStore
                     SortIndex = $sortIndex
                 """;
             command.Parameters.AddWithValue("$positionId", id.ToString("N"));
-            command.Parameters.AddWithValue("$payload", JsonSerializer.Serialize(position, _serializerOptions));
+            command.Parameters.AddWithValue("$payload", PositionPayloadSerializer.Serialize(position, _serializerOptions));
             command.Parameters.AddWithValue("$updatedUtc", now);
             command.Parameters.AddWithValue("$sortIndex", sortIndex);
             await command.ExecuteNonQueryAsync();

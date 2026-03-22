@@ -56,7 +56,7 @@ public class OptionChainDialogViewModel : IDisposable
         await LoadStrikeWindowAsync();
 
         var sourceLegs = collection?.Legs
-            ?? position?.Collections.FirstOrDefault()?.Legs
+            ?? position?.Legs
             ?? Enumerable.Empty<LegModel>();
 
         foreach (var leg in sourceLegs)

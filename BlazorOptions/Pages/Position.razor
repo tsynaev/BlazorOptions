@@ -651,9 +651,7 @@ else
             ToggleSkewShift);
         _notesPanelViewModel = new PositionNotesPanelViewModel(ViewModel);
         _equityPanelViewModel = new PositionEquityPanelViewModel();
-        _moreActionsPanelViewModel = new PositionMoreActionsPanelViewModel(
-            OpenPositionSettingsDialogAsync,
-            AddPortfolioAsync);
+        _moreActionsPanelViewModel = new PositionMoreActionsPanelViewModel(OpenPositionSettingsDialogAsync);
 
         _isRouteLoading = true;
         try
@@ -782,8 +780,7 @@ else
 
     private IReadOnlyList<DateTime> GetIncludedLegExpirationsUtc()
     {
-        return ViewModel.Collections
-            .SelectMany(collection => collection.Legs)
+        return ViewModel.LegsCollection.Legs
             .Where(leg => leg.Leg.IsIncluded && leg.Leg.ExpirationDate.HasValue)
             .Select(leg => DateTime.SpecifyKind(leg.Leg.ExpirationDate!.Value, DateTimeKind.Utc))
             .Distinct()
@@ -823,11 +820,6 @@ else
     {
         ViewModel.SetShowSkewShift(!ViewModel.ShowSkewShift);
         return InvokeAsync(StateHasChanged);
-    }
-
-    private Task AddPortfolioAsync()
-    {
-        return ViewModel.AddCollectionAsync();
     }
 
     private async Task HandleChartTimeRangeChanged(TimeRange range)

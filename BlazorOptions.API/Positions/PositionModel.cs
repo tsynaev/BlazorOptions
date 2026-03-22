@@ -12,7 +12,8 @@ public class PositionModel : Bindable
     private string _quoteAsset = "USDT";
     private string _name = "Position";
     private string _notes = string.Empty;
-    private ObservableCollection<LegsCollectionModel> _collections = new();
+    private string _color = "#1976D2";
+    private ObservableCollection<LegModel> _legs = new();
     private ClosedModel _closed = new();
     private ChartRange? _chartRange;
 
@@ -52,10 +53,16 @@ public class PositionModel : Bindable
         set => SetField(ref _notes, value);
     }
 
-    public ObservableCollection<LegsCollectionModel> Collections
+    public string Color
     {
-        get => _collections;
-        set => SetField(ref _collections, value);
+        get => _color;
+        set => SetField(ref _color, value);
+    }
+
+    public ObservableCollection<LegModel> Legs
+    {
+        get => _legs;
+        set => SetField(ref _legs, value);
     }
 
     public ClosedModel Closed

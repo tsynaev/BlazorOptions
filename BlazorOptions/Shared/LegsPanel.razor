@@ -9,19 +9,8 @@
         <MudCardHeader>
             <MudStack Spacing="1" Class="flex-grow-1">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="legs-panel-header">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="legs-panel-title-row">
-                        <MudCheckBox T="bool"
-                                     Value="@ViewModel.IsVisible"
-                                     ValueChanged="async visible => await ViewModel.SetVisibilityAsync(visible)"/>
-                        <MudText Typo="Typo.h6" Style="@($"color:{ViewModel.Color};")">@ViewModel.Name</MudText>
-                    </MudStack>
                     <MudSpacer/>
                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="legs-panel-actions-row">
-                        <MudTooltip Text="Duplicate portfolio">
-                            <MudIconButton Icon="@Icons.Material.Filled.FileCopy"
-                                           Color="Color.Default"
-                                           OnClick="async () => await ViewModel.DuplicateCollectionAsync()"/>
-                        </MudTooltip>
                         <MudTooltip Text="Copy symbols to closed positions">
                             <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
                                            Color="Color.Default"
@@ -37,11 +26,6 @@
                             <MudIconButton Icon="@Icons.Material.Filled.AddCircle"
                                            Color="Color.Primary"
                                            OnClick="async () => await ViewModel.AddLegAsync()"/>
-                        </MudTooltip>
-                        <MudTooltip Text="Portfolio settings">
-                            <MudIconButton Icon="@Icons.Material.Filled.MoreVert"
-                                           Color="Color.Default"
-                                           OnClick="async () => await ViewModel.OpenSettingsAsync()"/>
                         </MudTooltip>
                     </MudStack>
                 </MudStack>
@@ -234,10 +218,6 @@
         .legs-panel-header {
             flex-direction: column;
             align-items: stretch;
-        }
-
-        .legs-panel-title-row {
-            justify-content: space-between;
         }
 
         .legs-panel-actions-row {

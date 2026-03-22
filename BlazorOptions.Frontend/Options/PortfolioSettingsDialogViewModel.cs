@@ -15,7 +15,7 @@ public sealed class PortfolioSettingsDialogViewModel
 
     public string Color { get; private set; } = "#1976D2";
 
-    public bool CanRemove => _positionViewModel.Collections?.Count > 1;
+    public bool CanRemove => false;
 
     public void Load(Guid collectionId)
     {
@@ -25,9 +25,8 @@ public sealed class PortfolioSettingsDialogViewModel
         }
 
         CollectionId = collectionId;
-        var collection = _positionViewModel.Collections
-            .FirstOrDefault(item => item.Collection.Id == collectionId);
-        if (collection is null)
+        var collection = _positionViewModel.LegsCollection;
+        if (collection?.Collection.Id != collectionId)
         {
             Name = string.Empty;
             return;
@@ -49,9 +48,8 @@ public sealed class PortfolioSettingsDialogViewModel
 
     public async Task SaveAsync()
     {
-        var collection = _positionViewModel.Collections
-            .FirstOrDefault(item => item.Collection.Id == CollectionId);
-        if (collection is null)
+        var collection = _positionViewModel.LegsCollection;
+        if (collection?.Collection.Id != CollectionId)
         {
             return;
         }
@@ -71,15 +69,5 @@ public sealed class PortfolioSettingsDialogViewModel
         _positionViewModel.NotifyStateChanged();
     }
 
-    public Task<bool> RemoveAsync()
-    {
-        var collection = _positionViewModel.Collections
-            .FirstOrDefault(item => item.Collection.Id == CollectionId);
-        if (collection is null)
-        {
-            return Task.FromResult(false);
-        }
-
-        return _positionViewModel.RemoveCollectionAsync(collection.Collection);
-    }
+    public Task<bool> RemoveAsync() => Task.FromResult(false);
 }
