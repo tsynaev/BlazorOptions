@@ -67,8 +67,9 @@ The Positions page is where you manage one position at a time and review its pay
 - `Skew` chip toggles skew-shift mode for temp line pricing:
 - `Off`: temp line uses each leg's own IV (`sticky-strike`).
 - `On`: temp line remaps IV by strike nearest to simulated underlying for same expiry/type (`skew-shift`).
-- Valuation date/time is set with a full-width timeline bar from `now` to latest included-leg expiration.
+- Valuation date/time is set with a full-width timeline bar from `now` to the latest included-leg expiration timestamp in UTC.
 - Expiration dates are shown as thick vertical markers with short labels.
+- Same-day expirations remain active until their actual expiration time. An option expiring at `08:00 UTC` stays live on the timeline until `08:00 UTC`, not until midnight.
 - Clicking/tapping the bar selects valuation date/time at that point; `X` resets selection to now.
 - User-selected chart range and candle interval are remembered per position.
 - Default candles:

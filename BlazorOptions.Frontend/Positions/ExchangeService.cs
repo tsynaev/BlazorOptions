@@ -22,6 +22,7 @@ public interface IExchangeService
 public sealed class ExchangeService : IExchangeService
 {
     private static readonly string[] ExpirationFormats = { "dMMMyy", "ddMMMyy", "ddMMMyyyy" };
+    private static readonly TimeSpan DefaultDatedContractExpiryTimeUtc = TimeSpan.FromHours(8);
     private readonly IServiceProvider? _services;
     private IOptionsChainService? _optionsChain;
     private IFuturesInstrumentsService? _futuresInstruments;
@@ -137,7 +138,7 @@ public sealed class ExchangeService : IExchangeService
             return false;
         }
 
-        expiration = parsedExpiration.Date;
+        expiration = ResolveDatedContractExpirationUtc(parsedExpiration);
 
         if (!decimal.TryParse(parts[2], NumberStyles.Any, CultureInfo.InvariantCulture, out strike))
         {
@@ -202,10 +203,19 @@ public sealed class ExchangeService : IExchangeService
         if (tokens.Length >= 2 &&
             DateTime.TryParseExact(tokens[1], ExpirationFormats, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsedExpiration))
         {
-            leg.ExpirationDate = parsedExpiration.Date;
+            leg.ExpirationDate = ResolveDatedContractExpirationUtc(parsedExpiration);
         }
 
         return true;
+    }
+
+    private static DateTime ResolveDatedContractExpirationUtc(DateTime parsedExpiration)
+    {
+        // Bybit dated option/future symbols encode only the trading date, so keep the exchange expiry cutoff at 08:00 UTC.
+        var utcDate = parsedExpiration.Kind == DateTimeKind.Utc
+            ? parsedExpiration.Date
+            : DateTime.SpecifyKind(parsedExpiration.Date, DateTimeKind.Utc);
+        return utcDate.Add(DefaultDatedContractExpiryTimeUtc);
     }
 
     private sealed class NullOrdersService : IOrdersService

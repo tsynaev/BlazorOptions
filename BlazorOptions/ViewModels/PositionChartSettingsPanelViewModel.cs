@@ -57,20 +57,13 @@ public sealed class PositionChartSettingsPanelViewModel : Bindable
     {
         get
         {
-            var now = DateTime.UtcNow;
-            var max = _positionViewModel.MaxExpiryDate.Date.AddDays(1).AddTicks(-1);
-            return max > now ? max : now;
+            return _positionViewModel.MaxValuationDateUtc;
         }
     }
 
     public DateTime SelectedDateTimeUtc => _positionViewModel.ValuationDate;
 
-    public IReadOnlyList<DateTime> ExpirationDatesUtc => _positionViewModel.LegsCollection.Legs
-        .Where(leg => leg.Leg.IsIncluded && leg.Leg.ExpirationDate.HasValue)
-        .Select(leg => DateTime.SpecifyKind(leg.Leg.ExpirationDate!.Value, DateTimeKind.Utc))
-        .Distinct()
-        .OrderBy(date => date)
-        .ToArray();
+    public IReadOnlyList<DateTime> ExpirationDatesUtc => _positionViewModel.IncludedLegExpirationsUtc;
 
     public Task ToggleLiveAsync() => _toggleLive();
 

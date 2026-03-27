@@ -303,7 +303,7 @@ public sealed class FuturesInstrumentsService : IFuturesInstrumentsService
             ? deliveryTime * 1000
             : deliveryTime;
 
-        return DateTimeOffset.FromUnixTimeMilliseconds(timestamp).UtcDateTime.Date;
+        return DateTimeOffset.FromUnixTimeMilliseconds(timestamp).UtcDateTime;
     }
 
     private static bool TryReadString(JsonElement element, string propertyName, out string value)

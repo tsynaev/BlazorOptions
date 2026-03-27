@@ -149,10 +149,20 @@ public sealed class PositionViewModel : IDisposable
     public bool ShowDayMinMaxMarkers { get; private set; } = true;
     public bool ShowOrderMarkers { get; private set; } = true;
     public bool ShowSkewShift { get; private set; }
-    public DateTime MaxExpiryDate { get; private set; } = DateTime.UtcNow.Date;
+    public DateTime MaxExpiryDate { get; private set; } = DateTime.UtcNow;
     public int MaxExpiryDays { get; private set; }
     public int SelectedDayOffset { get; private set; }
     public string DaysToExpiryLabel => $"{SelectedDayOffset} days";
+    public DateTime MaxValuationDateUtc => MaxExpiryDate > DateTime.UtcNow ? MaxExpiryDate : DateTime.UtcNow;
+    public IReadOnlyList<DateTime> IncludedLegExpirationsUtc => LegsCollection?.Legs
+        .Where(leg => leg.Leg.IsIncluded)
+        .Select(leg => ResolveEffectiveExpirationUtc(leg.Leg))
+        .Where(expiration => expiration.HasValue)
+        .Select(expiration => expiration!.Value)
+        .Distinct()
+        .OrderBy(expiration => expiration)
+        .ToArray()
+        ?? Array.Empty<DateTime>();
 
 
     public string? ErrorMessage { get; set; }
@@ -186,6 +196,7 @@ public sealed class PositionViewModel : IDisposable
                 return;
             }
 
+            var normalizedStoredExpirations = NormalizeStoredLegExpirations(storedPosition);
             Position = storedPosition;
             ResetTransientStrategyLegInclusions();
 
@@ -200,6 +211,11 @@ public sealed class PositionViewModel : IDisposable
             _chartTimeRange = null;
             ChartCandles.Clear();
             _lastCandleBucketTime = null;
+
+            if (normalizedStoredExpirations)
+            {
+                _ = QueuePersistPositionsAsync(Position);
+            }
 
             OnChange?.Invoke();
 
@@ -227,6 +243,47 @@ public sealed class PositionViewModel : IDisposable
                 leg.IsIncluded = false;
             }
         }
+    }
+
+    private bool NormalizeStoredLegExpirations(PositionModel position)
+    {
+        var changed = false;
+        foreach (var leg in position.Legs)
+        {
+            if (string.IsNullOrWhiteSpace(leg.Symbol))
+            {
+                continue;
+            }
+
+            if (!_exchangeService.TryParseSymbol(leg.Symbol, out _, out var parsedExpiration, out _, out _))
+            {
+                continue;
+            }
+
+            if (!leg.ExpirationDate.HasValue)
+            {
+                leg.ExpirationDate = parsedExpiration;
+                changed = true;
+                continue;
+            }
+
+            var currentExpiration = NormalizeUtc(leg.ExpirationDate.Value);
+            if (currentExpiration.Date != parsedExpiration.Date)
+            {
+                continue;
+            }
+
+            // Repair legacy saved contracts that kept only the calendar day and lost the exchange cutoff time.
+            if (Math.Abs((currentExpiration - parsedExpiration).TotalMinutes) < 0.5)
+            {
+                continue;
+            }
+
+            leg.ExpirationDate = parsedExpiration;
+            changed = true;
+        }
+
+        return changed;
     }
 
     private async Task InitializeExchangeContextAsync()
@@ -441,7 +498,7 @@ public sealed class PositionViewModel : IDisposable
     public void SetValuationDate(DateTime date)
     {
         var now = DateTime.UtcNow;
-        var max = MaxExpiryDate.Date.AddDays(1).AddTicks(-1);
+        var max = MaxValuationDateUtc;
         var clampedDate = date < now ? now : date > max ? max : date;
         ApplyValuationDate(clampedDate);
         SelectedDayOffset = Math.Clamp((clampedDate.Date - now.Date).Days, 0, MaxExpiryDays);
@@ -1270,13 +1327,15 @@ public sealed class PositionViewModel : IDisposable
 
     private static bool IsLegExpiredAtValuation(LegModel leg, DateTime valuationDate)
     {
-        if (!leg.ExpirationDate.HasValue)
+        var expiration = ResolveEffectiveExpirationUtcStatic(leg);
+        if (!expiration.HasValue)
         {
             // Futures without expiration are perpetual and never expire.
             return false;
         }
 
-        return leg.ExpirationDate.Value.Date <= valuationDate.Date;
+        // Compare full UTC instants so same-day expiries stay active until their actual expiry time.
+        return expiration.Value <= NormalizeUtc(valuationDate);
     }
 
     private void TryAddDayIvMarkers()
@@ -1833,6 +1892,7 @@ public sealed class PositionViewModel : IDisposable
         var resolvedPrice = ResolveLegEntryPrice(leg);
         var resolvedSize = model.Size;
         var impliedVolatility = model.ImpliedVolatility;
+        var resolvedExpiration = ResolveEffectiveExpirationUtc(model);
         if (!impliedVolatility.HasValue || impliedVolatility.Value <= 0)
         {
             var markIv = GetLegMarkIv(model, baseAsset);
@@ -1846,7 +1906,9 @@ public sealed class PositionViewModel : IDisposable
         var resolvedIv = impliedVolatility ?? 0m;
         var priceChanged = !model.Price.HasValue || Math.Abs(resolvedPrice - model.Price.Value) > 0.0001m;
         var sizeChanged = Math.Abs(resolvedSize - model.Size) > 0.0001m;
-        if (!priceChanged && !sizeChanged && Math.Abs(resolvedIv - originalIv) < 0.0001m)
+        var currentExpiration = model.ExpirationDate.HasValue ? NormalizeUtc(model.ExpirationDate.Value) : (DateTime?)null;
+        var expirationChanged = currentExpiration != resolvedExpiration;
+        if (!priceChanged && !sizeChanged && Math.Abs(resolvedIv - originalIv) < 0.0001m && !expirationChanged)
         {
             return model;
         }
@@ -1857,7 +1919,7 @@ public sealed class PositionViewModel : IDisposable
             IsIncluded = model.IsIncluded,
             Type = model.Type,
             Strike = model.Strike,
-            ExpirationDate = model.ExpirationDate,
+            ExpirationDate = resolvedExpiration,
             Size = resolvedSize,
             Price = resolvedPrice,
             ImpliedVolatility = impliedVolatility
@@ -1937,23 +1999,23 @@ public sealed class PositionViewModel : IDisposable
 
     private void RefreshValuationDateBounds(IEnumerable<LegViewModel> legs)
     {
-        var today = DateTime.UtcNow.Date;
+        var now = DateTime.UtcNow;
+        var today = now.Date;
         var expirations = legs
-            .Select(l => l.Leg.ExpirationDate)
-            .Where(exp => exp.HasValue)
-            .Select(exp => exp!.Value)
+            .Select(l => ResolveEffectiveExpirationUtc(l.Leg))
+            .Where(expiration => expiration.HasValue)
+            .Select(expiration => expiration!.Value)
             .ToList();
 
-        MaxExpiryDate = expirations.Any() ? expirations.Max() : today;
-        if (MaxExpiryDate < today)
+        MaxExpiryDate = expirations.Count > 0 ? expirations.Max() : now;
+        if (MaxExpiryDate < now)
         {
-            MaxExpiryDate = today;
+            MaxExpiryDate = now;
         }
 
-        MaxExpiryDays = Math.Max(0, (MaxExpiryDate - today).Days);
+        MaxExpiryDays = Math.Max(0, (MaxExpiryDate.Date - today).Days);
         var currentValuationDate = ValuationDate;
-        var now = DateTime.UtcNow;
-        var max = MaxExpiryDate.Date.AddDays(1).AddTicks(-1);
+        var max = MaxValuationDateUtc;
         var clampedDate = currentValuationDate == default ? now : currentValuationDate;
         if (clampedDate < now)
         {
@@ -2355,6 +2417,43 @@ public sealed class PositionViewModel : IDisposable
         }
 
         return left.Value.Date == right.Value.Date;
+    }
+
+    private static DateTime NormalizeUtc(DateTime value)
+    {
+        return value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+        };
+    }
+
+    private DateTime? ResolveEffectiveExpirationUtc(LegModel leg)
+    {
+        return ResolveEffectiveExpirationUtcStatic(leg, _exchangeService);
+    }
+
+    private static DateTime? ResolveEffectiveExpirationUtcStatic(LegModel leg, IExchangeService? exchangeService = null)
+    {
+        if (leg is null)
+        {
+            return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(leg.Symbol)
+            && exchangeService is not null
+            && exchangeService.TryParseSymbol(leg.Symbol, out _, out var parsedExpiration, out _, out _))
+        {
+            return NormalizeUtc(parsedExpiration);
+        }
+
+        if (leg.ExpirationDate.HasValue)
+        {
+            return NormalizeUtc(leg.ExpirationDate.Value);
+        }
+
+        return null;
     }
 
     private void QueueUiStateChanged()

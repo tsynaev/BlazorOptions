@@ -64,6 +64,10 @@ Route: `/position/{positionId}`
 - Persist selected candle interval and restore as rolling range from current time.
 - Candles default to `1H` and `48h` window.
 - Range changes load only missing candle segments.
+- Valuation timeline upper bound uses the maximum included-leg expiration instant in UTC.
+- Expiry-state checks use full UTC timestamps; same-day contracts are not treated as expired before their actual expiration time.
+- Bybit dated symbols carry only the expiry date in the symbol text, so the app resolves them to `08:00 UTC` unless a service returns an explicit delivery timestamp.
+- Legacy saved legs that still carry midnight expirations are normalized from their symbol on load so valuation range and chart pricing recover without manual re-entry.
 
 ## Responsive Layout
 
