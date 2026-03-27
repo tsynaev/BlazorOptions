@@ -71,7 +71,7 @@ Route: `/position/{positionId}`
 - `PayoffChart` suppresses break-even markers for a flat zero series so empty positions do not emit one BE label per sampled x-point.
 - `PayoffChart` also suppresses flat zero payoff series entirely and hides the leftmost x-axis minimum label to keep the lower-left corner readable.
 - `Position.razor` passes `ShowLegends="false"` to `PayoffChart` because the page always renders a single portfolio series.
-- `PayoffChart` renders an explicit high-contrast `y = 0` mark line so the zero-PnL baseline stays visible on the position page.
+- `PayoffChart` renders an explicit solid high-contrast `y = 0` mark line so the zero-PnL baseline stays visible on the position page.
 
 ## Responsive Layout
 

@@ -77,7 +77,7 @@ The Positions page is where you manage one position at a time and review its pay
 - The leftmost x-axis minimum label is hidden to avoid crowding the lower-left chart corner.
 - Empty positions do not render the flat portfolio zero line.
 - The position-page payoff chart hides the legend because the page always shows a single portfolio.
-- The `P/L = 0` horizontal baseline is rendered with higher contrast than the regular chart grid.
+- The `P/L = 0` horizontal baseline is rendered as a solid line with higher contrast than the regular chart grid.
 - Clicking/tapping the bar selects valuation date/time at that point; `X` resets selection to now.
 - User-selected chart range and candle interval are remembered per position.
 - Default candles:

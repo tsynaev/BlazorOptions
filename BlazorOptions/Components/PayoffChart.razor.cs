@@ -278,7 +278,7 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
             {
                 symbol = "none",
                 label = new { show = false },
-                lineStyle = new { color = zeroLine, width = 1.5 },
+                lineStyle = new { color = zeroLine, width = 1.5, type = "solid" },
                 data = new object[]
                 {
                     new { yAxis = 0 }
