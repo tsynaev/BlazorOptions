@@ -27,6 +27,7 @@ Route: `/`
 - While a card chart is warming up, the card shows a chart skeleton placeholder.
 - Cached charts are shown immediately, but the temporary/theoretical line is added only after fresh server and exchange pricing is loaded.
 - Break-even values are calculated independently and shown even while the mini chart is still loading.
+- Break-even values are hidden when a card has no enabled dashboard legs or when every enabled leg has already expired in UTC.
 - Each card shows:
   - position name in `base/quote - name` format
   - total P/L

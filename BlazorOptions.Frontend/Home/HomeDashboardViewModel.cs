@@ -258,6 +258,11 @@ public sealed class HomeDashboardViewModel : Bindable
         BlazorChart.Models.ChartRange? range,
         decimal pnlShift)
     {
+        if (!ShouldShowDashboardBreakEvens(legs, DateTime.UtcNow))
+        {
+            return Array.Empty<decimal>();
+        }
+
         var (xs, profits, _) = _optionsService.GeneratePosition(
             legs,
             // Use denser sampling because BE can be missed on coarse grids.
@@ -349,9 +354,31 @@ public sealed class HomeDashboardViewModel : Bindable
                 .Select(value => (double)(value + pnlShift + tempOffset))
                 .ToArray()
             : Array.Empty<double>();
-        var breakEvens = ResolveBreakEvens(xs, profits, pnlShift);
+        var breakEvens = ShouldShowDashboardBreakEvens(legs, DateTime.UtcNow)
+            ? ResolveBreakEvens(xs, profits, pnlShift)
+            : Array.Empty<decimal>();
 
         return new HomeMiniChartModel(sparseLabels, values, tempValues, (double)xs[0], (double)xs[^1], breakEvens, includeTempLine);
+    }
+
+    private static bool ShouldShowDashboardBreakEvens(IReadOnlyList<LegModel> legs, DateTime nowUtc)
+    {
+        if (legs.Count == 0)
+        {
+            return false;
+        }
+
+        var hasOpenLeg = false;
+        foreach (var leg in legs)
+        {
+            if (!leg.ExpirationDate.HasValue || leg.ExpirationDate.Value > nowUtc)
+            {
+                hasOpenLeg = true;
+                break;
+            }
+        }
+
+        return hasOpenLeg;
     }
 
     private static IReadOnlyList<decimal> ResolveBreakEvens(IReadOnlyList<decimal> xs, IReadOnlyList<decimal> profits, decimal pnlShift)

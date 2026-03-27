@@ -70,6 +70,11 @@ The Positions page is where you manage one position at a time and review its pay
 - Valuation date/time is set with a full-width timeline bar from `now` to the latest included-leg expiration timestamp in UTC.
 - Expiration dates are shown as thick vertical markers with short labels.
 - Same-day expirations remain active until their actual expiration time. An option expiring at `08:00 UTC` stays live on the timeline until `08:00 UTC`, not until midnight.
+- A flat zero-payoff chart does not show break-even markers. Empty positions are rendered without BE labels instead of marking the full x-axis.
+- The leftmost x-axis minimum label is hidden to avoid crowding the lower-left chart corner.
+- Empty positions do not render the flat portfolio zero line.
+- The position-page payoff chart hides the legend because the page always shows a single portfolio.
+- The `P/L = 0` horizontal baseline is rendered with higher contrast than the regular chart grid.
 - Clicking/tapping the bar selects valuation date/time at that point; `X` resets selection to now.
 - User-selected chart range and candle interval are remembered per position.
 - Default candles:

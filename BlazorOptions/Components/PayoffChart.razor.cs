@@ -216,6 +216,7 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
         var axisText = IsDarkTheme ? "#c7d0e0" : "#4b5563";
         var axisLine = IsDarkTheme ? "#2b313c" : "#9ca3af";
         var splitLine = IsDarkTheme ? "rgba(43,49,60,0.65)" : "rgba(148,163,184,0.35)";
+        var zeroLine = IsDarkTheme ? "rgba(148,163,184,0.72)" : "rgba(71,85,105,0.75)";
         var tooltipBg = IsDarkTheme ? "rgba(20,22,28,0.95)" : "rgba(255,255,255,0.95)";
         var tooltipText = IsDarkTheme ? "#e6e8ee" : "#111827";
         var timeMin = TimeRange?.Min;
@@ -229,22 +230,63 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
             }
         }
 
-        foreach (var strategy in Strategies.Where(s => s.Visible))
+        var visibleStrategies = Strategies
+            .Where(s => s.Visible)
+            .Select(strategy => new
+            {
+                Strategy = strategy,
+                HasTempSeries = HasRenderableSeries(strategy.TempPnl),
+                HasExpiredSeries = HasRenderableSeries(strategy.ExpiredPnl)
+            })
+            .ToArray();
+
+        foreach (var entry in visibleStrategies)
         {
+            var strategy = entry.Strategy;
             series.Add(BuildSeries(strategy, isTemp: true));
             series.Add(BuildSeries(strategy, isTemp: false));
 
-            if (strategy.ShowBreakEvens)
+            if (strategy.ShowBreakEvens && entry.HasExpiredSeries)
             {
                 var expiredBe = GetBreakEvens(strategy.ExpiredPnl);
-                var tempBe = FilterOverlappingBreakEvens(GetBreakEvens(strategy.TempPnl), expiredBe, GetStep(strategy.ExpiredPnl));
-                series.Add(BuildBreakEvenSeries(strategy, expiredBe, "be-exp"));
-                if (tempBe.Count > 0)
+                if (expiredBe.Count > 0)
                 {
-                    series.Add(BuildBreakEvenSeries(strategy, tempBe, "be-temp"));
+                    series.Add(BuildBreakEvenSeries(strategy, expiredBe, "be-exp"));
+                }
+
+                if (entry.HasTempSeries)
+                {
+                    var tempBe = FilterOverlappingBreakEvens(GetBreakEvens(strategy.TempPnl), expiredBe, GetStep(strategy.ExpiredPnl));
+                    if (tempBe.Count > 0)
+                    {
+                        series.Add(BuildBreakEvenSeries(strategy, tempBe, "be-temp"));
+                    }
                 }
             }
         }
+
+        series.Add(new
+        {
+            id = "__zero__",
+            name = "Zero",
+            type = "line",
+            data = Array.Empty<double[]>(),
+            silent = true,
+            lineStyle = new { opacity = 0 },
+            tooltip = new { show = false },
+            markLine = new
+            {
+                symbol = "none",
+                label = new { show = false },
+                lineStyle = new { color = zeroLine, width = 1.5 },
+                data = new object[]
+                {
+                    new { yAxis = 0 }
+                }
+            },
+            z = 1,
+            zlevel = 0
+        });
 
         series.Add(new
         {
@@ -291,7 +333,11 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
                 itemWidth = 12,
                 itemHeight = 8,
                 textStyle = new { fontSize = 11, color = axisText },
-                data = Strategies.Where(s => s.Visible).Select(s => s.Name).Distinct().ToArray(),
+                data = visibleStrategies
+                    .Where(s => s.HasTempSeries || s.HasExpiredSeries)
+                    .Select(s => s.Strategy.Name)
+                    .Distinct()
+                    .ToArray(),
                 selectedMode = true,
                 hoverLink = false
             } : null,
@@ -300,7 +346,7 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
                 type = "value",
                 nameLocation = "middle",
                 nameGap = 30,
-                axisLabel = new { formatter = "{value}", fontSize = 10, color = axisText, align = "right", margin = 2, width = 50, overflow = "truncate" },
+                axisLabel = new { formatter = "{value}", showMinLabel = false, fontSize = 10, color = axisText, align = "right", margin = 2, width = 50, overflow = "truncate" },
                 nameTextStyle = new { fontSize = 11, color = axisText },
                 axisLine = new { lineStyle = new { color = axisLine } },
                 axisTick = new { lineStyle = new { color = axisLine } },
@@ -363,6 +409,7 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
     {
         var points = isTemp ? strategy.TempPnl : strategy.ExpiredPnl;
         var suffix = isTemp ? "Temp" : "Expired";
+        var isRenderable = HasRenderableSeries(points);
 
         return new
         {
@@ -373,16 +420,24 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
             type = "line",
             smooth = false,
             showSymbol = false,
+            silent = !isRenderable,
             emphasis = new { focus = "none" },
-            itemStyle = new { color = strategy.Color },
+            itemStyle = new { color = strategy.Color, opacity = isRenderable ? 1 : 0 },
             lineStyle = new
             {
                 color = strategy.Color,
                 width = 2,
-                type = isTemp ? "dashed" : "solid"
+                type = isTemp ? "dashed" : "solid",
+                opacity = isRenderable ? 1 : 0
             },
+            tooltip = new { show = isRenderable },
             data = points.Select(p => new[] { p.Price, p.Pnl }).ToArray()
         };
+    }
+
+    private static bool HasRenderableSeries(IReadOnlyList<PayoffPoint> points)
+    {
+        return points.Count > 1 && !IsFlatZeroSeries(points);
     }
 
     private static object BuildBreakEvenSeries(StrategySeries strategy, IReadOnlyList<double> points, string suffix)
@@ -464,6 +519,12 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
             return result;
         }
 
+        if (IsFlatZeroSeries(points))
+        {
+            // A zero-width payoff for an empty position has no meaningful break-even point.
+            return result;
+        }
+
         var epsilon = GetStep(points) * 0.5;
         for (var i = 1; i < points.Count; i++)
         {
@@ -490,6 +551,19 @@ public sealed partial class PayoffChart : ComponentBase, IAsyncDisposable
         }
 
         return result;
+    }
+
+    private static bool IsFlatZeroSeries(IReadOnlyList<PayoffPoint> points)
+    {
+        for (var i = 0; i < points.Count; i++)
+        {
+            if (Math.Abs(points[i].Pnl) >= 1e-9)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static double GetStep(IReadOnlyList<PayoffPoint> points)
