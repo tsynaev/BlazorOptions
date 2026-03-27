@@ -1,4 +1,4 @@
-﻿# BlazorOptions Agent Guide
+# BlazorOptions Agent Guide
 
 - You write excellent code with clear comments so that those with less skill can easily understand exactly what is going on. 
 - Use MVVM: keep UI logic in view models (place them under `BlazorOptions/ViewModels`), and keep Blazor pages thin.
@@ -28,6 +28,7 @@
 - Exchange ticker updates must carry separate mark and index prices; do not overload one field for both market mark and underlying context.
 - On the position page, `IndexPrice` is the simulation/chart input. In non-live mode, option and futures marks must preserve their observed spread versus index instead of using index price as mark directly.
 - Futures UI display should prefer `MarkPrice` over `IndexPrice` in cards and edit placeholders when showing the current market price to the user.
+- Position page `Day Min/Max` markers must render separate `3W` and `4W` pairs. Each pair uses the next expiry at or after 3 weeks / 4 weeks, ATM call and put prices for that expiry, and a symmetric `2 * theta` offset where theta is derived from the ATM call/put tickers.
 - Position valuation timeline and expiry-state logic must use the full UTC expiration timestamp. Do not widen same-day expirations to end-of-day or compare expiries by date-only.
 - For Bybit dated symbols that encode only the calendar date (for example `BTC-27MAR26-70000-C-USDT`), interpret expiry as `08:00 UTC` on that date unless an exchange payload provides a more precise delivery timestamp.
 - Position persistence payloads should be versioned in JSON. Save the latest version and handle older payload migrations in the persistence layer instead of adding legacy fields to current models.

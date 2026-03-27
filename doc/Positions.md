@@ -23,9 +23,12 @@ The Positions page is where you manage one position at a time and review its pay
 - Include closed symbols and shift chart by closed net P/L when needed.
 - See payoff curve, order markers, linked-order markers, and optional candles.
 - See IV-based day range markers:
-- `Day Max = day open + ATM call extrinsic` (next 3-4 week expiry)
-- `Day Min = day open - ATM put extrinsic` (next 3-4 week expiry)
-- Marker labels include the corresponding call/put IV used for the range.
+- `3W Max = day open + ATM call price + 2 x theta` using the next expiry at or after 3 weeks.
+- `3W Min = day open - ATM put price - 2 x theta` using the same ATM strike/expiry.
+- `4W Max = day open + ATM call price + 2 x theta` using the next expiry at or after 4 weeks.
+- `4W Min = day open - ATM put price - 2 x theta` using the same ATM strike/expiry.
+- ATM strike means the shared call/put strike closest to the option chain underlying price for that expiry.
+- Marker labels include the corresponding call/put IV used for each marker pair.
 - Included `Order` and `New` legs show order markers (`@price`) on the chart; option markers are placed at implied underlying execution level.
 - Linked-order markers are shown for active legs and include all linked orders for that leg.
 - Review per-leg P/L, IV, Greeks, and linked-order expected P/L.

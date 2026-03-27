@@ -170,16 +170,21 @@ public sealed class PositionViewModel : IDisposable
     public event Action? OnChange;
     public event Action<decimal?>? LivePriceChanged;
 
-    private sealed record DayIvRangeMarkerData(
+    private sealed record DayIvMarkerLevel(
+        string WindowLabel,
         decimal OpenPrice,
         decimal Strike,
         DateTime ExpirationDate,
-        decimal CallExtrinsic,
-        decimal PutExtrinsic,
+        decimal CallPrice,
+        decimal PutPrice,
+        decimal Theta,
         decimal? CallIv,
         decimal? PutIv,
         decimal DayMaxPrice,
         decimal DayMinPrice);
+
+    private sealed record DayIvRangeMarkerData(
+        IReadOnlyList<DayIvMarkerLevel> Levels);
 
     private sealed record SkewContext(
         IReadOnlyDictionary<(LegType Type, DateTime Expiry), (decimal Strike, decimal Iv)[]> SurfaceByExpiryAndType);
@@ -1360,15 +1365,18 @@ public sealed class PositionViewModel : IDisposable
             markerData = _dayIvRangeData;
         }
 
-        ChartMarkers.Add(new PriceMarker(
-            (double)markerData.DayMaxPrice,
-            $"Day Max {markerData.DayMaxPrice:0.#} (Open {markerData.OpenPrice:0.#} + Cext {markerData.CallExtrinsic:0.#}, IV {FormatIv(markerData.CallIv)})",
-            "#2ECC71"));
+        foreach (var level in markerData.Levels)
+        {
+            ChartMarkers.Add(new PriceMarker(
+                (double)level.DayMaxPrice,
+                $"{level.WindowLabel} Max {level.DayMaxPrice:0.#}",
+                "#2ECC71"));
 
-        ChartMarkers.Add(new PriceMarker(
-            (double)markerData.DayMinPrice,
-            $"Day Min {markerData.DayMinPrice:0.#} (Open {markerData.OpenPrice:0.#} - Pext {markerData.PutExtrinsic:0.#}, IV {FormatIv(markerData.PutIv)})",
-            "#E74C3C"));
+            ChartMarkers.Add(new PriceMarker(
+                (double)level.DayMinPrice,
+                $"{level.WindowLabel} Min {level.DayMinPrice:0.#}",
+                "#E74C3C"));
+        }
     }
 
     private void QueueDayIvMarkerRefreshIfRequired()
@@ -1481,25 +1489,40 @@ public sealed class PositionViewModel : IDisposable
             return null;
         }
 
-        var expiration = ResolveTargetIvExpiration(tickers, valuationDayUtc);
+        var levels = new List<DayIvMarkerLevel>(capacity: 2);
+        AddDayIvMarkerLevel(levels, tickers, valuationDayUtc, openDayPrice, minimumDays: 21, windowLabel: "3W");
+        AddDayIvMarkerLevel(levels, tickers, valuationDayUtc, openDayPrice, minimumDays: 28, windowLabel: "4W");
+
+        return levels.Count == 0 ? null : new DayIvRangeMarkerData(levels);
+    }
+
+    private void AddDayIvMarkerLevel(
+        ICollection<DayIvMarkerLevel> levels,
+        IReadOnlyList<OptionChainTicker> tickers,
+        DateTime valuationDayUtc,
+        decimal openDayPrice,
+        int minimumDays,
+        string windowLabel)
+    {
+        var expiration = ResolveTargetIvExpiration(tickers, valuationDayUtc, minimumDays);
         if (!expiration.HasValue)
         {
-            return null;
+            return;
         }
 
         var expiryTickers = tickers
             .Where(t => t.ExpirationDate.Date == expiration.Value.Date)
             .ToList();
-
         if (expiryTickers.Count == 0)
         {
-            return null;
+            return;
         }
 
-        var strike = ResolveAtmStrikeWithBothSides(expiryTickers, openDayPrice);
+        var underlyingPrice = ResolveMarkerUnderlyingPrice(expiryTickers, openDayPrice);
+        var strike = ResolveAtmStrikeWithBothSides(expiryTickers, underlyingPrice);
         if (!strike.HasValue)
         {
-            return null;
+            return;
         }
 
         var callTicker = expiryTickers.FirstOrDefault(t =>
@@ -1508,42 +1531,55 @@ public sealed class PositionViewModel : IDisposable
         var putTicker = expiryTickers.FirstOrDefault(t =>
             t.Type == LegType.Put
             && t.Strike == strike.Value);
-
         if (callTicker is null || putTicker is null)
         {
-            return null;
+            return;
         }
 
         var callPrice = ResolveTickerOptionPrice(callTicker);
         var putPrice = ResolveTickerOptionPrice(putTicker);
         if (!callPrice.HasValue || !putPrice.HasValue)
         {
-            return null;
+            return;
         }
 
-        var callIntrinsic = Math.Max(openDayPrice - strike.Value, 0m);
-        var putIntrinsic = Math.Max(strike.Value - openDayPrice, 0m);
-        var callExtrinsic = Math.Max(callPrice.Value - callIntrinsic, 0m);
-        var putExtrinsic = Math.Max(putPrice.Value - putIntrinsic, 0m);
+        var theta = ResolveMarkerTheta(callTicker, putTicker);
         var callIv = NormalizeIv(callTicker.MarkIv);
         var putIv = NormalizeIv(putTicker.MarkIv);
+        var dayMax = openDayPrice + callPrice.Value + (2m * theta);
+        var dayMin = openDayPrice - putPrice.Value - (2m * theta);
 
-        var dayMax = openDayPrice + callExtrinsic;
-        var dayMin = openDayPrice - putExtrinsic;
-
-        return new DayIvRangeMarkerData(
+        levels.Add(new DayIvMarkerLevel(
+            windowLabel,
             openDayPrice,
             strike.Value,
             expiration.Value,
-            callExtrinsic,
-            putExtrinsic,
+            callPrice.Value,
+            putPrice.Value,
+            theta,
             callIv > 0 ? callIv : null,
             putIv > 0 ? putIv : null,
             dayMax,
-            dayMin);
+            dayMin));
     }
 
-    private static decimal? ResolveAtmStrikeWithBothSides(IReadOnlyList<OptionChainTicker> tickers, decimal openDayPrice)
+    private static decimal ResolveMarkerUnderlyingPrice(IReadOnlyList<OptionChainTicker> tickers, decimal fallbackPrice)
+    {
+        var prices = tickers
+            .Where(t => t.UnderlyingPrice.HasValue && t.UnderlyingPrice.Value > 0m)
+            .Select(t => t.UnderlyingPrice!.Value)
+            .ToList();
+
+        if (prices.Count == 0)
+        {
+            return fallbackPrice;
+        }
+
+        // Use the expiry's chain underlying so ATM strike follows the exchange option context.
+        return prices.Average();
+    }
+
+    private static decimal? ResolveAtmStrikeWithBothSides(IReadOnlyList<OptionChainTicker> tickers, decimal underlyingPrice)
     {
         var callStrikes = tickers
             .Where(t => t.Type == LegType.Call)
@@ -1556,17 +1592,16 @@ public sealed class PositionViewModel : IDisposable
 
         var sharedStrikes = callStrikes
             .Where(putStrikes.Contains)
-            .OrderBy(strike => Math.Abs(strike - openDayPrice))
+            .OrderBy(strike => Math.Abs(strike - underlyingPrice))
             .ThenBy(strike => strike)
             .ToList();
 
         return sharedStrikes.Count == 0 ? null : sharedStrikes[0];
     }
 
-    private static DateTime? ResolveTargetIvExpiration(IReadOnlyList<OptionChainTicker> tickers, DateTime valuationDayUtc)
+    private static DateTime? ResolveTargetIvExpiration(IReadOnlyList<OptionChainTicker> tickers, DateTime valuationDayUtc, int minimumDays)
     {
-        var minimum = valuationDayUtc.Date.AddDays(21);
-        var maximum = valuationDayUtc.Date.AddDays(28);
+        var minimum = valuationDayUtc.Date.AddDays(minimumDays);
 
         var expirations = tickers
             .Select(t => t.ExpirationDate.Date)
@@ -1580,21 +1615,31 @@ public sealed class PositionViewModel : IDisposable
             return null;
         }
 
-        var inWindow = expirations
-            .Where(date => date >= minimum && date <= maximum)
-            .OrderBy(date => date)
-            .ToList();
+        return expirations
+            .Where(date => date >= minimum)
+            .FirstOrDefault();
+    }
 
-        if (inWindow.Count > 0)
+    private static decimal ResolveMarkerTheta(OptionChainTicker callTicker, OptionChainTicker putTicker)
+    {
+        var thetaValues = new List<decimal>(capacity: 2);
+        if (callTicker.Theta.HasValue)
         {
-            return inWindow[0];
+            thetaValues.Add(Math.Abs(callTicker.Theta.Value));
         }
 
-        var target = valuationDayUtc.Date.AddDays(24);
-        return expirations
-            .OrderBy(date => Math.Abs((date - target).TotalDays))
-            .ThenBy(date => date)
-            .FirstOrDefault();
+        if (putTicker.Theta.HasValue)
+        {
+            thetaValues.Add(Math.Abs(putTicker.Theta.Value));
+        }
+
+        if (thetaValues.Count == 0)
+        {
+            return 0m;
+        }
+
+        // Average ATM call/put theta so the offset stays symmetric across both marker sides.
+        return thetaValues.Average();
     }
 
     private static decimal? ResolveTickerOptionPrice(OptionChainTicker ticker)

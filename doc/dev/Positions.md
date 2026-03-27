@@ -90,11 +90,14 @@ Route: `/position/{positionId}`
 - `ShowOrderMarkers` for order + linked-order markers
 - IV day range markers are added when data is available:
 - day open is taken from first 1H candle of valuation day (or today for future valuation dates)
-- expiry is nearest in the 3-4 week window (fallback: nearest available)
-- ATM strike is selected from strikes that have both call and put
-- marker prices use extrinsic-only premium:
-- `Day Max = open + max(callPrice - intrinsicCall, 0)`
-- `Day Min = open - max(putPrice - intrinsicPut, 0)`
+- two expiry buckets are evaluated independently:
+- next expiry at or after 21 days (`3W`)
+- next expiry at or after 28 days (`4W`)
+- ATM strike is selected from strikes that have both call and put and is the shared strike closest to the option chain underlying price for that expiry
+- marker prices use ATM option price plus theta buffer:
+- `Max = open + ATM call price + 2 * theta`
+- `Min = open - ATM put price - 2 * theta`
+- theta is the average absolute ATM call/put theta for the selected expiry/strike pair.
 - marker labels also show call/put IV from the selected ATM tickers.
 - Linked order marker text switches by scenario:
 - closing/reducing order => `PnL`
