@@ -1,4 +1,6 @@
 using System.ComponentModel;
+using System.Globalization;
+using System.Text.Json;
 using BlazorOptions.API.TradingHistory;
 using BlazorOptions.Diagnostics;
 using BlazorOptions.Services;
@@ -193,9 +195,7 @@ public sealed class ClosedPositionViewModel : Bindable
         long? maxTimestamp = lastProcessedTimestamp;
         var maxTimestampIds = new List<string>();
 
-        foreach (var entry in entries
-                     .OrderBy(item => item.Timestamp ?? long.MinValue)
-                     .ThenBy(item => item.Id, StringComparer.Ordinal))
+        foreach (var entry in TradingHistoryEntryOrdering.OrderAscending(entries))
         {
             if (lastProcessedTimestamp.HasValue && entry.Timestamp.HasValue)
             {
@@ -266,14 +266,18 @@ public sealed class ClosedPositionViewModel : Bindable
             }
 
             var qtySigned = Round10(string.Equals(side, "SELL", StringComparison.OrdinalIgnoreCase) ? -qty : qty);
-            var closeTradeQty = Math.Sign(qtySigned) == -Math.Sign(positionSize)
-                ? Round10(Math.Min(Math.Abs(qtySigned), Math.Abs(positionSize)))
-                : 0m;
-            var openTradeQty = Round10(qtySigned - Math.Sign(qtySigned) * closeTradeQty);
+            var rawSizeAfter = TryGetDerivativePositionSizeAfter(entry);
+            var positionAfter = rawSizeAfter.HasValue
+                ? Round10(rawSizeAfter.Value)
+                : Round10(positionSize + qtySigned);
+            // The closed-position panel must follow the same quantity split as the server-side calculator.
+            var change = TradingPositionChange.Resolve(positionSize, positionAfter);
+            var effectiveQtySigned = Round10(change.SignedChange);
+            var closeTradeQty = Round10(change.CloseQuantity);
+            var openTradeQty = Round10(change.OpenQuantitySigned);
 
             var cashBefore = -avgPrice * positionSize;
-            var cashAfter = cashBefore + (-avgPrice * closeTradeQty * Math.Sign(qtySigned)) + (-price * openTradeQty);
-            var positionAfter = Round10(positionSize + qtySigned);
+            var cashAfter = cashBefore + (-avgPrice * closeTradeQty * Math.Sign(effectiveQtySigned)) + (-price * openTradeQty);
             var avgAfter = Math.Abs(positionAfter) < 0.000000001m ? 0m : -cashAfter / positionAfter;
 
             if (closeTradeQty != 0m)
@@ -380,6 +384,57 @@ public sealed class ClosedPositionViewModel : Bindable
     private static decimal Round10(decimal value)
     {
         return Math.Round(value, 10, MidpointRounding.AwayFromZero);
+    }
+
+    private static decimal? TryGetDerivativePositionSizeAfter(TradingHistoryEntry entry)
+    {
+        if (!string.Equals(entry.TransactionType, "TRADE", StringComparison.OrdinalIgnoreCase)
+            || !IsDerivativeCategory(entry.Category)
+            || string.IsNullOrWhiteSpace(entry.RawJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(entry.RawJson);
+            var primary = doc.RootElement;
+            if (primary.ValueKind == JsonValueKind.Array)
+            {
+                primary = primary.EnumerateArray().FirstOrDefault();
+            }
+
+            if (primary.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            if (primary.TryGetProperty("size", out var value))
+            {
+                if (value.ValueKind == JsonValueKind.Number && value.TryGetDecimal(out var number))
+                {
+                    return Round10(number);
+                }
+
+                if (value.ValueKind == JsonValueKind.String
+                    && decimal.TryParse(value.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
+                {
+                    return Round10(parsed);
+                }
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool IsDerivativeCategory(string? category)
+    {
+        return string.Equals(category, "linear", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(category, "inverse", StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task RemoveClosedPositionAsync()

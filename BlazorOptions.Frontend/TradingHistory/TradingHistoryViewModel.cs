@@ -173,10 +173,7 @@ public class TradingHistoryViewModel
                             }
 
                             var entries = page.Items.Select(MapRecordToEntry).ToList();
-                            var orderedAsc = entries
-                                .OrderBy(entry => entry.Timestamp)
-                                .ThenBy(entry => entry.Id, StringComparer.Ordinal)
-                                .ToList();
+                            var orderedAsc = TradingHistoryEntryOrdering.OrderAscending(entries).ToList();
 
                             if (orderedAsc.Count > 0)
                             {

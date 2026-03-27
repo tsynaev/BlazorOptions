@@ -94,11 +94,11 @@
                                     <MudTd DataLabel="Direction">@context.Direction</MudTd>
                                     <MudTd DataLabel="Entry Time Range">@FormatTimeRange(context.EntryStartTimestamp, context.EntryEndTimestamp)</MudTd>
                                     <MudTd DataLabel="Close Time Range">@FormatTimeRange(context.CloseStartTimestamp, context.CloseEndTimestamp)</MudTd>
-                                    <MudTd DataLabel="Entry Price">@FormatNumber(context.EntryPrice)</MudTd>
-                                    <MudTd DataLabel="Size">@FormatNumber(context.Size)</MudTd>
-                                    <MudTd DataLabel="Close Price">@FormatNumber(context.ClosePrice)</MudTd>
-                                    <MudTd DataLabel="Fee">@FormatNumber(context.Fee)</MudTd>
-                                    <MudTd DataLabel="PnL">@FormatNumber(context.Pnl)</MudTd>
+                                    <MudTd DataLabel="Entry Price">@FormatSummaryNumber(context.EntryPrice)</MudTd>
+                                    <MudTd DataLabel="Size">@FormatSummaryNumber(context.Size)</MudTd>
+                                    <MudTd DataLabel="Close Price">@FormatSummaryNumber(context.ClosePrice)</MudTd>
+                                    <MudTd DataLabel="Fee">@FormatSummaryNumber(context.Fee)</MudTd>
+                                    <MudTd DataLabel="PnL">@FormatSummaryNumber(context.Pnl)</MudTd>
                                 </RowTemplate>
                             </MudTable>
                         }
@@ -188,6 +188,18 @@
     {
         return value.HasValue
             ? value.Value.ToString("0.##########", CultureInfo.InvariantCulture)
+            : string.Empty;
+    }
+
+    private static string FormatSummaryNumber(decimal value)
+    {
+        return value.ToString("0.####", CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatSummaryNumber(decimal? value)
+    {
+        return value.HasValue
+            ? value.Value.ToString("0.####", CultureInfo.InvariantCulture)
             : string.Empty;
     }
 

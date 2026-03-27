@@ -174,11 +174,11 @@ public sealed class TradingSymbolDialogViewModel : Bindable
                 .Append(EscapeMarkdown(summary.Direction)).Append(" | ")
                 .Append(EscapeMarkdown(FormatTimeRange(summary.EntryStartTimestamp, summary.EntryEndTimestamp))).Append(" | ")
                 .Append(EscapeMarkdown(FormatTimeRange(summary.CloseStartTimestamp, summary.CloseEndTimestamp))).Append(" | ")
-                .Append(FormatNumber(summary.EntryPrice)).Append(" | ")
-                .Append(FormatNumber(summary.Size)).Append(" | ")
-                .Append(FormatNumber(summary.ClosePrice)).Append(" | ")
-                .Append(FormatNumber(summary.Fee)).Append(" | ")
-                .Append(FormatNumber(summary.Pnl)).AppendLine(" |");
+                .Append(FormatSummaryNumber(summary.EntryPrice)).Append(" | ")
+                .Append(FormatSummaryNumber(summary.Size)).Append(" | ")
+                .Append(FormatSummaryNumber(summary.ClosePrice)).Append(" | ")
+                .Append(FormatSummaryNumber(summary.Fee)).Append(" | ")
+                .Append(FormatSummaryNumber(summary.Pnl)).AppendLine(" |");
         }
 
         return builder.ToString();
@@ -258,10 +258,7 @@ public sealed class TradingSymbolDialogViewModel : Bindable
             return Array.Empty<TradingHistoryEntry>();
         }
 
-        var orderedAsc = entries
-            .OrderBy(entry => entry.Timestamp ?? 0)
-            .ThenBy(entry => entry.Id, StringComparer.Ordinal)
-            .ToList();
+        var orderedAsc = TradingHistoryEntryOrdering.OrderAscending(entries).ToList();
 
         var cumulativeByCoin = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in orderedAsc)
@@ -295,6 +292,18 @@ public sealed class TradingSymbolDialogViewModel : Bindable
     {
         return value.HasValue
             ? value.Value.ToString("0.##########", CultureInfo.InvariantCulture)
+            : string.Empty;
+    }
+
+    private static string FormatSummaryNumber(decimal value)
+    {
+        return value.ToString("0.####", CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatSummaryNumber(decimal? value)
+    {
+        return value.HasValue
+            ? value.Value.ToString("0.####", CultureInfo.InvariantCulture)
             : string.Empty;
     }
 

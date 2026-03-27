@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Text.Json;
 using BlazorOptions.API.TradingHistory;
 
@@ -34,19 +34,24 @@ public static class TradingHistoryCalculator
             }
 
             var qtySigned = Round10(string.Equals(side, "SELL", StringComparison.OrdinalIgnoreCase) ? -qty : qty);
+            var rawSizeAfter = TryGetDerivativePositionSizeAfter(entry);
 
             state.SizeBySymbol.TryGetValue(entry.Symbol, out var posBefore);
             state.AvgPriceBySymbol.TryGetValue(entry.Symbol, out var avgBefore);
             posBefore = Round10(posBefore);
 
-            var closeQty = Math.Sign(qtySigned) == -Math.Sign(posBefore)
-                ? Round10(Math.Min(Math.Abs(qtySigned), Math.Abs(posBefore)))
-                : 0m;
-            var openQty = Round10(qtySigned - Math.Sign(qtySigned) * closeQty);
+            var posAfter = rawSizeAfter.HasValue
+                ? Round10(rawSizeAfter.Value)
+                : Round10(posBefore + qtySigned);
+            // Bybit derivatives expose the post-fill position size, which is the least ambiguous way to
+            // split a fill into closing and opening quantity.
+            var change = TradingPositionChange.Resolve(posBefore, posAfter);
+            var effectiveQtySigned = Round10(change.SignedChange);
+            var closeQty = Round10(change.CloseQuantity);
+            var openQty = Round10(change.OpenQuantitySigned);
 
             var cashBefore = -avgBefore * posBefore;
-            var cashAfter = cashBefore + (-avgBefore * closeQty * Math.Sign(qtySigned)) + (-price * openQty);
-            var posAfter = Round10(posBefore + qtySigned);
+            var cashAfter = cashBefore + (-avgBefore * closeQty * Math.Sign(effectiveQtySigned)) + (-price * openQty);
             var avgAfter = Math.Abs(posAfter) < 0.000000001m ? 0m : -cashAfter / posAfter;
 
             var realized = 0m;
@@ -181,6 +186,44 @@ public static class TradingHistoryCalculator
         catch
         {
         }
+    }
+
+    private static decimal? TryGetDerivativePositionSizeAfter(TradingHistoryEntry entry)
+    {
+        if (!string.Equals(entry.TransactionType, "TRADE", StringComparison.OrdinalIgnoreCase)
+            || !IsDerivativeCategory(entry.Category)
+            || string.IsNullOrWhiteSpace(entry.RawJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(entry.RawJson);
+            var primary = doc.RootElement;
+            if (primary.ValueKind == JsonValueKind.Array)
+            {
+                primary = primary.EnumerateArray().FirstOrDefault();
+            }
+
+            if (primary.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            var sizeAfter = ReadDecimal(primary, "size");
+            return Round10(sizeAfter);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool IsDerivativeCategory(string? category)
+    {
+        return string.Equals(category, "linear", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(category, "inverse", StringComparison.OrdinalIgnoreCase);
     }
 
     private static decimal ReadDecimal(JsonElement element, params string[] names)

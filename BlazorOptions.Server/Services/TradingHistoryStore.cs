@@ -36,10 +36,7 @@ public sealed class TradingHistoryStore
             await using var transaction = connection.BeginTransaction();
             var meta = await LoadMetaInternalAsync(connection, transaction);
             var state = new TradingHistoryCalculator.CalculationState(meta);
-            var ordered = entries
-                .OrderBy(entry => entry.Timestamp ?? 0)
-                .ThenBy(entry => entry.Id, StringComparer.Ordinal)
-                .ToList();
+            var ordered = TradingHistoryEntryOrdering.OrderAscending(entries).ToList();
 
             TradingHistoryCalculator.ApplyCalculatedFields(ordered, state);
             state.ApplyToMeta(meta);
@@ -267,6 +264,8 @@ public sealed class TradingHistoryStore
             {
                 entries.Add(ReadEntry(reader));
             }
+
+            entries = TradingHistoryEntryOrdering.OrderDescending(entries).ToList();
 
             var total = await CountEntriesAsync(connection, null, prefix);
 
@@ -775,7 +774,9 @@ public sealed class TradingHistoryStore
                 entries.Add(ReadEntry(reader));
             }
 
-            return entries;
+            return string.Equals(direction, "DESC", StringComparison.OrdinalIgnoreCase)
+                ? TradingHistoryEntryOrdering.OrderDescending(entries).ToList()
+                : TradingHistoryEntryOrdering.OrderAscending(entries).ToList();
         }
         finally
         {
@@ -823,7 +824,7 @@ public sealed class TradingHistoryStore
             entries.Add(ReadEntry(reader));
         }
 
-        return entries;
+        return TradingHistoryEntryOrdering.OrderAscending(entries).ToList();
     }
 
     private static async Task UpdateCalculatedFieldsAsync(

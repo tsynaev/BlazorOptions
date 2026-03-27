@@ -1,4 +1,5 @@
 using System.Globalization;
+using BlazorOptions.API.TradingHistory;
 
 namespace BlazorOptions.ViewModels;
 
@@ -19,77 +20,82 @@ public static class TradeCycleSummaryBuilder
         }
 
         var summaries = new List<TradeCycleSummary>();
-        CycleAccumulator? currentCycle = null;
+        PositionAccumulator? openPosition = null;
+        CloseAccumulator? pendingClose = null;
 
         foreach (var row in orderedTrades)
         {
-            if (!TryParseTrade(row.Trade, out var sideSign, out var quantity))
+            if (!TryParseTrade(row.Trade, out _, out var quantity))
             {
+                if (pendingClose is not null)
+                {
+                    summaries.Add(pendingClose.Build());
+                    pendingClose = null;
+                }
+
                 continue;
             }
 
-            var signedQuantity = sideSign * quantity;
             var sizeAfter = row.SizeAfter;
-            var sizeBefore = sizeAfter - signedQuantity;
+            var sizeBefore = sizeAfter - GetSignedQuantity(row.Trade, quantity);
+            var change = TradingPositionChange.Resolve(sizeBefore, sizeAfter);
             var beforeSign = Math.Sign(sizeBefore);
             var afterSign = Math.Sign(sizeAfter);
-            var closeQuantity = beforeSign != 0 && beforeSign == -sideSign
-                ? Math.Min(Math.Abs(sizeBefore), quantity)
-                : 0m;
-            var openQuantity = quantity - closeQuantity;
+            var closeQuantity = change.CloseQuantity;
+            var openQuantity = Math.Abs(change.OpenQuantitySigned);
 
-            if (closeQuantity > 0m && currentCycle is not null && beforeSign == currentCycle.DirectionSign)
+            if (pendingClose is not null && closeQuantity <= 0m)
             {
-                currentCycle.AddClosingFill(
-                    row.Timestamp ?? 0,
-                    row.Price,
-                    closeQuantity,
-                    AllocateFee(row.Fee, closeQuantity, quantity));
+                summaries.Add(pendingClose.Build());
+                pendingClose = null;
+            }
 
-                if (closeQuantity == Math.Abs(sizeBefore))
+            if (closeQuantity > 0m && openPosition is not null && beforeSign == openPosition.DirectionSign)
+            {
+                var closeFee = AllocateFee(row.Fee, closeQuantity, quantity);
+                pendingClose ??= CloseAccumulator.StartFrom(openPosition, row.Timestamp ?? 0);
+                pendingClose.AddCloseFill(row.Timestamp ?? 0, row.Price, closeQuantity, closeFee);
+
+                openPosition.AllocateClose(closeQuantity, out var openingFeeShare);
+                pendingClose.AddOpeningFee(openingFeeShare);
+
+                if (openPosition.Quantity <= 0m)
                 {
-                    if (currentCycle.TryBuild(out var summary))
+                    openPosition = null;
+                }
+            }
+
+            if (openQuantity > 0m)
+            {
+                if (pendingClose is not null)
+                {
+                    summaries.Add(pendingClose.Build());
+                    pendingClose = null;
+                }
+
+                var openFee = AllocateFee(row.Fee, openQuantity, quantity);
+                if (openPosition is null || openPosition.DirectionSign != afterSign)
+                {
+                    if (afterSign != 0)
                     {
-                        summaries.Add(summary);
+                        openPosition = PositionAccumulator.Start(afterSign, row.Timestamp ?? 0, row.Price, openQuantity, openFee);
                     }
-
-                    currentCycle = null;
                 }
-            }
-
-            if (openQuantity > 0m && afterSign == sideSign)
-            {
-                if (currentCycle is null)
+                else
                 {
-                    currentCycle = new CycleAccumulator(
-                        directionSign: afterSign,
-                        startTimestamp: row.Timestamp ?? 0);
+                    openPosition.AddOpenFill(row.Timestamp ?? 0, row.Price, openQuantity, openFee);
                 }
-
-                if (currentCycle.DirectionSign == sideSign)
-                {
-                    currentCycle.AddOpeningFill(
-                        row.Timestamp ?? 0,
-                        row.Price,
-                        openQuantity,
-                        AllocateFee(row.Fee, openQuantity, quantity));
-                }
-            }
-
-            if (sizeAfter == 0m && currentCycle is not null)
-            {
-                if (currentCycle.TryBuild(out var summary))
-                {
-                    summaries.Add(summary);
-                }
-
-                currentCycle = null;
             }
         }
 
-        if (currentCycle is not null && currentCycle.TryBuild(out var openSummary))
+        if (pendingClose is not null)
         {
-            summaries.Add(openSummary);
+            summaries.Add(pendingClose.Build());
+        }
+
+        if (openPosition is not null)
+        {
+            summaries.Add(openPosition.BuildOpenSummary());
         }
 
         return summaries;
@@ -130,6 +136,13 @@ public static class TradeCycleSummaryBuilder
         return quantity > 0m;
     }
 
+    private static decimal GetSignedQuantity(string trade, decimal quantity)
+    {
+        return trade.StartsWith("SELL", StringComparison.OrdinalIgnoreCase)
+            ? -quantity
+            : quantity;
+    }
+
     private static decimal AllocateFee(decimal totalFee, decimal partialQuantity, decimal totalQuantity)
     {
         if (totalFee == 0m || partialQuantity <= 0m || totalQuantity <= 0m)
@@ -140,96 +153,158 @@ public static class TradeCycleSummaryBuilder
         return totalFee * (partialQuantity / totalQuantity);
     }
 
-    private sealed class CycleAccumulator
+    private sealed class PositionAccumulator
     {
-        private decimal _openNotional;
-        private decimal _openQuantity;
-        private decimal _closeNotional;
-        private decimal _closeQuantity;
-        private decimal _fee;
-
-        public CycleAccumulator(int directionSign, long startTimestamp)
+        private PositionAccumulator(int directionSign, long timestamp, decimal price, decimal quantity, decimal openingFee)
         {
             DirectionSign = directionSign;
-            StartTimestamp = startTimestamp;
+            EntryStartTimestamp = timestamp;
+            EntryEndTimestamp = timestamp;
+            Quantity = quantity;
+            EntryPrice = price;
+            OpeningFee = openingFee;
         }
 
         public int DirectionSign { get; }
 
-        public long StartTimestamp { get; }
+        public long EntryStartTimestamp { get; private set; }
 
-        public long OpenEndTimestamp { get; private set; }
+        public long EntryEndTimestamp { get; private set; }
 
-        public long? CloseStartTimestamp { get; private set; }
+        public decimal Quantity { get; private set; }
 
-        public long? CloseEndTimestamp { get; private set; }
+        public decimal EntryPrice { get; private set; }
 
-        public void AddOpeningFill(long timestamp, decimal price, decimal quantity, decimal fee)
+        public decimal OpeningFee { get; private set; }
+
+        public static PositionAccumulator Start(int directionSign, long timestamp, decimal price, decimal quantity, decimal openingFee)
         {
-            _openNotional += price * quantity;
-            _openQuantity += quantity;
-            _fee += fee;
-            OpenEndTimestamp = timestamp;
+            return new PositionAccumulator(directionSign, timestamp, price, quantity, openingFee);
         }
 
-        public void AddClosingFill(long timestamp, decimal price, decimal quantity, decimal fee)
+        public void AddOpenFill(long timestamp, decimal price, decimal quantity, decimal openingFee)
         {
-            _closeNotional += price * quantity;
-            _closeQuantity += quantity;
-            _fee += fee;
-
-            if (!CloseStartTimestamp.HasValue)
+            if (quantity <= 0m)
             {
-                CloseStartTimestamp = timestamp;
+                return;
             }
 
+            var totalQuantity = Quantity + quantity;
+            EntryPrice = totalQuantity > 0m
+                ? ((EntryPrice * Quantity) + (price * quantity)) / totalQuantity
+                : 0m;
+            Quantity = totalQuantity;
+            OpeningFee += openingFee;
+            EntryEndTimestamp = timestamp;
+        }
+
+        public void AllocateClose(decimal closeQuantity, out decimal openingFeeShare)
+        {
+            if (closeQuantity <= 0m || Quantity <= 0m)
+            {
+                openingFeeShare = 0m;
+                return;
+            }
+
+            openingFeeShare = OpeningFee * (closeQuantity / Quantity);
+            OpeningFee -= openingFeeShare;
+            Quantity -= closeQuantity;
+        }
+
+        public TradeCycleSummary BuildOpenSummary()
+        {
+            return new TradeCycleSummary
+            {
+                EntryStartTimestamp = EntryStartTimestamp,
+                EntryEndTimestamp = EntryEndTimestamp,
+                Direction = DirectionSign > 0 ? "Open Long" : "Open Short",
+                EntryPrice = EntryPrice,
+                Size = Quantity,
+                Fee = OpeningFee,
+                Pnl = -OpeningFee
+            };
+        }
+    }
+
+    private sealed class CloseAccumulator
+    {
+        private decimal _closeNotional;
+        private decimal _closingFee;
+        private decimal _openingFee;
+
+        private CloseAccumulator(
+            int directionSign,
+            long entryStartTimestamp,
+            long entryEndTimestamp,
+            decimal entryPrice,
+            long closeStartTimestamp)
+        {
+            DirectionSign = directionSign;
+            EntryStartTimestamp = entryStartTimestamp;
+            EntryEndTimestamp = entryEndTimestamp;
+            EntryPrice = entryPrice;
+            CloseStartTimestamp = closeStartTimestamp;
+            CloseEndTimestamp = closeStartTimestamp;
+        }
+
+        public int DirectionSign { get; }
+
+        public long EntryStartTimestamp { get; }
+
+        public long EntryEndTimestamp { get; }
+
+        public decimal EntryPrice { get; }
+
+        public long CloseStartTimestamp { get; }
+
+        public long CloseEndTimestamp { get; private set; }
+
+        public decimal ClosedQuantity { get; private set; }
+
+        public static CloseAccumulator StartFrom(PositionAccumulator position, long closeTimestamp)
+        {
+            return new CloseAccumulator(
+                position.DirectionSign,
+                position.EntryStartTimestamp,
+                position.EntryEndTimestamp,
+                position.EntryPrice,
+                closeTimestamp);
+        }
+
+        public void AddCloseFill(long timestamp, decimal price, decimal quantity, decimal closingFee)
+        {
+            _closeNotional += price * quantity;
+            _closingFee += closingFee;
+            ClosedQuantity += quantity;
             CloseEndTimestamp = timestamp;
         }
 
-        public bool TryBuild(out TradeCycleSummary summary)
+        public void AddOpeningFee(decimal openingFeeShare)
         {
-            summary = default!;
+            _openingFee += openingFeeShare;
+        }
 
-            if (_openQuantity <= 0m)
-            {
-                return false;
-            }
+        public TradeCycleSummary Build()
+        {
+            var closePrice = ClosedQuantity > 0m ? _closeNotional / ClosedQuantity : 0m;
+            var grossPnl = DirectionSign > 0
+                ? (closePrice - EntryPrice) * ClosedQuantity
+                : (EntryPrice - closePrice) * ClosedQuantity;
+            var totalFee = _openingFee + _closingFee;
 
-            var entryPrice = _openNotional / _openQuantity;
-            var hasClose = _closeQuantity > 0m && CloseStartTimestamp.HasValue && CloseEndTimestamp.HasValue;
-            decimal? closePrice = null;
-            decimal? pnl = null;
-
-            if (hasClose)
+            return new TradeCycleSummary
             {
-                closePrice = _closeNotional / _closeQuantity;
-                var grossPnl = DirectionSign > 0
-                    ? (closePrice.Value - entryPrice) * _openQuantity
-                    : (entryPrice - closePrice.Value) * _openQuantity;
-                pnl = grossPnl - _fee;
-            }
-            else
-            {
-                // Open cycles only have realized drag from fees until a closing fill exists.
-                pnl = -_fee;
-            }
-
-            summary = new TradeCycleSummary
-            {
-                EntryStartTimestamp = StartTimestamp,
-                EntryEndTimestamp = OpenEndTimestamp,
+                EntryStartTimestamp = EntryStartTimestamp,
+                EntryEndTimestamp = EntryEndTimestamp,
                 CloseStartTimestamp = CloseStartTimestamp,
                 CloseEndTimestamp = CloseEndTimestamp,
-                Direction = hasClose
-                    ? DirectionSign > 0 ? "Open/Close Long" : "Open/Close Short"
-                    : DirectionSign > 0 ? "Open Long" : "Open Short",
-                EntryPrice = entryPrice,
-                Size = _openQuantity,
+                Direction = DirectionSign > 0 ? "Open/Close Long" : "Open/Close Short",
+                EntryPrice = EntryPrice,
+                Size = ClosedQuantity,
                 ClosePrice = closePrice,
-                Fee = _fee,
-                Pnl = pnl
+                Fee = totalFee,
+                Pnl = grossPnl - totalFee
             };
-            return true;
         }
     }
 }

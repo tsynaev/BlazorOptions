@@ -4,19 +4,20 @@
 
 When you open a symbol from trading history, the dialog now includes a `Summary` tab.
 
-The summary groups fully closed round-trip cycles for that symbol and shows:
+The summary groups realized trade segments for that symbol and shows:
 
 - Direction as `Open/Close Long` or `Open/Close Short`
-- Entry time range from the first opening fill to the last opening fill
-- Close time range from the first closing fill to the last closing fill
+- Entry time range from the first opening fill that still contributes to the summarized segment to the last opening fill added to that segment
+- Close time range from the first closing fill to the last closing fill for that summarized segment
 - Entry price as the VWAP of all opening fills
 - Size as the absolute opened size of the cycle
 - Close price as the VWAP of all closing fills
 - Total fees across all fills in the cycle
 - Net PnL after fees
 
-Closed cycles are listed with close price and net PnL. Open positions are also listed, with close-specific columns left empty until the cycle closes.
+Closed trade segments are listed with close price and net PnL. Open positions are also listed, with close-specific columns left empty until the position is closed.
 When several fills share the same exchange timestamp, the summary preserves the original fill order so separate flat-to-flat cycles are not merged or dropped.
+Partial closes can split one position into multiple summary rows. If a remaining position is expanded again later, the later row uses the blended entry price of the remaining size plus the new opening fills.
 
 ## Position trades
 
