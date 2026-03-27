@@ -18,7 +18,7 @@ public sealed class LegViewModel : IDisposable
     private readonly BlackScholes _blackScholes;
     private readonly SemaphoreSlim _subscriptionLock = new(1, 1);
     private IDisposable? _subscriptionRegistration;
-    private decimal? _currentPrice;
+    private decimal? _indexPrice;
     private bool _isLive;
     private string? _statusMessage;
  
@@ -31,6 +31,7 @@ public sealed class LegViewModel : IDisposable
     private bool _pendingDataUpdate;
     private bool _usedInitialLiveMarkSnapshot;
     private IReadOnlyList<LegLinkedOrderModel> _linkedOrders = Array.Empty<LegLinkedOrderModel>();
+    private decimal? _spread;
 
     // Keep chart updates tied only to leg fields that affect payoff calculations.
     private static readonly HashSet<string> ChartRelevantLegProperties = new(StringComparer.Ordinal)
@@ -94,6 +95,12 @@ public sealed class LegViewModel : IDisposable
 
     public decimal? MarkPrice { get; private set; }
 
+    public decimal? Spread
+    {
+        get => _spread;
+        private set => _spread = value;
+    }
+
     public decimal? ChainIv { get; private set; }
 
     public decimal? PnL => ResolvePnlFromMarkPrice();
@@ -116,17 +123,17 @@ public sealed class LegViewModel : IDisposable
 
     public IReadOnlyList<decimal> AvailableStrikes => _cachedStrikes;
 
-    public decimal? CurrentPrice
+    public decimal? IndexPrice
     {
-        get => _currentPrice;
+        get => _indexPrice;
         set
         {
-            if (_currentPrice == value)
+            if (_indexPrice == value)
             {
                 return;
             }
 
-            _currentPrice = value;
+            _indexPrice = value;
 
             CalculateLegTheoreticalProfit();
             if (!_isLive)
@@ -156,6 +163,8 @@ public sealed class LegViewModel : IDisposable
             else
             {
                 CalculateLegTheoreticalProfit();
+                // Re-subscribe when live mode is re-enabled so mark prices keep streaming.
+                _ = RefreshSubscriptionAsync();
             }
         }
     }
@@ -515,10 +524,26 @@ public sealed class LegViewModel : IDisposable
     {
         var changed = false;
 
-        var nextMark = ResolveLiveMarkPrice(e.Price, null);
-        if (MarkPrice != nextMark)
+        var nextIndexPrice = e.IndexPrice > 0 ? e.IndexPrice : null;
+        if (IndexPrice != nextIndexPrice)
         {
-            MarkPrice = nextMark;
+            _indexPrice = nextIndexPrice;
+            changed = true;
+        }
+
+        var nextMarkPrice = e.MarkPrice > 0 ? e.MarkPrice : e.IndexPrice > 0 ? e.IndexPrice : null;
+        if (MarkPrice != nextMarkPrice)
+        {
+            MarkPrice = nextMarkPrice;
+            changed = true;
+        }
+
+        var nextSpread = nextMarkPrice.HasValue && nextIndexPrice.HasValue
+            ? nextMarkPrice.Value - nextIndexPrice.Value
+            : (decimal?)null;
+        if (Spread != nextSpread)
+        {
+            Spread = nextSpread;
             changed = true;
         }
 
@@ -533,6 +558,29 @@ public sealed class LegViewModel : IDisposable
     private async Task HandleOptionTicker(OptionChainTicker ticker)
     {
         var changed = false;
+
+        var nextMarkPrice = ticker.MarkPrice > 0 ? ticker.MarkPrice : (decimal?)null;
+        if (MarkPrice != nextMarkPrice)
+        {
+            MarkPrice = nextMarkPrice;
+            changed = true;
+        }
+
+        var nextIndexPrice = _indexPrice;
+        if (nextIndexPrice.HasValue && nextIndexPrice.Value <= 0)
+        {
+            nextIndexPrice = null;
+        }
+
+        var optionUnderlyingPrice = ticker.UnderlyingPrice > 0 ? ticker.UnderlyingPrice : null;
+        var nextSpread = optionUnderlyingPrice.HasValue && nextIndexPrice.HasValue
+            ? optionUnderlyingPrice.Value - nextIndexPrice.Value
+            : (decimal?)null;
+        if (Spread != nextSpread)
+        {
+            Spread = nextSpread;
+            changed = true;
+        }
 
         decimal? nextBid = ticker.BidPrice > 0 ? ticker.BidPrice : null;
         if (Bid != nextBid)
@@ -549,15 +597,6 @@ public sealed class LegViewModel : IDisposable
         }
 
         var isExpired = IsOptionExpiredAtValuation();
-        decimal? nextMark = isExpired
-            ? ResolveExpiredOptionIntrinsicPrice(ticker.UnderlyingPrice ?? _currentPrice)
-            : ResolveLiveMarkPrice(ticker.UnderlyingPrice, ticker);
-        if (MarkPrice != nextMark)
-        {
-            MarkPrice = nextMark;
-            changed = true;
-        }
-
         var nextDelta = isExpired ? 0m : ticker.Delta;
         if (Delta != nextDelta)
         {
@@ -731,15 +770,18 @@ public sealed class LegViewModel : IDisposable
     {
         if (IsLive) return;
 
-        if (!_usedInitialLiveMarkSnapshot)
+        var nextMark = ResolveNonLiveMarkPrice();
+        if (!nextMark.HasValue && !_usedInitialLiveMarkSnapshot)
         {
-            MarkPrice = ResolveLiveMarkPrice();
+            nextMark = ResolveLiveMarkPrice();
             _usedInitialLiveMarkSnapshot = true;
         }
         else
         {
-            MarkPrice = ResolveNonLiveMarkPrice();
+            _usedInitialLiveMarkSnapshot = true;
         }
+
+        MarkPrice = nextMark;
 
         UpdateNonLiveGreeks();
     }
@@ -761,7 +803,8 @@ public sealed class LegViewModel : IDisposable
             return;
         }
 
-        if (!_currentPrice.HasValue || !Leg.Strike.HasValue || !Leg.ExpirationDate.HasValue)
+        var underlyingPrice = ResolveUnderlyingPriceForValuation();
+        if (!underlyingPrice.HasValue || !Leg.Strike.HasValue || !Leg.ExpirationDate.HasValue)
         {
             return;
         }
@@ -773,7 +816,7 @@ public sealed class LegViewModel : IDisposable
         }
 
         var greeks = _blackScholes.CalculateGreeksDecimal(
-            _currentPrice.Value,
+            underlyingPrice.Value,
             Leg.Strike.Value,
             ivPercent.Value,
             Leg.ExpirationDate.Value,
@@ -795,7 +838,7 @@ public sealed class LegViewModel : IDisposable
 
         if (Leg.Type == LegType.Future)
         {
-            MarkPrice = _currentPrice;
+            MarkPrice = ResolveNonLiveMarkPrice();
             Bid = null;
             Ask = null;
             ChainIv = null;
@@ -808,6 +851,7 @@ public sealed class LegViewModel : IDisposable
         if (ticker is null)
         {
             MarkPrice = null;
+            Spread = null;
             Bid = null;
             Ask = null;
             ChainIv = null;
@@ -817,6 +861,10 @@ public sealed class LegViewModel : IDisposable
 
         Bid = ticker.BidPrice > 0 ? ticker.BidPrice : null;
         Ask = ticker.AskPrice > 0 ? ticker.AskPrice : null;
+        var observedUnderlyingPrice = ticker.UnderlyingPrice > 0 ? ticker.UnderlyingPrice : null;
+        Spread = observedUnderlyingPrice.HasValue && _indexPrice.HasValue
+            ? observedUnderlyingPrice.Value - _indexPrice.Value
+            : null;
         var isExpired = IsOptionExpiredAtValuation();
         var ivPercent = isExpired
             ? null
@@ -831,10 +879,11 @@ public sealed class LegViewModel : IDisposable
             Gamma = 0m;
             Vega = 0m;
             Theta = 0m;
-            MarkPrice = ResolveExpiredOptionIntrinsicPrice(ticker.UnderlyingPrice ?? _currentPrice);
+            MarkPrice = ResolveExpiredOptionIntrinsicPrice(ResolveUnderlyingPriceForValuation());
             return;
         }
 
+        MarkPrice = ResolveNonLiveMarkPrice();
         Delta = ticker.Delta;
         Gamma = ticker.Gamma;
         Vega = ticker.Vega;
@@ -1399,7 +1448,7 @@ public sealed class LegViewModel : IDisposable
         return Bid ?? markPrice ?? Ask;
     }
 
-    private decimal? ResolveLiveMarkPrice(decimal? liveUnderlyingPrice = null, OptionChainTicker? optionTicker = null)
+    private decimal? ResolveLiveMarkPrice(decimal? liveMarkPrice = null, OptionChainTicker? optionTicker = null)
     {
         if (Leg.Status == LegStatus.Missing)
         {
@@ -1408,12 +1457,12 @@ public sealed class LegViewModel : IDisposable
 
         if (Leg.Type == LegType.Future)
         {
-            return liveUnderlyingPrice ?? _currentPrice;
+            return liveMarkPrice ?? MarkPrice ?? _indexPrice;
         }
 
         if (IsOptionExpiredAtValuation())
         {
-            return ResolveExpiredOptionIntrinsicPrice(liveUnderlyingPrice ?? _currentPrice);
+            return ResolveExpiredOptionIntrinsicPrice(ResolveUnderlyingPriceForValuation());
         }
 
         var ticker = optionTicker;
@@ -1425,7 +1474,7 @@ public sealed class LegViewModel : IDisposable
 
         if (ticker is null)
         {
-            return null;
+            return liveMarkPrice ?? MarkPrice;
         }
 
         if (ticker.MarkPrice > 0)
@@ -1485,18 +1534,18 @@ public sealed class LegViewModel : IDisposable
             return ResolveMarkPriceFromMissingRealized();
         }
 
-        if (Leg.Status == LegStatus.Order)
-        {
-            // Order legs should display current market mark, not execution-derived synthetic mark.
-            return ResolveLiveMarkPrice();
-        }
-
         if (Leg.Type == LegType.Future)
         {
-            return _currentPrice;
+            if (!_indexPrice.HasValue)
+            {
+                return null;
+            }
+
+            return _indexPrice.Value + (Spread ?? 0m);
         }
 
-        if (!_currentPrice.HasValue)
+        var underlyingPrice = ResolveUnderlyingPriceForValuation();
+        if (!underlyingPrice.HasValue)
         {
             return null;
         }
@@ -1508,12 +1557,28 @@ public sealed class LegViewModel : IDisposable
         }
 
         return _blackScholes.CalculatePriceDecimal(
-            _currentPrice.Value,
+            underlyingPrice.Value,
             Leg.Strike.Value,
             iv.Value,
             Leg.ExpirationDate.Value,
             Leg.Type == LegType.Call,
             ValuationDate);
+    }
+
+    private decimal? ResolveUnderlyingPriceForValuation(decimal? indexPriceOverride = null)
+    {
+        var valuationIndexPrice = indexPriceOverride ?? _indexPrice;
+        if (!valuationIndexPrice.HasValue)
+        {
+            return null;
+        }
+
+        if (Leg.Type == LegType.Future)
+        {
+            return valuationIndexPrice;
+        }
+
+        return valuationIndexPrice.Value + (Spread ?? 0m);
     }
 
     private decimal? ResolveOrderExecutionMarkPrice()

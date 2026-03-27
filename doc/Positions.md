@@ -34,6 +34,10 @@ The Positions page is where you manage one position at a time and review its pay
 - Each non-futures leg card Greeks row includes a tiny unlabeled switch (with tooltip) to toggle between total leg Greek contribution and per-size Greek values.
 - In non-live mode, when a chart/temporary price is selected, option Greeks in leg cards and portfolio totals are recalculated for that selected underlying price and valuation date.
 - In live mode, chart clicks do not replace the live index price; the highlighted price stays aligned with the current streaming value so chart, cards, and totals use the same context.
+- When a position has exactly one included dated futures leg, the page uses that contract ticker for live price, initial price snapshot, and candles instead of the generic perpetual symbol.
+- Legs no longer share one underlying price blindly. Legs with different expiration dates use the matching live/snapshot underlying for that expiry when the data is available.
+- In non-live mode, option and futures marks are derived from the selected index price plus the last observed spread for that leg/expiry instead of treating index price as the tradable mark directly.
+- Futures cards and futures price placeholders in the edit dialog prefer current mark price for display; index price remains the simulation input behind calculations.
 - For legs that are already expired at the selected valuation date, both temp and expiry chart contributions are locked to that leg P/L at selected price (horizontal contribution). This includes dated futures; perpetual futures are never expired.
 - `Order` status legs display current market mark values in the card.
 - `New` legs with both empty entry price and empty IV show no entry price in the card.

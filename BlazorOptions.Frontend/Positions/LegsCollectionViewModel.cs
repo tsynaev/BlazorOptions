@@ -25,8 +25,6 @@ public sealed class LegsCollectionViewModel : IDisposable
     private int _pricingUpdateScheduled;
     private bool _isLoadingAvailableLegs;
     private IReadOnlyList<AvailableLegCandidate> _availableLegCandidates = Array.Empty<AvailableLegCandidate>();
-    private const int PricingYieldBatch = 16;
-    private const int PricingSyncThreshold = 12;
     private readonly object _dataUpdateLock = new();
     private CancellationTokenSource? _dataUpdateCts;
     private static readonly TimeSpan DataUpdateDebounce = TimeSpan.FromMilliseconds(120);
@@ -118,81 +116,25 @@ public sealed class LegsCollectionViewModel : IDisposable
             return;
         }
 
-        if (_legs.Count <= PricingSyncThreshold)
+        var version = _pricingUpdateVersion;
+        ApplyPricingUpdate(version);
+        Interlocked.Exchange(ref _pricingUpdateScheduled, 0);
+        if (version != _pricingUpdateVersion)
         {
-            var version = _pricingUpdateVersion;
-            ApplyPricingUpdate(version);
-            Interlocked.Exchange(ref _pricingUpdateScheduled, 0);
-            if (version != _pricingUpdateVersion)
-            {
-                SchedulePricingUpdate();
-            }
-
-            return;
-        }
-
-        _ = RunPricingUpdateAsync();
-    }
-
-    private async Task RunPricingUpdateAsync()
-    {
-        while (true)
-        {
-            var version = _pricingUpdateVersion;
-            if (!await ApplyPricingUpdateAsync(version))
-            {
-                continue;
-            }
-
-            if (version == _pricingUpdateVersion)
-            {
-                Interlocked.Exchange(ref _pricingUpdateScheduled, 0);
-                if (version != _pricingUpdateVersion)
-                {
-                    continue;
-                }
-
-                return;
-            }
+            SchedulePricingUpdate();
         }
     }
 
     private void ApplyPricingUpdate(int version)
     {
-        var currentPrice = _currentPrice;
         var isLive = _isLive;
         var valuationDate = _valuationDate;
         foreach (var leg in _legs)
         {
-            leg.CurrentPrice = currentPrice;
+            leg.IndexPrice = _currentPrice;
             leg.IsLive = isLive;
             leg.ValuationDate = valuationDate;
         }
-    }
-
-    private async Task<bool> ApplyPricingUpdateAsync(int version)
-    {
-        var currentPrice = _currentPrice;
-        var isLive = _isLive;
-        var valuationDate = _valuationDate;
-        var index = 0;
-        foreach (var leg in _legs)
-        {
-            leg.CurrentPrice = currentPrice;
-            leg.IsLive = isLive;
-            leg.ValuationDate = valuationDate;
-            index++;
-            if (index % PricingYieldBatch == 0)
-            {
-                await Task.Yield();
-                if (version != _pricingUpdateVersion)
-                {
-                    return false;
-                }
-            }
-        }
-
-        return true;
     }
 
     public LegsCollectionModel Collection
@@ -1546,7 +1488,7 @@ public sealed class LegsCollectionViewModel : IDisposable
                 viewModel.Leg = leg;
             }
 
-            viewModel.CurrentPrice = _currentPrice;
+            viewModel.IndexPrice = _currentPrice;
             viewModel.IsLive = _isLive;
             viewModel.ValuationDate = _valuationDate;
             viewModel.UpdateLinkedOrders(_latestOrdersSnapshot);
@@ -1572,6 +1514,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         }
 
         RebuildLegGroups();
+        SchedulePricingUpdate();
     }
 
     private bool UpdateLinkedOrdersForLegs()
@@ -1607,6 +1550,11 @@ public sealed class LegsCollectionViewModel : IDisposable
         if (updateKind == LegsCollectionUpdateKind.PricingContextUpdated
             || updateKind == LegsCollectionUpdateKind.ViewModelDataUpdated)
         {
+            if (updateKind == LegsCollectionUpdateKind.ViewModelDataUpdated)
+            {
+                SchedulePricingUpdate();
+            }
+
             QueueDataUpdate(updateKind);
             return;
         }

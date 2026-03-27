@@ -22,6 +22,12 @@
 - Position persistence uses API models directly; DTO types and mappers are removed.
 - API project namespaces must use `BlazorOptions.API.*` (do not place API classes under `BlazorOptions.ViewModels`).
 - The position page currently works with a single portfolio/collection. Multi-portfolio workflows are planned for the future `Options Calculator` feature.
+- Position page price context must use the dated future ticker when there is exactly one included futures leg with expiration; otherwise fall back to the base/quote ticker to avoid ambiguous contract selection.
+- `IndexPrice` is shared across all legs for the same base/quote pair. Leg-specific valuation differences must come from each leg's spread versus index, not from per-expiration index substitution.
+- On the position page, pricing-context rebroadcast can stay synchronous because the typical leg count is small; avoid async batching unless the collection size meaningfully grows.
+- Exchange ticker updates must carry separate mark and index prices; do not overload one field for both market mark and underlying context.
+- On the position page, `IndexPrice` is the simulation/chart input. In non-live mode, option and futures marks must preserve their observed spread versus index instead of using index price as mark directly.
+- Futures UI display should prefer `MarkPrice` over `IndexPrice` in cards and edit placeholders when showing the current market price to the user.
 - Position persistence payloads should be versioned in JSON. Save the latest version and handle older payload migrations in the persistence layer instead of adding legacy fields to current models.
 
 ## Coding

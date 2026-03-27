@@ -16,7 +16,7 @@ public class ExchangeTickerService : ITickersService
     private readonly ConcurrentDictionary<IExchangeTickerClient, Func<ExchangePriceUpdate, Task>> _handlers = new();
     private readonly object _subscriberLock = new();
     private readonly Dictionary<string, List<Func<ExchangePriceUpdate, Task>>> _subscriberHandlers = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, decimal> _lastPriceBySymbol = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ExchangePriceUpdate> _lastPriceBySymbol = new(StringComparer.OrdinalIgnoreCase);
     private IExchangeTickerClient? _activeClient;
     private Uri? _activeWebSocketUrl;
     private readonly IOptions<BybitSettings> _bybitSettingsOptions;
@@ -209,7 +209,7 @@ public class ExchangeTickerService : ITickersService
             handlers.Add(handler);
         }
 
-        decimal cachedPrice;
+        ExchangePriceUpdate? cachedPrice;
         var hasCachedPrice = false;
         lock (_subscriberLock)
         {
@@ -220,7 +220,7 @@ public class ExchangeTickerService : ITickersService
         {
             try
             {
-                await handler(new ExchangePriceUpdate("Bybit", normalizedSymbol, cachedPrice, DateTime.UtcNow));
+                await handler(cachedPrice! with { Timestamp = DateTime.UtcNow });
             }
             catch
             {
@@ -285,14 +285,14 @@ public class ExchangeTickerService : ITickersService
             {
                 lock (_subscriberLock)
                 {
-                    _lastPriceBySymbol[symbol] = price.Value;
+                    _lastPriceBySymbol[symbol] = new ExchangePriceUpdate("Bybit", symbol, price.Value, price.Value, DateTime.UtcNow);
                 }
 
-                await DispatchUpdateAsync(new ExchangePriceUpdate("Bybit", symbol, price.Value, DateTime.UtcNow));
+                await DispatchUpdateAsync(new ExchangePriceUpdate("Bybit", symbol, price.Value, price.Value, DateTime.UtcNow));
                 continue;
             }
 
-            decimal cachedPrice;
+            ExchangePriceUpdate? cachedPrice;
             lock (_subscriberLock)
             {
                 if (!_lastPriceBySymbol.TryGetValue(symbol, out cachedPrice))
@@ -302,7 +302,7 @@ public class ExchangeTickerService : ITickersService
             }
 
             // Fallback to cached symbol price to ensure subscribers are notified.
-            await DispatchUpdateAsync(new ExchangePriceUpdate("Bybit", symbol, cachedPrice, DateTime.UtcNow));
+            await DispatchUpdateAsync(cachedPrice! with { Timestamp = DateTime.UtcNow });
         }
     }
 
@@ -415,7 +415,15 @@ public class ExchangeTickerService : ITickersService
         _lastUpdateUtc[update.Symbol] = now;
         lock (_subscriberLock)
         {
-            _lastPriceBySymbol[update.Symbol] = update.Price;
+            var cachedUpdate = _lastPriceBySymbol.TryGetValue(update.Symbol, out var previous)
+                ? previous
+                : null;
+            _lastPriceBySymbol[update.Symbol] = new ExchangePriceUpdate(
+                update.Exchange,
+                update.Symbol,
+                update.MarkPrice ?? cachedUpdate?.MarkPrice,
+                update.IndexPrice ?? cachedUpdate?.IndexPrice,
+                update.Timestamp);
         }
 
         await DispatchUpdateAsync(update);

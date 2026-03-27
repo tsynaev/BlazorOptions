@@ -215,13 +215,13 @@ public class BybitTickerClient : IExchangeTickerClient
                 return;
             }
 
-            if (TryExtractPrice(dataElement, out var price, out var symbol))
+            if (TryExtractPrices(dataElement, out var markPrice, out var indexPrice, out var symbol))
             {
                 var resolvedSymbol = string.IsNullOrWhiteSpace(symbol) ? topicSymbol : symbol;
                 var handler = PriceUpdated;
                 if (handler is not null)
                 {
-                    await handler.Invoke(new ExchangePriceUpdate(Exchange, resolvedSymbol, price, DateTime.UtcNow));
+                    await handler.Invoke(new ExchangePriceUpdate(Exchange, resolvedSymbol, markPrice, indexPrice, DateTime.UtcNow));
                 }
             }
         }
@@ -231,16 +231,17 @@ public class BybitTickerClient : IExchangeTickerClient
         }
     }
 
-    private static bool TryExtractPrice(JsonElement dataElement, out decimal price, out string? symbol)
+    private static bool TryExtractPrices(JsonElement dataElement, out decimal? markPrice, out decimal? indexPrice, out string? symbol)
     {
-        price = 0m;
+        markPrice = null;
+        indexPrice = null;
         symbol = null;
 
         if (dataElement.ValueKind == JsonValueKind.Array)
         {
             foreach (var entry in dataElement.EnumerateArray())
             {
-                if (TryExtractPriceFromEntry(entry, out price, out symbol))
+                if (TryExtractPricesFromEntry(entry, out markPrice, out indexPrice, out symbol))
                 {
                     return true;
                 }
@@ -249,12 +250,13 @@ public class BybitTickerClient : IExchangeTickerClient
             return false;
         }
 
-        return dataElement.ValueKind == JsonValueKind.Object && TryExtractPriceFromEntry(dataElement, out price, out symbol);
+        return dataElement.ValueKind == JsonValueKind.Object && TryExtractPricesFromEntry(dataElement, out markPrice, out indexPrice, out symbol);
     }
 
-    private static bool TryExtractPriceFromEntry(JsonElement entry, out decimal price, out string? symbol)
+    private static bool TryExtractPricesFromEntry(JsonElement entry, out decimal? markPrice, out decimal? indexPrice, out string? symbol)
     {
-        price = 0m;
+        markPrice = null;
+        indexPrice = null;
         symbol = null;
 
         if (TryReadString(entry, "symbol", out var parsedSymbol))
@@ -262,17 +264,22 @@ public class BybitTickerClient : IExchangeTickerClient
             symbol = parsedSymbol;
         }
 
-        if (TryReadDecimal(entry, "indexPrice", out price))
+        if (TryReadDecimal(entry, "markPrice", out var parsedMarkPrice) && parsedMarkPrice > 0)
         {
-            return true;
+            markPrice = parsedMarkPrice;
         }
 
-        if (TryReadDecimal(entry, "lastPrice", out price))
+        if (TryReadDecimal(entry, "indexPrice", out var parsedIndexPrice) && parsedIndexPrice > 0)
         {
-            return true;
+            indexPrice = parsedIndexPrice;
         }
 
-        return false;
+        if (!markPrice.HasValue && TryReadDecimal(entry, "lastPrice", out var parsedLastPrice) && parsedLastPrice > 0)
+        {
+            markPrice = parsedLastPrice;
+        }
+
+        return markPrice.HasValue || indexPrice.HasValue;
     }
 
     private static bool TryReadString(JsonElement entry, string propertyName, out string? value)

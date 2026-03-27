@@ -2,7 +2,12 @@ namespace BlazorOptions.Services;
 
 public record ExchangeTickerSubscription(string Exchange, string Symbol, Uri WebSocketUrl);
 
-public record ExchangePriceUpdate(string Exchange, string Symbol, decimal Price, DateTime Timestamp);
+public record ExchangePriceUpdate(
+    string Exchange,
+    string Symbol,
+    decimal? MarkPrice,
+    decimal? IndexPrice,
+    DateTime Timestamp);
 
 public interface IExchangeTickerClient
 {

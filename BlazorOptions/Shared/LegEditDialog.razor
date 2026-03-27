@@ -184,7 +184,7 @@
         if (ViewModel.Leg.Type == LegType.Future)
         {
             // Futures placeholder should reflect current underlying mark when entry is empty.
-            return ViewModel.CurrentPrice ?? ViewModel.MarkPrice ?? ViewModel.PlaceholderPrice;
+            return ViewModel.MarkPrice ?? ViewModel.IndexPrice ?? ViewModel.PlaceholderPrice;
         }
 
         return ViewModel.MarkPrice ?? ViewModel.PlaceholderPrice;

@@ -758,7 +758,7 @@ public sealed class PositionViewModel : IDisposable
             return;
         }
 
-        var symbol = NormalizeSymbol(Position);
+        var symbol = ResolvePriceSymbol(Position);
         if (string.IsNullOrWhiteSpace(symbol))
         {
             return;
@@ -795,15 +795,28 @@ public sealed class PositionViewModel : IDisposable
             return Task.CompletedTask;
         }
 
-        ApplyLivePrice(update.Price);
-        AppendTickerPrice(update.Price, update.Timestamp);
-        NotifyLivePriceChanged(update.Price);
+        var liveUnderlyingPrice = update.IndexPrice ?? update.MarkPrice;
+        ApplyLivePrice(liveUnderlyingPrice);
+        AppendTickerPrice(liveUnderlyingPrice, update.Timestamp);
+        NotifyLivePriceChanged(liveUnderlyingPrice);
 
         return Task.CompletedTask;
     }
 
-    private static string NormalizeSymbol(PositionModel position)
+    private string ResolvePriceSymbol(PositionModel position)
     {
+        var futureSymbols = position.Legs
+            .Where(leg => leg.IsIncluded && leg.Type == LegType.Future && leg.ExpirationDate.HasValue)
+            .Select(ResolveFuturePriceSymbol)
+            .Where(symbol => !string.IsNullOrWhiteSpace(symbol))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (futureSymbols.Length == 1)
+        {
+            return futureSymbols[0]!;
+        }
+
         var baseAsset = position.BaseAsset?.Trim();
         var quoteAsset = position.QuoteAsset?.Trim();
 
@@ -815,6 +828,16 @@ public sealed class PositionViewModel : IDisposable
         return string.Empty;
     }
 
+    private string? ResolveFuturePriceSymbol(LegModel leg)
+    {
+        if (!string.IsNullOrWhiteSpace(leg.Symbol))
+        {
+            return leg.Symbol.Trim().ToUpperInvariant();
+        }
+
+        return _exchangeService.FormatSymbol(leg, Position.BaseAsset, Position.QuoteAsset);
+    }
+
 
     private async Task TryHydrateSelectedPriceFromRecentCandleAsync()
     {
@@ -823,7 +846,7 @@ public sealed class PositionViewModel : IDisposable
             return;
         }
 
-        var symbol = NormalizeSymbol(Position);
+        var symbol = ResolvePriceSymbol(Position);
         if (string.IsNullOrWhiteSpace(symbol))
         {
             return;
@@ -1798,7 +1821,7 @@ public sealed class PositionViewModel : IDisposable
     {
         if (leg.Leg.Type == LegType.Future && !leg.Leg.Price.HasValue)
         {
-            return leg.CurrentPrice ?? leg.MarkPrice ?? 0m;
+        return leg.IndexPrice ?? leg.MarkPrice ?? 0m;
         }
 
         return leg.Leg.Price ?? leg.PlaceholderPrice ?? leg.MarkPrice ?? 0m;

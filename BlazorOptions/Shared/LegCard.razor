@@ -162,7 +162,7 @@
 
         if (ViewModel.Leg.Type == LegType.Future && !ViewModel.Leg.Price.HasValue)
         {
-            return ViewModel.CurrentPrice ?? ViewModel.PlaceholderPrice;
+            return ViewModel.MarkPrice ?? ViewModel.IndexPrice ?? ViewModel.PlaceholderPrice;
         }
 
         return ViewModel.Leg.Price ?? ViewModel.PlaceholderPrice;

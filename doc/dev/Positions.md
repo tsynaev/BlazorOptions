@@ -31,6 +31,7 @@ Route: `/position/{positionId}`
 - `SubscribeAsync` supports snapshot + live updates.
 - `UpdateTickersAsync(...)` pushes refresh updates to subscribers.
 - Cached values are pushed immediately on new subscriptions.
+- `ExchangePriceUpdate` carries both `MarkPrice` and `IndexPrice`; consumers must choose the correct field instead of treating one price as both mark and underlying.
 - `IOptionsChainService`
 - Uses the same snapshot/live contract as tickers service.
 - Cached values are pushed immediately on new subscriptions.
@@ -48,6 +49,13 @@ Route: `/position/{positionId}`
 - Same-symbol open orders are auto-linked only to `Active` legs; `New` legs do not consume order chips.
 - Symbol is re-formatted on every editable leg field change to keep symbol text aligned with current leg state.
 - When symbol changes (for example futures expiry/perpetual switch), leg ticker subscription is refreshed so mark/placeholder price comes from that exact leg symbol.
+- Position-level price context prefers the single distinct included dated-future symbol when one exists; otherwise it falls back to the base/quote symbol. This keeps live price, initial snapshot price, and candles aligned with the selected contract without guessing across multiple dated futures legs.
+- `LegsCollectionViewModel` broadcasts one shared `IndexPrice` for the current base/quote pair to every leg. Per-leg valuation differences come from each leg's own `Spread`, not from per-expiration index remapping.
+- Pricing-context rebroadcast in `LegsCollectionViewModel` is synchronous because the page typically works with fewer than 10 legs; the extra async/yield path was removed as unnecessary complexity.
+- `LegViewModel.IndexPrice` is the chart/user index context shared across the current base/quote pair. In live mode, displayed mark uses live market mark. In non-live mode, each leg preserves its own observed `Spread` versus index and prices from `IndexPrice + Spread`:
+- options: `underlying = IndexPrice + Spread`, then Black-Scholes uses that underlying
+- futures: `mark = IndexPrice + Spread`
+- Futures UI display is mark-first: leg cards and edit-dialog price placeholders prefer `MarkPrice` over `IndexPrice`.
 
 ## Chart Behavior
 
