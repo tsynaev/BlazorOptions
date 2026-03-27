@@ -11,7 +11,7 @@ public static class TradeCycleSummaryBuilder
         var orderedTrades = trades
             .Where(row => row is not null)
             .OrderBy(row => row.Timestamp ?? 0)
-            .ThenBy(row => row.Trade, StringComparer.Ordinal)
+            .ThenBy(row => row.Sequence)
             .ToList();
         if (orderedTrades.Count == 0)
         {
@@ -20,47 +20,63 @@ public static class TradeCycleSummaryBuilder
 
         var summaries = new List<TradeCycleSummary>();
         CycleAccumulator? currentCycle = null;
-        var previousSizeAfter = 0m;
 
         foreach (var row in orderedTrades)
         {
             if (!TryParseTrade(row.Trade, out var sideSign, out var quantity))
             {
-                previousSizeAfter = row.SizeAfter;
                 continue;
             }
 
-            var currentSizeAfter = row.SizeAfter;
-            if (currentCycle is null)
+            var signedQuantity = sideSign * quantity;
+            var sizeAfter = row.SizeAfter;
+            var sizeBefore = sizeAfter - signedQuantity;
+            var beforeSign = Math.Sign(sizeBefore);
+            var afterSign = Math.Sign(sizeAfter);
+            var closeQuantity = beforeSign != 0 && beforeSign == -sideSign
+                ? Math.Min(Math.Abs(sizeBefore), quantity)
+                : 0m;
+            var openQuantity = quantity - closeQuantity;
+
+            if (closeQuantity > 0m && currentCycle is not null && beforeSign == currentCycle.DirectionSign)
             {
-                // Starting from a flat position avoids stitching together unrelated history windows.
-                if (previousSizeAfter == 0m
-                    && currentSizeAfter != 0m
-                    && Math.Sign(currentSizeAfter) == sideSign)
+                currentCycle.AddClosingFill(
+                    row.Timestamp ?? 0,
+                    row.Price,
+                    closeQuantity,
+                    AllocateFee(row.Fee, closeQuantity, quantity));
+
+                if (closeQuantity == Math.Abs(sizeBefore))
+                {
+                    if (currentCycle.TryBuild(out var summary))
+                    {
+                        summaries.Add(summary);
+                    }
+
+                    currentCycle = null;
+                }
+            }
+
+            if (openQuantity > 0m && afterSign == sideSign)
+            {
+                if (currentCycle is null)
                 {
                     currentCycle = new CycleAccumulator(
-                        directionSign: Math.Sign(currentSizeAfter),
+                        directionSign: afterSign,
                         startTimestamp: row.Timestamp ?? 0);
-                    currentCycle.AddOpeningFill(row.Timestamp ?? 0, row.Price, quantity, row.Fee);
                 }
 
-                previousSizeAfter = currentSizeAfter;
-                continue;
-            }
-
-            if (Math.Sign(currentSizeAfter) == currentCycle.DirectionSign || currentSizeAfter == 0m)
-            {
-                if (sideSign == currentCycle.DirectionSign)
+                if (currentCycle.DirectionSign == sideSign)
                 {
-                    currentCycle.AddOpeningFill(row.Timestamp ?? 0, row.Price, quantity, row.Fee);
-                }
-                else if (sideSign == -currentCycle.DirectionSign)
-                {
-                    currentCycle.AddClosingFill(row.Timestamp ?? 0, row.Price, quantity, row.Fee);
+                    currentCycle.AddOpeningFill(
+                        row.Timestamp ?? 0,
+                        row.Price,
+                        openQuantity,
+                        AllocateFee(row.Fee, openQuantity, quantity));
                 }
             }
 
-            if (currentSizeAfter == 0m)
+            if (sizeAfter == 0m && currentCycle is not null)
             {
                 if (currentCycle.TryBuild(out var summary))
                 {
@@ -69,8 +85,6 @@ public static class TradeCycleSummaryBuilder
 
                 currentCycle = null;
             }
-
-            previousSizeAfter = currentSizeAfter;
         }
 
         if (currentCycle is not null && currentCycle.TryBuild(out var openSummary))
@@ -114,6 +128,16 @@ public static class TradeCycleSummaryBuilder
 
         quantity = Math.Abs(quantity);
         return quantity > 0m;
+    }
+
+    private static decimal AllocateFee(decimal totalFee, decimal partialQuantity, decimal totalQuantity)
+    {
+        if (totalFee == 0m || partialQuantity <= 0m || totalQuantity <= 0m)
+        {
+            return 0m;
+        }
+
+        return totalFee * (partialQuantity / totalQuantity);
     }
 
     private sealed class CycleAccumulator

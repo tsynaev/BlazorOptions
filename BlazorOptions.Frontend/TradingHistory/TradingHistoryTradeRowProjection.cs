@@ -22,8 +22,9 @@ public static class TradingHistoryTradeRowProjection
             .Where(entry =>
                 string.Equals(entry.TransactionType, "TRADE", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(entry.TransactionType, "DELIVERY", StringComparison.OrdinalIgnoreCase))
-            .Select(entry => new TradeRow
+            .Select((entry, index) => new TradeRow
             {
+                Sequence = index,
                 Timestamp = entry.Timestamp,
                 Trade = $"{entry.Side} {FormatNumber(entry.Size)} {entry.Symbol}".Trim(),
                 Price = entry.Price,

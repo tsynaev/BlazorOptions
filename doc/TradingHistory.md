@@ -16,6 +16,7 @@ The summary groups fully closed round-trip cycles for that symbol and shows:
 - Net PnL after fees
 
 Closed cycles are listed with close price and net PnL. Open positions are also listed, with close-specific columns left empty until the cycle closes.
+When several fills share the same exchange timestamp, the summary preserves the original fill order so separate flat-to-flat cycles are not merged or dropped.
 
 ## Position trades
 
