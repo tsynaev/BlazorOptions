@@ -9,6 +9,15 @@ public enum StraddleFairMethod
     Parkinson
 }
 
+public enum StraddleTenor
+{
+    OneWeek,
+    TwoWeeks,
+    ThreeWeeks,
+    OneMonth,
+    ThreeMonths
+}
+
 public sealed record WeekStat(
     DateTime Date,
     double High,
@@ -23,6 +32,7 @@ public sealed class StraddleFairValueViewModel : Bindable
     private string _underlyingSymbol = "ETHUSDT";
     private int _weeksToAverage = 6;
     private StraddleFairMethod _method = StraddleFairMethod.Range;
+    private StraddleTenor _tenor = StraddleTenor.OneWeek;
     private bool _isLoading;
     private string? _errorMessage;
     private string? _warningMessage;
@@ -33,6 +43,7 @@ public sealed class StraddleFairValueViewModel : Bindable
     private double? _actualAtmStraddle;
     private double? _avgRange;
     private double? _sigmaWeek;
+    private double? _sigmaTenor;
     private double? _fairStraddle;
     private double? _difference;
     private double? _differencePercent;
@@ -62,6 +73,12 @@ public sealed class StraddleFairValueViewModel : Bindable
     {
         get => _method;
         private set => SetField(ref _method, value);
+    }
+
+    public StraddleTenor Tenor
+    {
+        get => _tenor;
+        private set => SetField(ref _tenor, value);
     }
 
     public bool IsLoading
@@ -122,6 +139,12 @@ public sealed class StraddleFairValueViewModel : Bindable
     {
         get => _sigmaWeek;
         private set => SetField(ref _sigmaWeek, value);
+    }
+
+    public double? SigmaTenor
+    {
+        get => _sigmaTenor;
+        private set => SetField(ref _sigmaTenor, value);
     }
 
     public double? FairStraddle
@@ -210,6 +233,17 @@ public sealed class StraddleFairValueViewModel : Bindable
         await RecalculateAsync();
     }
 
+    public async Task SetTenorAsync(StraddleTenor tenor)
+    {
+        if (Tenor == tenor)
+        {
+            return;
+        }
+
+        Tenor = tenor;
+        await RecalculateAsync();
+    }
+
     public async Task RecalculateAsync()
     {
         if (IsLoading)
@@ -251,8 +285,6 @@ public sealed class StraddleFairValueViewModel : Bindable
             };
             SigmaWeek = sigmaWeek;
 
-            FairStraddle = currentPrice.HasValue ? StraddleMath.FairStraddle(currentPrice.Value, sigmaWeek) : null;
-
             var actual = await LoadActualAtmStraddleAsync(symbol, currentPrice);
             ActualAtmCallPrice = actual.CallPrice;
             ActualAtmPutPrice = actual.PutPrice;
@@ -262,10 +294,21 @@ public sealed class StraddleFairValueViewModel : Bindable
             TargetExpiry = actual.Expiry;
             TargetStrike = actual.Strike;
 
+            var tenorDays = ResolveTenorDays(actual.Expiry, Tenor, DateTime.UtcNow);
+            SigmaTenor = sigmaWeek > 0d
+                ? StraddleMath.ScaleSigma(sigmaWeek, tenorDays)
+                : null;
+            FairStraddle = currentPrice.HasValue && sigmaWeek > 0d
+                ? StraddleMath.FairStraddle(currentPrice.Value, SigmaTenor ?? 0d)
+                : null;
+
             if (ActualAtmStraddle.HasValue && FairStraddle.HasValue && FairStraddle.Value > 0d)
             {
-                Difference = ActualAtmStraddle.Value - FairStraddle.Value;
-                DifferencePercent = (ActualAtmStraddle.Value / FairStraddle.Value) - 1d;
+                // Positive edge means the market trades below model fair value.
+                Difference = FairStraddle.Value - ActualAtmStraddle.Value;
+                DifferencePercent = ActualAtmStraddle.Value > 0d
+                    ? (FairStraddle.Value / ActualAtmStraddle.Value) - 1d
+                    : null;
             }
             else
             {
@@ -303,6 +346,7 @@ public sealed class StraddleFairValueViewModel : Bindable
         ActualAtmStraddle = null;
         AvgRange = null;
         SigmaWeek = null;
+        SigmaTenor = null;
         FairStraddle = null;
         Difference = null;
         DifferencePercent = null;
@@ -408,14 +452,14 @@ public sealed class StraddleFairValueViewModel : Bindable
             return (null, null, null, null);
         }
 
-        var expiry = ResolveTargetWeeklyExpiry(tickers.Select(t => t.ExpirationDate), now);
+        var expiry = ResolveTargetExpiry(tickers.Select(t => t.ExpirationDate), now, Tenor);
         if (!expiry.HasValue)
         {
             return (null, null, null, null);
         }
 
         var expiryTickers = tickers
-            .Where(ticker => ticker.ExpirationDate.Date == expiry.Value.Date)
+            .Where(ticker => ticker.ExpirationDate == expiry.Value)
             .ToList();
 
         var strike = expiryTickers
@@ -498,15 +542,60 @@ public sealed class StraddleFairValueViewModel : Bindable
         return date.AddDays(-shift);
     }
 
-    private static DateTime? ResolveTargetWeeklyExpiry(IEnumerable<DateTime> expirations, DateTime nowUtc)
+    public static string GetTenorLabel(StraddleTenor tenor)
     {
-        var target = nowUtc.Date.AddDays(7);
+        return tenor switch
+        {
+            StraddleTenor.OneWeek => "1W",
+            StraddleTenor.TwoWeeks => "2W",
+            StraddleTenor.ThreeWeeks => "3W",
+            StraddleTenor.OneMonth => "1M",
+            StraddleTenor.ThreeMonths => "3M",
+            _ => "1W"
+        };
+    }
+
+    public static string GetSigmaLabel(StraddleTenor tenor)
+    {
+        return $"sigma {GetTenorLabel(tenor)} (%)";
+    }
+
+    private static DateTime? ResolveTargetExpiry(IEnumerable<DateTime> expirations, DateTime nowUtc, StraddleTenor tenor)
+    {
+        var target = nowUtc.AddDays(GetTargetDays(tenor));
         return expirations
-            .Select(value => value.Date)
+            .Where(value => value > nowUtc)
             .Distinct()
-            .OrderBy(value => Math.Abs((value - target).TotalDays))
+            .OrderBy(value => Math.Abs((value - target).TotalSeconds))
             .ThenBy(value => value)
             .FirstOrDefault();
+    }
+
+    private static double ResolveTenorDays(DateTime? expiryUtc, StraddleTenor tenor, DateTime nowUtc)
+    {
+        if (expiryUtc.HasValue)
+        {
+            var actualDays = (expiryUtc.Value - nowUtc).TotalDays;
+            if (actualDays > 0d)
+            {
+                return actualDays;
+            }
+        }
+
+        return GetTargetDays(tenor);
+    }
+
+    private static double GetTargetDays(StraddleTenor tenor)
+    {
+        return tenor switch
+        {
+            StraddleTenor.OneWeek => 7d,
+            StraddleTenor.TwoWeeks => 14d,
+            StraddleTenor.ThreeWeeks => 21d,
+            StraddleTenor.OneMonth => 30d,
+            StraddleTenor.ThreeMonths => 90d,
+            _ => 7d
+        };
     }
 
     private static bool MatchesQuote(string symbol, string quoteAsset)

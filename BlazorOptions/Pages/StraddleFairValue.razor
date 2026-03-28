@@ -7,7 +7,7 @@
 <MudStack Spacing="3">
     <MudText Typo="Typo.h4">Straddle Fair Value</MudText>
     <MudText Typo="Typo.body2">
-        Weekly ATM straddle fair value from historical ranges versus market quote.
+        ATM straddle fair value by selected tenor from historical ranges versus market quote.
     </MudText>
 
     <MudPaper Class="pa-4">
@@ -34,6 +34,18 @@
                            ValueChanged="OnMethodChanged">
                     <MudSelectItem T="StraddleFairMethod" Value="StraddleFairMethod.Range">Range</MudSelectItem>
                     <MudSelectItem T="StraddleFairMethod" Value="StraddleFairMethod.Parkinson">Parkinson</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="2">
+                <MudSelect T="StraddleTenor"
+                           Label="Tenor"
+                           Value="@ViewModel.Tenor"
+                           ValueChanged="OnTenorChanged">
+                    <MudSelectItem T="StraddleTenor" Value="StraddleTenor.OneWeek">1W</MudSelectItem>
+                    <MudSelectItem T="StraddleTenor" Value="StraddleTenor.TwoWeeks">2W</MudSelectItem>
+                    <MudSelectItem T="StraddleTenor" Value="StraddleTenor.ThreeWeeks">3W</MudSelectItem>
+                    <MudSelectItem T="StraddleTenor" Value="StraddleTenor.OneMonth">1M</MudSelectItem>
+                    <MudSelectItem T="StraddleTenor" Value="StraddleTenor.ThreeMonths">3M</MudSelectItem>
                 </MudSelect>
             </MudItem>
             <MudItem xs="12" sm="6" md="2">
@@ -98,7 +110,7 @@
             </MudItem>
             <MudItem xs="12" sm="6" md="3">
                 <MudText Typo="Typo.caption">σ week (%)</MudText>
-                <MudText Typo="Typo.subtitle1">@FormatPercent(ViewModel.SigmaWeek)</MudText>
+                <MudText Typo="Typo.subtitle1">@FormatPercent(ViewModel.SigmaTenor)</MudText>
             </MudItem>
             <MudItem xs="12" sm="6" md="2">
                 <MudText Typo="Typo.caption">√(2/π)</MudText>
@@ -120,11 +132,11 @@
                 <MudText Typo="Typo.subtitle1">@FormatNumber(ViewModel.ActualAtmStraddle)</MudText>
             </MudItem>
             <MudItem xs="12" sm="6" md="4">
-                <MudText Typo="Typo.caption">Difference (Actual - Fair)</MudText>
+                <MudText Typo="Typo.caption">Difference (Fair - Actual)</MudText>
                 <MudText Typo="Typo.subtitle1">@FormatSigned(ViewModel.Difference)</MudText>
             </MudItem>
             <MudItem xs="12" sm="6" md="4">
-                <MudText Typo="Typo.caption">Difference % (Actual/Fair - 1)</MudText>
+                <MudText Typo="Typo.caption">Difference % (Fair/Actual - 1)</MudText>
                 <MudText Typo="Typo.subtitle1">@FormatSignedPercent(ViewModel.DifferencePercent)</MudText>
             </MudItem>
         </MudGrid>
@@ -181,6 +193,8 @@
 
     private Task OnMethodChanged(StraddleFairMethod value) => ViewModel.SetMethodAsync(value);
 
+    private Task OnTenorChanged(StraddleTenor value) => ViewModel.SetTenorAsync(value);
+
     private Task ReloadAsync() => ViewModel.RecalculateAsync();
 
     private void HandleViewModelChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -207,6 +221,11 @@
     {
         var value = ViewModel.Method == StraddleFairMethod.Range ? stat.Range : stat.Sigma;
         return $"{value * 100d:0.####}%";
+    }
+
+    private string BuildSigmaLabel()
+    {
+        return StraddleFairValueViewModel.GetSigmaLabel(ViewModel.Tenor);
     }
 
     private static string FormatNumber(double? value)
@@ -246,6 +265,6 @@
             return "Result unavailable";
         }
 
-        return $"Edge: {FormatSigned(ViewModel.Difference)} ({FormatSignedPercent(ViewModel.DifferencePercent)})";
+        return $"{StraddleFairValueViewModel.GetTenorLabel(ViewModel.Tenor)} edge: {FormatSigned(ViewModel.Difference)} ({FormatSignedPercent(ViewModel.DifferencePercent)})";
     }
 }

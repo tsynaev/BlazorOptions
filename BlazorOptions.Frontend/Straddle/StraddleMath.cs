@@ -42,4 +42,15 @@ public static class StraddleMath
         // Fair weekly ATM straddle proxy uses expected absolute move E|dS| = S * sigma * sqrt(2/pi).
         return s * sigmaWeek * SQRT_2_PI;
     }
+
+    public static double ScaleSigma(double sigmaWeek, double tenorDays)
+    {
+        if (sigmaWeek <= 0d || tenorDays <= 0d || !double.IsFinite(sigmaWeek) || !double.IsFinite(tenorDays))
+        {
+            return 0d;
+        }
+
+        // Diffusion scaling keeps longer-dated fair value aligned with the selected tenor.
+        return sigmaWeek * Math.Sqrt(tenorDays / 7d);
+    }
 }

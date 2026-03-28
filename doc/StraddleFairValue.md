@@ -4,14 +4,20 @@ Route: `/straddle-fair`
 
 ## Purpose
 
-- Estimates fair value for a 1-week ATM straddle from historical completed weekly ranges.
-- Compares fair value with current market ATM call + put.
-- Shows edge as `Actual - Fair` and percent difference.
+- Estimates fair value for an ATM straddle for the selected tenor from historical completed weekly ranges.
+- Compares fair value with the current market ATM call + put for the selected tenor.
+- Shows edge as `Fair - Actual` and percent difference.
 
 ## Inputs
 
 - Underlying symbol (default `ETHUSDT`)
 - Weeks to average (default `6`)
+- Tenor:
+  - `1W`
+  - `2W`
+  - `3W`
+  - `1M`
+  - `3M`
 - Method:
   - `Range`
   - `Parkinson`
@@ -20,7 +26,7 @@ Route: `/straddle-fair`
 
 - Current underlying price from market candles.
 - Last `N` completed weeks from hourly candles (current partial week excluded).
-- ATM option prices from current options chain for expiry closest to 1 week.
+- ATM option prices from current options chain for expiry closest to the selected tenor.
 
 ## Weekly Formulas
 
@@ -34,7 +40,8 @@ Route: `/straddle-fair`
 ## Fair Straddle
 
 - `E|dS| = S * sigma_week * sqrt(2/pi)`
-- `FairStraddle = E|dS|`
+- `sigma_tenor = sigma_week * sqrt(tenor_days / 7)`
+- `FairStraddle = S * sigma_tenor * sqrt(2/pi)`
 
 Constants:
 - `sqrt(2/pi) = 0.7978845608`
@@ -45,9 +52,9 @@ Constants:
 - Historical weekly table (`H`, `L`, `Close`, `D_i` or `sigma_i`)
 - Summary metrics:
   - avg range
-  - weekly sigma
+  - tenor sigma used for pricing
   - `S`
   - fair straddle
   - actual straddle
   - difference and difference percent
-- Edge highlight is green/red by sign of `Actual - Fair`.
+- Edge highlight is green/red by sign of `Fair - Actual`.
