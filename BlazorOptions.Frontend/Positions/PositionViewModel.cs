@@ -379,7 +379,9 @@ public sealed class PositionViewModel : IDisposable
     private async Task HandleCollectionUpdatedAsync(LegsCollectionUpdateKind updateKind)
     {
         var updateChart = updateKind == LegsCollectionUpdateKind.LegModelChanged
-            || updateKind == LegsCollectionUpdateKind.CollectionChanged;
+            || updateKind == LegsCollectionUpdateKind.CollectionChanged
+            // Loaded legs receive spread/IV/mark data after the page opens; recalc the chart once that data arrives.
+            || (!IsLive && updateKind == LegsCollectionUpdateKind.ViewModelDataUpdated);
         var persist = updateKind == LegsCollectionUpdateKind.LegModelChanged
             || updateKind == LegsCollectionUpdateKind.LegModelDataChanged
             || updateKind == LegsCollectionUpdateKind.CollectionChanged;
