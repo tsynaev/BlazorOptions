@@ -124,6 +124,49 @@ public sealed class PositionChartSettingsPanelViewModel : Bindable
         return total;
     }
 
+    private decimal? ResolveBoundedMaxGain()
+    {
+        if (_positionViewModel.ChartStrategies.Count == 0)
+        {
+            return null;
+        }
+
+        var expiryPoints = _positionViewModel.ChartStrategies[0].ExpiredPnl;
+        if (expiryPoints is null || expiryPoints.Count < 3)
+        {
+            return null;
+        }
+
+        double maxProfit = double.MinValue;
+        for (var i = 0; i < expiryPoints.Count; i++)
+        {
+            if (expiryPoints[i].Pnl > maxProfit)
+            {
+                maxProfit = expiryPoints[i].Pnl;
+            }
+        }
+
+        if (maxProfit <= 0d)
+        {
+            return null;
+        }
+
+        const double epsilon = 0.0001d;
+        var hasInteriorPeak = false;
+        for (var i = 1; i < expiryPoints.Count - 1; i++)
+        {
+            if (Math.Abs(expiryPoints[i].Pnl - maxProfit) <= epsilon)
+            {
+                hasInteriorPeak = true;
+                break;
+            }
+        }
+
+        // If the best point exists only on the chart edge, the strategy is likely unbounded
+        // and the sampled range clipped the true max profit.
+        return hasInteriorPeak ? (decimal)maxProfit : null;
+    }
+
     private decimal? ResolveTotalCombinedPnlPercent()
     {
         var totalPnl = ResolveTotalCombinedPnl();
@@ -132,13 +175,13 @@ public sealed class PositionChartSettingsPanelViewModel : Bindable
             return null;
         }
 
-        var entryValue = ResolvePortfolioEntryValue();
-        if (entryValue <= 0m)
+        var denominator = ResolveBoundedMaxGain() ?? ResolvePortfolioEntryValue();
+        if (denominator <= 0m)
         {
             return null;
         }
 
-        return totalPnl.Value / entryValue * 100m;
+        return totalPnl.Value / denominator * 100m;
     }
 
     private static string FormatPrice(decimal? price)

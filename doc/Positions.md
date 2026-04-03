@@ -61,7 +61,9 @@ The Positions page is where you manage one position at a time and review its pay
 
 - Header shows combined total P/L (temporary + closed).
 - Desktop app bar shows the shared wallet summary in two columns: `IM/MM` on the left and wallet balances on the right.
-- Header total P/L also shows portfolio P/L percent, using included non-futures leg entry value as denominator.
+- Header total P/L also shows portfolio P/L percent.
+- For capped-profit structures, the denominator is finite max gain from the expiry payoff.
+- If the payoff is not reliably capped, the denominator falls back to included non-futures leg entry value.
 - On page open, `New` and `Order` legs start excluded so strategy experiments do not affect the saved position by default.
 - While the position page is open, `New` and `Order` legs can still be manually included or excluded for scenario testing.
 - `Live` and `Candles` are switched with chips.
