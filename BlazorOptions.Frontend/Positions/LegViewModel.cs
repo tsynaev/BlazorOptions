@@ -32,6 +32,7 @@ public sealed class LegViewModel : IDisposable
     private bool _usedInitialLiveMarkSnapshot;
     private IReadOnlyList<LegLinkedOrderModel> _linkedOrders = Array.Empty<LegLinkedOrderModel>();
     private decimal? _spread;
+    private decimal? _markIndexSpread;
 
     // Keep chart updates tied only to leg fields that affect payoff calculations.
     private static readonly HashSet<string> ChartRelevantLegProperties = new(StringComparer.Ordinal)
@@ -547,6 +548,11 @@ public sealed class LegViewModel : IDisposable
             changed = true;
         }
 
+        if (UpdateMarkIndexSpread(nextMarkPrice, nextIndexPrice))
+        {
+            changed = true;
+        }
+
         if (changed)
         {
             Changed?.Invoke(LegsCollectionUpdateKind.ViewModelDataUpdated);
@@ -559,7 +565,7 @@ public sealed class LegViewModel : IDisposable
     {
         var changed = false;
 
-        var nextMarkPrice = ticker.MarkPrice > 0 ? ticker.MarkPrice : (decimal?)null;
+        var nextMarkPrice = ResolveObservedOptionMarkPrice(ticker);
         if (MarkPrice != nextMarkPrice)
         {
             MarkPrice = nextMarkPrice;
@@ -579,6 +585,11 @@ public sealed class LegViewModel : IDisposable
         if (Spread != nextSpread)
         {
             Spread = nextSpread;
+            changed = true;
+        }
+
+        if (UpdateMarkIndexSpread(nextMarkPrice, nextIndexPrice))
+        {
             changed = true;
         }
 
@@ -653,6 +664,8 @@ public sealed class LegViewModel : IDisposable
             return;
         }
 
+        // Symbol changes invalidate cached market offsets from the previous contract.
+        _markIndexSpread = null;
         Leg.Symbol = nextSymbol;
         // Ensure leg mark/placeholder prices are sourced from ticker stream of the selected expiry/perpetual symbol.
         _ = RefreshSubscriptionAsync();
@@ -859,12 +872,19 @@ public sealed class LegViewModel : IDisposable
             return;
         }
 
+        var nextIndexPrice = _indexPrice;
+        if (nextIndexPrice.HasValue && nextIndexPrice.Value <= 0)
+        {
+            nextIndexPrice = null;
+        }
+
         Bid = ticker.BidPrice > 0 ? ticker.BidPrice : null;
         Ask = ticker.AskPrice > 0 ? ticker.AskPrice : null;
         var observedUnderlyingPrice = ticker.UnderlyingPrice > 0 ? ticker.UnderlyingPrice : null;
-        Spread = observedUnderlyingPrice.HasValue && _indexPrice.HasValue
-            ? observedUnderlyingPrice.Value - _indexPrice.Value
+        Spread = observedUnderlyingPrice.HasValue && nextIndexPrice.HasValue
+            ? observedUnderlyingPrice.Value - nextIndexPrice.Value
             : null;
+        UpdateMarkIndexSpread(ResolveObservedOptionMarkPrice(ticker), nextIndexPrice);
         var isExpired = IsOptionExpiredAtValuation();
         var ivPercent = isExpired
             ? null
@@ -1553,6 +1573,12 @@ public sealed class LegViewModel : IDisposable
         var iv = Leg.ImpliedVolatility ?? ChainIv;
         if (!iv.HasValue || iv.Value <= 0 || !Leg.Strike.HasValue || !Leg.ExpirationDate.HasValue)
         {
+            if (_indexPrice.HasValue && _markIndexSpread.HasValue)
+            {
+                // Preserve the last observed option mark offset so manual index moves still reprice draft/order legs.
+                return _indexPrice.Value + _markIndexSpread.Value;
+            }
+
             return ResolveLiveMarkPrice();
         }
 
@@ -1590,6 +1616,40 @@ public sealed class LegViewModel : IDisposable
 
         var expectedPnl = ResolveOrderExpectedPnl();
         return Leg.Price.Value + (expectedPnl / Leg.Size);
+    }
+
+    private bool UpdateMarkIndexSpread(decimal? markPrice, decimal? indexPrice)
+    {
+        var nextMarkIndexSpread = markPrice.HasValue && indexPrice.HasValue
+            ? markPrice.Value - indexPrice.Value
+            : (decimal?)null;
+        if (_markIndexSpread == nextMarkIndexSpread)
+        {
+            return false;
+        }
+
+        _markIndexSpread = nextMarkIndexSpread;
+        return true;
+    }
+
+    private static decimal? ResolveObservedOptionMarkPrice(OptionChainTicker ticker)
+    {
+        if (ticker.MarkPrice > 0)
+        {
+            return ticker.MarkPrice;
+        }
+
+        if (ticker.BidPrice > 0 && ticker.AskPrice > 0)
+        {
+            return (ticker.BidPrice + ticker.AskPrice) / 2m;
+        }
+
+        if (ticker.LastPrice > 0)
+        {
+            return ticker.LastPrice;
+        }
+
+        return null;
     }
 
     private decimal? ResolveMarkPriceFromMissingRealized()
