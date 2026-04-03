@@ -30,6 +30,7 @@ public sealed class LegsCollectionViewModel : IDisposable
     private CancellationTokenSource? _dataUpdateCts;
     private static readonly TimeSpan DataUpdateDebounce = TimeSpan.FromMilliseconds(120);
     private IReadOnlyList<ExchangeOrder> _latestOrdersSnapshot = Array.Empty<ExchangeOrder>();
+    private bool _showAvailablePositionChips = false;
 
 
     private static readonly string[] PositionExpirationFormats = { "ddMMMyy", "ddMMMyyyy" };
@@ -172,6 +173,12 @@ public sealed class LegsCollectionViewModel : IDisposable
     public bool IsLoadingAvailableLegs => _isLoadingAvailableLegs;
 
     public IReadOnlyList<AvailableLegCandidate> AvailableLegCandidates => _availableLegCandidates;
+
+    public bool ShowAvailablePositionChips
+    {
+        get => _showAvailablePositionChips;
+        set => _showAvailablePositionChips = value;
+    }
 
     public event Func<LegModel, Task>? LegAdded;
     public event Func<LegModel, Task>? LegRemoved;
@@ -444,6 +451,14 @@ public sealed class LegsCollectionViewModel : IDisposable
         }
 
         return $"{orderPrefix}{direction} {absSize:0.##} {typeLabel} {FormatChipStrike(candidate.Strike)} @ {FormatChipPrice(candidate.Price)}";
+    }
+
+    public IReadOnlyList<AvailableLegCandidate> GetVisibleAvailableLegCandidates(DateTime? expirationDate = null)
+    {
+        return _availableLegCandidates
+            .Where(item => !expirationDate.HasValue || item.ExpirationDate?.Date == expirationDate.Value.Date)
+            .Where(item => _showAvailablePositionChips || item.Kind != AvailableLegSourceKind.Position)
+            .ToList();
     }
 
     private static string FormatChipStrike(decimal? strike)

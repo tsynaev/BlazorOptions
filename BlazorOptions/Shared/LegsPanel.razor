@@ -10,6 +10,11 @@
             <MudStack Spacing="1" Class="flex-grow-1">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="legs-panel-header">
                     <MudSpacer/>
+                    <MudSwitch T="bool"
+                               Value="ViewModel.ShowAvailablePositionChips"
+                               ValueChanged="HandleShowAvailablePositionChipsChanged"
+                               Color="Color.Info"
+                               Label="Exchange positions" />
                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="legs-panel-actions-row">
                         <MudTooltip Text="Copy symbols to closed positions">
                             <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
@@ -112,7 +117,7 @@
         var groups = ViewModel.GroupedLegs.ToList();
         var existingExpirations = new HashSet<DateTime?>(groups.Select(group => group.ExpirationDate?.Date));
 
-        foreach (var expiration in ViewModel.AvailableLegCandidates.Select(item => item.ExpirationDate?.Date).Distinct())
+        foreach (var expiration in ViewModel.GetVisibleAvailableLegCandidates().Select(item => item.ExpirationDate?.Date).Distinct())
         {
             if (existingExpirations.Contains(expiration))
             {
@@ -129,10 +134,14 @@
 
     private IReadOnlyList<AvailableLegCandidate> GetCandidatesForGroup(DateTime? expirationDate)
     {
-        var normalizedExpiration = expirationDate?.Date;
-        return ViewModel.AvailableLegCandidates
-            .Where(item => item.ExpirationDate?.Date == normalizedExpiration)
-            .ToList();
+        return ViewModel.GetVisibleAvailableLegCandidates(expirationDate);
+    }
+
+    private Task HandleShowAvailablePositionChipsChanged(bool value)
+    {
+        ViewModel.ShowAvailablePositionChips = value;
+        StateHasChanged();
+        return Task.CompletedTask;
     }
 
     private static string FormatExpiration(DateTime? date)

@@ -12,6 +12,7 @@ The Positions page is where you manage one position at a time and review its pay
 
 - Manage a single portfolio inside one position.
 - Add legs manually, with quick add, from active exchange positions, or from open orders.
+- The `Exchange positions` switch can hide or show exchange position chips across all expiration groups without hiding open-order chips.
 - When an active position chip is added as a leg, same-symbol open orders are automatically attached as linked orders to that leg.
 - If only a `New` leg exists for a symbol, same-symbol exchange orders stay as separate order chips (they are not auto-linked to the `New` leg).
 - Track leg statuses:
