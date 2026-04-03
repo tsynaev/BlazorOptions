@@ -76,6 +76,40 @@ public class PositionModel : Bindable
         get => _chartRange;
         set => SetField(ref _chartRange, value);
     }
+
+    public List<LegModel> GetEffectiveLegs()
+    {
+        var allLegs = Legs.ToList();
+        var hasActiveLegs = allLegs.Any(leg => leg.Status == LegStatus.Active);
+
+        return allLegs
+            .Where(leg => leg.IsIncluded)
+            .Where(leg => !hasActiveLegs || (leg.Status != LegStatus.New && leg.Status != LegStatus.Order))
+            .ToList();
+    }
+
+    public PositionModel Clone()
+    {
+        return new PositionModel
+        {
+            Id = Id,
+            BaseAsset = BaseAsset,
+            QuoteAsset = QuoteAsset,
+            Name = Name,
+            Notes = Notes,
+            CreationTimeUtc = CreationTimeUtc,
+            Color = Color,
+            Legs = new(Legs.Select(leg => leg.Clone())),
+            ChartRange = ChartRange,
+            Closed = new ClosedModel
+            {
+                Include = Closed.Include,
+                TotalClosePnl = Closed.TotalClosePnl,
+                TotalFee = Closed.TotalFee,
+                Positions = new(Closed.Positions.Select(position => position.Clone()))
+            }
+        };
+    }
 }
 
 public class ClosedModel : Bindable

@@ -275,7 +275,7 @@
         _ = InvokeAsync(StateHasChanged);
     }
 
-    private static List<ChartSeries> BuildSeries(HomeMiniChartModel chart)
+    private static List<ChartSeries> BuildSeries(MiniChartModel chart)
     {
         var zero = new double[chart.Values.Count];
         var series = new List<ChartSeries>
@@ -325,12 +325,12 @@
         return $"left:{clamped.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}%;";
     }
 
-    private static IReadOnlyList<KeyValuePair<string, IReadOnlyList<HomeLegChipModel>>> GroupLegsByExpiration(IReadOnlyList<HomeLegChipModel> legs)
+    private static IReadOnlyList<KeyValuePair<string, IReadOnlyList<LegChipModel>>> GroupLegsByExpiration(IReadOnlyList<LegChipModel> legs)
     {
         return legs
             .GroupBy(leg => leg.ExpirationDate?.ToString("yyyy-MM-dd") ?? "Perpetual")
             .OrderBy(group => group.Key == "Perpetual" ? "9999-12-31" : group.Key, StringComparer.Ordinal)
-            .Select(group => new KeyValuePair<string, IReadOnlyList<HomeLegChipModel>>(group.Key, group.ToArray()))
+            .Select(group => new KeyValuePair<string, IReadOnlyList<LegChipModel>>(group.Key, group.ToArray()))
             .ToArray();
     }
 

@@ -121,4 +121,25 @@ public class ClosedPositionModel : Bindable
         Realized = 0m;
         FeeTotal = 0m;
     }
+
+    public ClosedPositionModel Clone()
+    {
+        return new ClosedPositionModel
+        {
+            Id = Id,
+            Symbol = Symbol,
+            SinceDate = SinceDate,
+            FirstTradeTimestamp = FirstTradeTimestamp,
+            LastProcessedTimestamp = LastProcessedTimestamp,
+            LastProcessedIdsAtTimestamp = LastProcessedIdsAtTimestamp.ToList(),
+            PositionSize = PositionSize,
+            AvgPrice = AvgPrice,
+            EntryQty = EntryQty,
+            EntryValue = EntryValue,
+            CloseQty = CloseQty,
+            CloseValue = CloseValue,
+            Realized = Realized,
+            FeeTotal = FeeTotal
+        };
+    }
 }

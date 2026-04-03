@@ -7,6 +7,7 @@ namespace BlazorOptions.ViewModels;
 public sealed class PositionChartSettingsPanelViewModel : Bindable
 {
     private readonly PositionViewModel _positionViewModel;
+    private readonly PositionPnlCalculator _positionPnlCalculator;
     private readonly Func<decimal?, Task> _selectedPriceChanged;
     private readonly Func<DateTime, Task> _valuationDateChanged;
     private readonly Func<Task> _toggleLive;
@@ -17,6 +18,7 @@ public sealed class PositionChartSettingsPanelViewModel : Bindable
 
     public PositionChartSettingsPanelViewModel(
         PositionViewModel positionViewModel,
+        PositionPnlCalculator positionPnlCalculator,
         Func<decimal?, Task> selectedPriceChanged,
         Func<DateTime, Task> valuationDateChanged,
         Func<Task> toggleLive,
@@ -26,6 +28,7 @@ public sealed class PositionChartSettingsPanelViewModel : Bindable
         Func<Task> toggleSkewShift)
     {
         _positionViewModel = positionViewModel;
+        _positionPnlCalculator = positionPnlCalculator;
         _selectedPriceChanged = selectedPriceChanged;
         _valuationDateChanged = valuationDateChanged;
         _toggleLive = toggleLive;
@@ -110,18 +113,7 @@ public sealed class PositionChartSettingsPanelViewModel : Bindable
 
     private decimal ResolvePortfolioEntryValue()
     {
-        decimal total = 0m;
-        foreach (var leg in _positionViewModel.LegsCollection.Legs)
-        {
-            if (!leg.Leg.IsIncluded || leg.Leg.Type == LegType.Future || !leg.Leg.Price.HasValue)
-            {
-                continue;
-            }
-
-            total += Math.Abs(leg.Leg.Size * leg.Leg.Price.Value);
-        }
-
-        return total;
+        return _positionPnlCalculator.ResolveEntryValue(_positionViewModel.LegsCollection.Legs.Select(item => item.Leg));
     }
 
     private decimal? ResolveBoundedMaxGain()
@@ -137,34 +129,7 @@ public sealed class PositionChartSettingsPanelViewModel : Bindable
             return null;
         }
 
-        double maxProfit = double.MinValue;
-        for (var i = 0; i < expiryPoints.Count; i++)
-        {
-            if (expiryPoints[i].Pnl > maxProfit)
-            {
-                maxProfit = expiryPoints[i].Pnl;
-            }
-        }
-
-        if (maxProfit <= 0d)
-        {
-            return null;
-        }
-
-        const double epsilon = 0.0001d;
-        var hasInteriorPeak = false;
-        for (var i = 1; i < expiryPoints.Count - 1; i++)
-        {
-            if (Math.Abs(expiryPoints[i].Pnl - maxProfit) <= epsilon)
-            {
-                hasInteriorPeak = true;
-                break;
-            }
-        }
-
-        // If the best point exists only on the chart edge, the strategy is likely unbounded
-        // and the sampled range clipped the true max profit.
-        return hasInteriorPeak ? (decimal)maxProfit : null;
+        return _positionPnlCalculator.ResolveBoundedMaxGain(expiryPoints.Select(point => (decimal)point.Pnl));
     }
 
     private decimal? ResolveTotalCombinedPnlPercent()
@@ -175,13 +140,10 @@ public sealed class PositionChartSettingsPanelViewModel : Bindable
             return null;
         }
 
-        var denominator = ResolveBoundedMaxGain() ?? ResolvePortfolioEntryValue();
-        if (denominator <= 0m)
-        {
-            return null;
-        }
-
-        return totalPnl.Value / denominator * 100m;
+        return _positionPnlCalculator.ResolvePnlPercent(
+            totalPnl,
+            ResolveBoundedMaxGain(),
+            ResolvePortfolioEntryValue());
     }
 
     private static string FormatPrice(decimal? price)

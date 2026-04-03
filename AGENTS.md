@@ -21,6 +21,8 @@
 - Position aggregate and persistence models (`PositionModel`, `LegsCollectionModel`, `LegModel`, `ClosedModel`, `ClosedPositionModel`) live in `BlazorOptions.API` and are reused by Frontend/Server.
 - Position persistence uses API models directly; DTO types and mappers are removed.
 - API project namespaces must use `BlazorOptions.API.*` (do not place API classes under `BlazorOptions.ViewModels`).
+- `PositionModel` may contain pure persisted-state selectors such as effective-leg filtering, but must not depend on pricing services, exchange services, chart sampling, or UI runtime state.
+- `PositionModel.Clone()` should be the shared way to copy position state for UI projections; do not keep ad-hoc clone helpers in view models.
 - The position page currently works with a single portfolio/collection. Multi-portfolio workflows are planned for the future `Options Calculator` feature.
 - Position page price context must use the dated future ticker when there is exactly one included futures leg with expiration; otherwise fall back to the base/quote ticker to avoid ambiguous contract selection.
 - `IndexPrice` is shared across all legs for the same base/quote pair. Leg-specific valuation differences must come from each leg's spread versus index, not from per-expiration index substitution.
@@ -29,6 +31,14 @@
 - On the position page, `IndexPrice` is the simulation/chart input. In non-live mode, option and futures marks must preserve their observed spread versus index instead of using index price as mark directly.
 - Futures UI display should prefer `MarkPrice` over `IndexPrice` in cards and edit placeholders when showing the current market price to the user.
 - Position page header `% P/L` must use finite max gain as denominator for capped-profit strategies; if payoff is not reliably capped, fall back to included non-futures entry value.
+- Dashboard position card `% P/L` must match the position page denominator logic exactly.
+- Shared position/dashboard `% P/L` logic should live in a reusable calculator that may depend on `OptionsService` and exchange read services; do not duplicate payoff-based denominator logic across view models.
+- `HomeDashboardViewModel` must not calculate position or leg P/L locally; it should consume calculator outputs for total/percent/leg snapshot values.
+- Dashboard position-card presentation logic must live in `PositionCardViewModel.ApplyPosition(...)`; `HomeDashboardViewModel` should stay limited to loading, caching, exchange snapshot application, and grouping.
+- Dashboard option-chain ensure/loading for a card must happen inside `PositionCardViewModel`, not as a batch preload in `HomeDashboardViewModel`.
+- Exchange snapshot leg sync (`Order`/`Active`/`Missing`, executed-order conversion, reference-id matching) must be shared between `PositionViewModel` flow and `PositionCardViewModel` flow through one reusable service; do not keep a dashboard-specific copy.
+- `HomeDashboardViewModel` should fetch raw exchange positions/orders once and pass that snapshot down; `PositionCardViewModel` should apply the snapshot to its local card state instead of dashboard mutating models first.
+- `HomeDashboardViewModel` should not store exchange snapshot copies for cards. `PositionCardViewModel` should read positions/orders from the exchange-service snapshot/cache directly.
 - Position page `Day Min/Max` markers must render separate `3W` and `4W` pairs. Each pair uses the next expiry at or after 3 weeks / 4 weeks, ATM call and put prices for that expiry, and a symmetric `2 * theta` offset where theta is derived from the ATM call/put tickers.
 - Position valuation timeline and expiry-state logic must use the full UTC expiration timestamp. Do not widen same-day expirations to end-of-day or compare expiries by date-only.
 - For Bybit dated symbols that encode only the calendar date (for example `BTC-27MAR26-70000-C-USDT`), interpret expiry as `08:00 UTC` on that date unless an exchange payload provides a more precise delivery timestamp.

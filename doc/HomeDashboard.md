@@ -31,7 +31,7 @@ Route: `/`
 - Each card shows:
   - position name in `base/quote - name` format
   - total P/L
-  - P/L percent from entry value
+  - P/L percent using the same denominator as the position page
   - mini line chart (payoff snapshot)
   - mini chart includes both expiry P/L and temp/theoretical P/L lines
   - expiry break-even values shown under the mini chart
@@ -51,6 +51,8 @@ Route: `/`
 ## Calculation Notes
 
 - Entry value: sum of `abs(size * price)` for included legs with price.
+- For capped-profit structures, card P/L percent uses finite max gain from the expiry payoff.
+- If payoff is not reliably capped, card P/L percent falls back to entry value.
 - Futures legs use `0` entry value for PnL% scaling.
 - Current temp P/L: theoretical payoff at midpoint price of saved chart x-range (or chart midpoint fallback).
 - Total temp P/L: current temp P/L + closed net P/L.

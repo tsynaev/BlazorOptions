@@ -12,6 +12,7 @@ public sealed class LegsCollectionViewModel : IDisposable
     private readonly ILegsCollectionDialogService _dialogService;
     private readonly LegViewModelFactory _legViewModelFactory;
     private readonly INotifyUserService _notifyUserService;
+    private readonly ExchangeSnapshotLegSyncService _exchangeSnapshotLegSyncService;
     private string _baseAsset = string.Empty;
     private decimal? _currentPrice;
     private bool _isLive;
@@ -37,12 +38,14 @@ public sealed class LegsCollectionViewModel : IDisposable
         ILegsCollectionDialogService dialogService,
         LegViewModelFactory legViewModelFactory,
         INotifyUserService notifyUserService,
+        ExchangeSnapshotLegSyncService exchangeSnapshotLegSyncService,
         IExchangeService exchangeService,
         ILegsParserService legsParserService)
     {
         _dialogService = dialogService;
         _legViewModelFactory = legViewModelFactory;
         _notifyUserService = notifyUserService;
+        _exchangeSnapshotLegSyncService = exchangeSnapshotLegSyncService;
         _exchangeService = exchangeService;
 
         QuickAdd = new QuickAddViewModel(_notifyUserService, legsParserService);
@@ -814,65 +817,7 @@ public sealed class LegsCollectionViewModel : IDisposable
 
     internal LegModel? CreateLegFromExchangeOrder(ExchangeOrder order, string baseAsset)
     {
-        if (string.IsNullOrWhiteSpace(order.Symbol))
-        {
-            return null;
-        }
-
-        DateTime? expiration = null;
-        decimal? strike = null;
-        var type = LegType.Future;
-
-        if (string.Equals(order.Category, "option", StringComparison.OrdinalIgnoreCase))
-        {
-            if (!_exchangeService.TryParseSymbol(order.Symbol, out var parsedBase, out var parsedExpiration, out var parsedStrike, out var parsedType))
-            {
-                return null;
-            }
-
-            if (!string.Equals(parsedBase, baseAsset, StringComparison.OrdinalIgnoreCase))
-            {
-                return null;
-            }
-
-            expiration = parsedExpiration;
-            strike = parsedStrike;
-            type = parsedType;
-        }
-        else
-        {
-            if (!order.Symbol.StartsWith(baseAsset, StringComparison.OrdinalIgnoreCase))
-            {
-                return null;
-            }
-
-            if (TryParseFutureExpiration(order.Symbol, out var parsedFutureExpiration))
-            {
-                expiration = parsedFutureExpiration;
-            }
-        }
-
-        var size = DetermineSignedSize(order);
-        if (Math.Abs(size) < 0.0001m)
-        {
-            return null;
-        }
-
-        return new LegModel
-        {
-            Id = BuildOrderCandidateId(order),
-            ReferenceId = BuildOrderReferenceId(order),
-            IsReadOnly = true,
-            IsIncluded = false,
-            Status = LegStatus.Order,
-            Type = type,
-            Strike = strike,
-            ExpirationDate = expiration,
-            Size = size,
-            Price = order.Price,
-            ImpliedVolatility = null,
-            Symbol = order.Symbol
-        };
+        return _exchangeSnapshotLegSyncService.CreateLegFromExchangeOrder(order, baseAsset, include: false);
     }
 
     private bool SyncOrderLegsWithSnapshot(
@@ -881,178 +826,25 @@ public sealed class LegsCollectionViewModel : IDisposable
         string baseAsset)
     {
         var changed = false;
-        var openOrderLegs = new Dictionary<string, LegModel>(StringComparer.OrdinalIgnoreCase);
-        foreach (var order in orders)
-        {
-            var orderLeg = CreateLegFromExchangeOrder(order, baseAsset);
-            if (orderLeg is null)
-            {
-                continue;
-            }
+        var openOrderLegs = orders
+            .Select(order => CreateLegFromExchangeOrder(order, baseAsset))
+            .Where(leg => leg is not null)
+            .Cast<LegModel>()
+            .ToArray();
 
-            if (!string.IsNullOrWhiteSpace(orderLeg.ReferenceId))
-            {
-                openOrderLegs[orderLeg.ReferenceId!] = orderLeg;
-            }
-        }
+        var openPositionLegs = positions
+            .Select(position => CreateLegFromBybitPosition(position, baseAsset, position.Category))
+            .Where(leg => leg is not null)
+            .Cast<LegModel>()
+            .ToArray();
 
-        var openPositionLegs = new List<LegModel>();
-        foreach (var position in positions)
-        {
-            var positionLeg = CreateLegFromBybitPosition(position, baseAsset, position.Category);
-            if (positionLeg is not null)
-            {
-                openPositionLegs.Add(positionLeg);
-            }
-        }
-
-        var existingOrderLegs = Collection.Legs
-            .Where(leg => leg.Status == LegStatus.Order)
-            .ToList();
-
-        foreach (var existing in existingOrderLegs)
-        {
-            var referenceId = existing.ReferenceId
-                ?? ExtractReferenceIdFromCandidateId(existing.Id)
-                ?? BuildFallbackOrderReference(existing.Symbol, existing.Size, existing.Price);
-            existing.ReferenceId = referenceId;
-
-            if (!openOrderLegs.TryGetValue(referenceId, out var snapshotLeg))
-            {
-                if (TryConvertExecutedOrderToActive(existing, openPositionLegs))
-                {
-                    changed = true;
-                }
-                else
-                {
-                    Collection.Legs.Remove(existing);
-                    RemoveLegViewModel(existing);
-                    changed = true;
-                }
-
-                continue;
-            }
-
-            changed |= ApplyOrderLegSnapshot(existing, snapshotLeg);
-            openOrderLegs.Remove(referenceId);
-        }
+        changed |= _exchangeSnapshotLegSyncService.SyncOrderLegs(
+            Collection.Legs,
+            openOrderLegs,
+            openPositionLegs,
+            onRemoved: RemoveLegViewModel);
 
         return changed;
-    }
-
-    private static bool ApplyOrderLegSnapshot(LegModel target, LegModel snapshot)
-    {
-        var changed = false;
-        if (target.Type != snapshot.Type)
-        {
-            target.Type = snapshot.Type;
-            changed = true;
-        }
-
-        if (target.Strike != snapshot.Strike)
-        {
-            target.Strike = snapshot.Strike;
-            changed = true;
-        }
-
-        if (target.ExpirationDate != snapshot.ExpirationDate)
-        {
-            target.ExpirationDate = snapshot.ExpirationDate;
-            changed = true;
-        }
-
-        if (target.Size != snapshot.Size)
-        {
-            target.Size = snapshot.Size;
-            changed = true;
-        }
-
-        if (target.Price != snapshot.Price)
-        {
-            target.Price = snapshot.Price;
-            changed = true;
-        }
-
-        if (!string.Equals(target.Symbol, snapshot.Symbol, StringComparison.OrdinalIgnoreCase))
-        {
-            target.Symbol = snapshot.Symbol;
-            changed = true;
-        }
-
-        if (!target.IsReadOnly)
-        {
-            target.IsReadOnly = true;
-            changed = true;
-        }
-
-        if (target.IsIncluded)
-        {
-            target.IsIncluded = false;
-            changed = true;
-        }
-
-        if (target.Status != LegStatus.Order)
-        {
-            target.Status = LegStatus.Order;
-            changed = true;
-        }
-
-        if (!string.Equals(target.ReferenceId, snapshot.ReferenceId, StringComparison.OrdinalIgnoreCase))
-        {
-            target.ReferenceId = snapshot.ReferenceId;
-            changed = true;
-        }
-
-        return changed;
-    }
-
-    private bool TryConvertExecutedOrderToActive(LegModel orderLeg, IReadOnlyList<LegModel> openPositionLegs)
-    {
-        var matchedPositionLeg = openPositionLegs.FirstOrDefault(positionLeg =>
-            string.Equals(positionLeg.Symbol, orderLeg.Symbol, StringComparison.OrdinalIgnoreCase)
-            && Math.Sign(positionLeg.Size) == Math.Sign(orderLeg.Size)
-            && positionLeg.Type == orderLeg.Type
-            && positionLeg.ExpirationDate?.Date == orderLeg.ExpirationDate?.Date
-            && positionLeg.Strike == orderLeg.Strike);
-
-        if (matchedPositionLeg is null)
-        {
-            return false;
-        }
-
-        if (Collection.Legs.Any(existing =>
-                !ReferenceEquals(existing, orderLeg)
-                && existing.IsReadOnly
-                && existing.Status != LegStatus.Order
-                && string.Equals(existing.Symbol, matchedPositionLeg.Symbol, StringComparison.OrdinalIgnoreCase)
-                && Math.Sign(existing.Size) == Math.Sign(matchedPositionLeg.Size)))
-        {
-            Collection.Legs.Remove(orderLeg);
-            RemoveLegViewModel(orderLeg);
-            return true;
-        }
-
-        ApplyActiveLegSnapshot(orderLeg, matchedPositionLeg);
-        return true;
-    }
-
-    private static void ApplyActiveLegSnapshot(LegModel target, LegModel snapshot)
-    {
-        target.Status = LegStatus.Active;
-        target.IsReadOnly = true;
-        target.IsIncluded = true;
-        target.Type = snapshot.Type;
-        target.Strike = snapshot.Strike;
-        target.ExpirationDate = snapshot.ExpirationDate;
-        target.Size = snapshot.Size;
-        target.Price = snapshot.Price;
-        target.Symbol = snapshot.Symbol;
-        target.ReferenceId = snapshot.ReferenceId;
-
-        if (target.Id.StartsWith("order:", StringComparison.OrdinalIgnoreCase))
-        {
-            target.Id = Guid.NewGuid().ToString("N");
-        }
     }
 
     private List<AvailableLegCandidate> BuildAvailableCandidates(
@@ -1674,54 +1466,36 @@ public sealed class LegsCollectionViewModel : IDisposable
     public async Task UpdateExchangeMissingFlagsAsync(IReadOnlyList<ExchangePosition> positions)
     {
         var hasChanges = false;
-        var lookup = positions
-            .Where(position => !string.IsNullOrWhiteSpace(position.Symbol))
-            .GroupBy(position => position.Symbol.Trim(), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
+        var baseAsset = Position?.Position.BaseAsset?.Trim();
+        if (string.IsNullOrWhiteSpace(baseAsset))
+        {
+            return;
+        }
+
+        var activeLegs = positions
+            .Select(position => CreateLegFromBybitPosition(position, baseAsset, position.Category))
+            .Where(leg => leg is not null)
+            .Cast<LegModel>()
+            .ToArray();
+
+        var before = Collection.Legs
+            .Select(leg => $"{leg.Status}|{leg.IsIncluded}|{leg.Symbol}|{leg.Size}|{leg.Price}")
+            .ToArray();
+        _exchangeSnapshotLegSyncService.SyncReadOnlyLegs(Collection.Legs, activeLegs);
+        var after = Collection.Legs
+            .Select(leg => $"{leg.Status}|{leg.IsIncluded}|{leg.Symbol}|{leg.Size}|{leg.Price}")
+            .ToArray();
+        hasChanges = !before.SequenceEqual(after, StringComparer.Ordinal);
 
         foreach (var legViewModel in _legs)
         {
             var leg = legViewModel.Leg;
-            if (leg.Status == LegStatus.Order)
+            if (leg.Status == LegStatus.Order || !leg.IsReadOnly)
             {
                 continue;
             }
 
-            if (!leg.IsReadOnly)
-            {
-                if (leg.Status != LegStatus.New)
-                {
-                    leg.Status = LegStatus.New;
-                }
-                hasChanges |= legViewModel.SetLegStatus(LegStatus.New, null);
-                continue;
-            }
-
-            var symbol = leg.Symbol?.Trim();
-            if (string.IsNullOrWhiteSpace(symbol))
-            {
-                hasChanges |= legViewModel.SetLegStatus(LegStatus.Missing, "Read-only leg has no exchange symbol.");
-                continue;
-            }
-
-            if (!lookup.TryGetValue(symbol, out var matches) || matches.Count == 0)
-            {
-                hasChanges |= legViewModel.SetLegStatus(LegStatus.Missing, "Exchange position not found for this leg.");
-                continue;
-            }
-
-            var legSign = Math.Sign(leg.Size);
-            var hasSideMatch = legSign == 0
-                ? matches.Any()
-                : matches.Any(position => Math.Sign(DetermineSignedSize(position)) == legSign);
-
-            if (!hasSideMatch)
-            {
-                hasChanges |= legViewModel.SetLegStatus(LegStatus.Missing, "Exchange position found with different side.");
-                continue;
-            }
-
-            hasChanges |= legViewModel.SetLegStatus(LegStatus.Active, null);
+            hasChanges |= legViewModel.SetLegStatus(leg.Status, leg.Status == LegStatus.Missing ? "Exchange position not found for this leg." : null);
         }
 
         if (hasChanges)

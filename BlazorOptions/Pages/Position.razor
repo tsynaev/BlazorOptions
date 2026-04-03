@@ -2,6 +2,7 @@
 
 @implements IAsyncDisposable
 @inject PositionViewModel ViewModel
+@inject PositionPnlCalculator PositionPnlCalculator
 @inject IDialogService DialogService
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
@@ -642,6 +643,7 @@ else
     {
         _chartSettingsPanelViewModel = new PositionChartSettingsPanelViewModel(
             ViewModel,
+            PositionPnlCalculator,
             OnTemporaryPriceChanged,
             OnValuationTimelineChanged,
             ToggleLive,
