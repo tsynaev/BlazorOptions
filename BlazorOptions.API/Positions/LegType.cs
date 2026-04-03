@@ -4,5 +4,6 @@ public enum LegType
 {
     Call,
     Put,
-    Future
+    Future,
+    Spot
 }

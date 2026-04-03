@@ -88,6 +88,11 @@ public sealed class ExchangeService : IExchangeService
             ? string.Empty
             : normalizedSettle;
 
+        if (leg.Type == LegType.Spot)
+        {
+            return normalizedBase;
+        }
+
         if (leg.Type == LegType.Future)
         {
             if (string.IsNullOrWhiteSpace(normalizedBase))

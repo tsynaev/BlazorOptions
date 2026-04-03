@@ -46,13 +46,13 @@
                 <tr>
                     <td>Entry</td>
                     <td>@FormatPrice(GetDisplayPrice())</td>
-                    <td>@(ViewModel.Leg.Type == LegType.Future ? "-" : FormatIv(ViewModel.Leg.ImpliedVolatility))</td>
+                    <td>@(IsUnderlyingLegType(ViewModel.Leg.Type) ? "-" : FormatIv(ViewModel.Leg.ImpliedVolatility))</td>
                     <td>@FormatPrice(CalculateValue(GetDisplayPrice(), ViewModel.Leg.Size))</td>
                 </tr>
                 <tr>
                     <td>Mark</td>
                     <td>@FormatPrice(ViewModel.MarkPrice)</td>
-                    <td>@(ViewModel.Leg.Type == LegType.Future ? "-" : FormatIv(ViewModel.ChainIv))</td>
+                    <td>@(IsUnderlyingLegType(ViewModel.Leg.Type) ? "-" : FormatIv(ViewModel.ChainIv))</td>
                     <td>@FormatPrice(CalculateValue(ViewModel.MarkPrice, ViewModel.Leg.Size))</td>
                 </tr>
             </tbody>
@@ -74,7 +74,7 @@
                 </MudText>
             }
         </MudStack>
-        @if (ViewModel.Leg.Type != LegType.Future)
+        @if (!IsUnderlyingLegType(ViewModel.Leg.Type))
         {
             <div class="leg-mini-divider"><span>Greeks</span></div>
 
@@ -160,7 +160,7 @@
             return null;
         }
 
-        if (ViewModel.Leg.Type == LegType.Future && !ViewModel.Leg.Price.HasValue)
+        if (IsUnderlyingLegType(ViewModel.Leg.Type) && !ViewModel.Leg.Price.HasValue)
         {
             return ViewModel.MarkPrice ?? ViewModel.IndexPrice ?? ViewModel.PlaceholderPrice;
         }
@@ -197,7 +197,7 @@
     {
         var typeLabel = ViewModel.Leg.Type.ToString().ToUpperInvariant();
         var size = Math.Abs(ViewModel.Leg.Size);
-        if (ViewModel.Leg.Type == LegType.Future)
+        if (IsUnderlyingLegType(ViewModel.Leg.Type))
         {
             return $"{size:0.##} {typeLabel}";
         }
@@ -222,7 +222,7 @@
     {
         return ViewModel.Leg.ExpirationDate.HasValue
             ? ViewModel.Leg.ExpirationDate.Value.ToString("dd.MM.yy")
-            : ViewModel.Leg.Type == LegType.Future ? "Perpetual" : "No expiration";
+            : IsUnderlyingLegType(ViewModel.Leg.Type) ? "Perpetual" : "No expiration";
     }
 
     private string GetSymbolLabel()
@@ -234,6 +234,11 @@
     private static string FormatIv(decimal? value)
     {
         return value.HasValue ? $"{value.Value:0.##}%" : "-";
+    }
+
+    private static bool IsUnderlyingLegType(LegType type)
+    {
+        return type is LegType.Future or LegType.Spot;
     }
 
     
@@ -285,10 +290,11 @@
         {
             LegType.Call => "C",
             LegType.Put => "P",
+            LegType.Spot => "S",
             _ => "F"
         };
 
-        if (ViewModel.Leg.Type == LegType.Future)
+        if (IsUnderlyingLegType(ViewModel.Leg.Type))
         {
             return $"{kind}{sideSign}{order.Quantity:0.####} {type}";
         }

@@ -18,34 +18,37 @@
             </MudSelect>
 
             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                <MudSelect T="DateTime?"
-                           Label="Expiration"
-                           Value="@ViewModel.Leg.ExpirationDate"
-                           ValueChanged="ViewModel.UpdateLegExpirationAsync"
-                           Dense="true"
-                           Disabled="@ViewModel.Leg.IsReadOnly">
-                    @if (ViewModel.Leg.Type == LegType.Future)
-                    {
-                        <MudSelectItem T="DateTime?" Value="@((DateTime?)null)">Perpetual</MudSelectItem>
-                    }
-
-                    @if (ViewModel.AvailableExpirations.Count == 0)
-                    {
-                        @if (ViewModel.Leg.Type != LegType.Future)
+                @if (ViewModel.Leg.Type != LegType.Spot)
+                {
+                    <MudSelect T="DateTime?"
+                               Label="Expiration"
+                               Value="@ViewModel.Leg.ExpirationDate"
+                               ValueChanged="ViewModel.UpdateLegExpirationAsync"
+                               Dense="true"
+                               Disabled="@ViewModel.Leg.IsReadOnly">
+                        @if (IsUnderlyingLegType(ViewModel.Leg.Type))
                         {
-                            <MudSelectItem T="DateTime?" Disabled="true">No expirations available</MudSelectItem>
+                            <MudSelectItem T="DateTime?" Value="@((DateTime?)null)">Perpetual</MudSelectItem>
                         }
-                    }
-                    else
-                    {
-                        @foreach (var expiration in ViewModel.AvailableExpirations.Where(item => item.HasValue))
-                        {
-                            <MudSelectItem T="DateTime?" Value="@expiration" @key="expiration">@FormatExpiration(expiration)</MudSelectItem>
-                        }
-                    }
-                </MudSelect>
 
-                @if (ViewModel.Leg.Type != LegType.Future)
+                        @if (ViewModel.AvailableExpirations.Count == 0)
+                        {
+                            @if (!IsUnderlyingLegType(ViewModel.Leg.Type))
+                            {
+                                <MudSelectItem T="DateTime?" Disabled="true">No expirations available</MudSelectItem>
+                            }
+                        }
+                        else
+                        {
+                            @foreach (var expiration in ViewModel.AvailableExpirations.Where(item => item.HasValue))
+                            {
+                                <MudSelectItem T="DateTime?" Value="@expiration" @key="expiration">@FormatExpiration(expiration)</MudSelectItem>
+                            }
+                        }
+                    </MudSelect>
+                }
+
+                @if (!IsUnderlyingLegType(ViewModel.Leg.Type))
                 {
                     <MudSelect T="decimal?"
                                Label="Strike"
@@ -86,7 +89,7 @@
                 </MudItem>
             </MudGrid>
 
-            @if (ViewModel.Leg.Type != LegType.Future)
+            @if (!IsUnderlyingLegType(ViewModel.Leg.Type))
             {
                 <MudNumericField T="decimal?"
                                  Label="IV"
@@ -181,7 +184,7 @@
             return null;
         }
 
-        if (ViewModel.Leg.Type == LegType.Future)
+        if (IsUnderlyingLegType(ViewModel.Leg.Type))
         {
             // Futures placeholder should reflect current underlying mark when entry is empty.
             return ViewModel.MarkPrice ?? ViewModel.IndexPrice ?? ViewModel.PlaceholderPrice;
@@ -210,6 +213,11 @@
         return string.IsNullOrWhiteSpace(ViewModel.Leg.Symbol)
             ? "-"
             : ViewModel.Leg.Symbol.ToUpperInvariant();
+    }
+
+    private static bool IsUnderlyingLegType(LegType type)
+    {
+        return type is LegType.Future or LegType.Spot;
     }
 }
 

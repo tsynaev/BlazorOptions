@@ -315,7 +315,8 @@ public sealed class LegsCollectionViewModel : IDisposable
         try
         {
             var snapshot = await Position.GetExchangeSnapshotAsync();
-            await ApplyExchangeSnapshotsAsync(snapshot.Positions, snapshot.Orders);
+            var walletSnapshot = await _exchangeService.Wallet.GetSnapshotAsync();
+            await ApplyExchangeSnapshotsAsync(snapshot.Positions, snapshot.Orders, walletSnapshot);
         }
         catch (Exception ex)
         {
@@ -331,7 +332,8 @@ public sealed class LegsCollectionViewModel : IDisposable
 
     public async Task ApplyExchangeSnapshotsAsync(
         IReadOnlyList<ExchangePosition> positions,
-        IReadOnlyList<ExchangeOrder> orders)
+        IReadOnlyList<ExchangeOrder> orders,
+        ExchangeWalletSnapshot? walletSnapshot = null)
     {
         if (Position is null)
         {
@@ -354,7 +356,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         _latestOrdersSnapshot = ordersSnapshot;
 
         var orderLegsChanged = SyncOrderLegsWithSnapshot(ordersSnapshot, positions, baseAsset);
-        var candidates = BuildAvailableCandidates(positions, ordersSnapshot, baseAsset);
+        var candidates = BuildAvailableCandidates(positions, ordersSnapshot, walletSnapshot, baseAsset);
         var candidatesChanged = !AreSameCandidates(_availableLegCandidates, candidates);
         if (candidatesChanged)
         {
@@ -394,20 +396,27 @@ public sealed class LegsCollectionViewModel : IDisposable
 
         LegModel leg = new LegModel
         {
+            // Spot holdings become editable spot legs because wallet balances are not exchange position objects.
             IsReadOnly = candidate.Kind == AvailableLegSourceKind.Position || candidate.Kind == AvailableLegSourceKind.Order,
             IsIncluded = candidate.Kind != AvailableLegSourceKind.Order,
             Id = candidate.Kind == AvailableLegSourceKind.Order ? candidate.Id : Guid.NewGuid().ToString("N"),
             ReferenceId = candidate.Kind == AvailableLegSourceKind.Order
                 ? ExtractReferenceIdFromCandidateId(candidate.Id)
-                : BuildPositionReferenceId(candidate.Symbol, candidate.Size),
+                : candidate.Kind == AvailableLegSourceKind.Position
+                    ? BuildPositionReferenceId(candidate.Symbol, candidate.Size)
+                    : null,
             Type = candidate.Type,
-            Status = candidate.Kind == AvailableLegSourceKind.Order ? LegStatus.Order : LegStatus.Active,
+            Status = candidate.Kind == AvailableLegSourceKind.Order
+                ? LegStatus.Order
+                : candidate.Kind == AvailableLegSourceKind.SpotPosition
+                    ? LegStatus.Active
+                    : LegStatus.Active,
             Strike = candidate.Strike,
             ExpirationDate = candidate.ExpirationDate,
             Size = candidate.Size,
             Price = candidate.Price,
             ImpliedVolatility = null,
-            Symbol = candidate.Symbol
+            Symbol = candidate.Kind == AvailableLegSourceKind.SpotPosition ? null : candidate.Symbol
         };
 
         EnsureLegSymbol(leg);
@@ -433,6 +442,11 @@ public sealed class LegsCollectionViewModel : IDisposable
 
     public string FormatAvailableCandidate(AvailableLegCandidate candidate)
     {
+        if (candidate.Kind == AvailableLegSourceKind.SpotPosition)
+        {
+            return $"Spot {candidate.Symbol} {Math.Abs(candidate.Size):0.##}";
+        }
+
         var orderPrefix = candidate.Kind == AvailableLegSourceKind.Order && !string.IsNullOrWhiteSpace(candidate.OrderKind)
             ? $"{candidate.OrderKind} "
             : string.Empty;
@@ -457,7 +471,7 @@ public sealed class LegsCollectionViewModel : IDisposable
     {
         return _availableLegCandidates
             .Where(item => !expirationDate.HasValue || item.ExpirationDate?.Date == expirationDate.Value.Date)
-            .Where(item => _showAvailablePositionChips || item.Kind != AvailableLegSourceKind.Position)
+            .Where(item => _showAvailablePositionChips || (item.Kind != AvailableLegSourceKind.Position && item.Kind != AvailableLegSourceKind.SpotPosition))
             .ToList();
     }
 
@@ -865,6 +879,7 @@ public sealed class LegsCollectionViewModel : IDisposable
     private List<AvailableLegCandidate> BuildAvailableCandidates(
         IReadOnlyList<ExchangePosition> positions,
         IReadOnlyList<ExchangeOrder> orders,
+        ExchangeWalletSnapshot? walletSnapshot,
         string baseAsset)
     {
         var candidates = new List<AvailableLegCandidate>();
@@ -941,10 +956,46 @@ public sealed class LegsCollectionViewModel : IDisposable
                 Strike: leg.Strike));
         }
 
+        foreach (var spotCandidate in BuildSpotCandidates(walletSnapshot, baseAsset))
+        {
+            candidates.Add(spotCandidate);
+        }
+
         return candidates
             .OrderBy(item => item.Kind)
             .ThenBy(item => item.Symbol, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private static IReadOnlyList<AvailableLegCandidate> BuildSpotCandidates(
+        ExchangeWalletSnapshot? walletSnapshot,
+        string baseAsset)
+    {
+        if (walletSnapshot?.Coins is null || string.IsNullOrWhiteSpace(baseAsset))
+        {
+            return Array.Empty<AvailableLegCandidate>();
+        }
+
+        var normalizedBaseAsset = baseAsset.Trim();
+        return walletSnapshot.Coins
+            .Where(coin => string.Equals(coin.Coin, normalizedBaseAsset, StringComparison.OrdinalIgnoreCase))
+            .Select(coin => new
+            {
+                Coin = coin.Coin.Trim().ToUpperInvariant(),
+                Size = coin.Equity ?? coin.WalletBalance ?? 0m
+            })
+            .Where(item => Math.Abs(item.Size) >= 0.0001m)
+            .Select(item => new AvailableLegCandidate(
+                Id: $"spot:{item.Coin}",
+                Kind: AvailableLegSourceKind.SpotPosition,
+                OrderKind: null,
+                Symbol: item.Coin,
+                Type: LegType.Spot,
+                Size: item.Size,
+                Price: null,
+                ExpirationDate: null,
+                Strike: null))
+            .ToArray();
     }
 
     private bool IsOrderLinkedToActiveLeg(string? symbol)
@@ -1529,7 +1580,7 @@ public sealed class LegsCollectionViewModel : IDisposable
                 continue;
             }
 
-            if (leg.Leg.Type == LegType.Future)
+            if (leg.Leg.Type is LegType.Future or LegType.Spot)
             {
                 total += leg.Leg.Size;
                 continue;
@@ -1550,7 +1601,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         decimal total = 0;
         foreach (var leg in _legs)
         {
-            if (!leg.Leg.IsIncluded || leg.Leg.Type == LegType.Future)
+            if (!leg.Leg.IsIncluded || leg.Leg.Type is LegType.Future or LegType.Spot)
             {
                 continue;
             }
@@ -1606,7 +1657,7 @@ public sealed class LegsCollectionViewModel : IDisposable
 
             grossSize += Math.Abs(leg.Leg.Size);
 
-            if (leg.Leg.Type == LegType.Future)
+            if (leg.Leg.Type is LegType.Future or LegType.Spot)
             {
                 totalDelta += leg.Leg.Size;
                 continue;

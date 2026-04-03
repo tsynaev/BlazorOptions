@@ -104,6 +104,7 @@ namespace BlazorOptions
                 LegType.Call => (Math.Max(underlyingPrice - strike, 0) - entryPrice) * leg.Size,
                 LegType.Put => (Math.Max(strike - underlyingPrice, 0) - entryPrice) * leg.Size,
                 LegType.Future => (underlyingPrice - entryPrice) * leg.Size,
+                LegType.Spot => (underlyingPrice - entryPrice) * leg.Size,
                 _ => throw new ArgumentOutOfRangeException()
             };
         }
@@ -123,6 +124,7 @@ namespace BlazorOptions
                 LegType.Put when strike.HasValue && expiration.HasValue && impliedVolatility.HasValue =>
                     (_blackScholes.CalculatePriceDecimal(underlyingPrice, strike.Value, impliedVolatility.Value, expiration.Value, false, evaluationDate) - entryPrice) * leg.Size,
                 LegType.Future => (underlyingPrice - entryPrice) * leg.Size,
+                LegType.Spot => (underlyingPrice - entryPrice) * leg.Size,
                 _ => 0
             };
         }
@@ -157,7 +159,7 @@ namespace BlazorOptions
             if (step <= 0m)
                 return 1m;
 
-            // double âíóòðè
+            // double Ð²Ð½ÑƒÑ‚Ñ€Ð¸
             double s = (double)step;
             double exponent = Math.Floor(Math.Log10(s));
             double pow10 = Math.Pow(10.0, exponent);
@@ -170,7 +172,7 @@ namespace BlazorOptions
                 fraction <= 5.0 ? 5m :
                 10m;
 
-            // âåðíóòü decimal
+            // Ð²ÐµÑ€Ð½ÑƒÑ‚ÑŒ decimal
             decimal scale = (decimal)pow10;
             return niceFraction * scale;
         }

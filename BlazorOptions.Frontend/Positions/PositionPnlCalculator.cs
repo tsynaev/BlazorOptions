@@ -27,7 +27,7 @@ public sealed class PositionPnlCalculator
 
     public decimal ResolveEntryValue(LegModel leg)
     {
-        if (leg.Type == LegType.Future || !leg.Price.HasValue)
+        if (IsUnderlyingLegType(leg.Type) || !leg.Price.HasValue)
         {
             return 0m;
         }
@@ -140,7 +140,7 @@ public sealed class PositionPnlCalculator
             : _optionsService.CalculateLegProfit(leg, indexPrice);
 
         decimal? pnlPercent = null;
-        if (leg.Type == LegType.Future)
+        if (IsUnderlyingLegType(leg.Type))
         {
             pnlPercent = ResolveFuturesPnlPercent(leg, indexPrice);
         }
@@ -159,7 +159,7 @@ public sealed class PositionPnlCalculator
         foreach (var leg in legs)
         {
             var clone = leg.Clone();
-            if (clone.Type != LegType.Future)
+            if (!IsUnderlyingLegType(clone.Type))
             {
                 var ticker = _exchangeService.OptionsChain.FindTickerForLeg(clone, baseAsset);
                 if (ticker is not null)
@@ -229,7 +229,7 @@ public sealed class PositionPnlCalculator
 
     private decimal? ResolveLegMarkPrice(LegModel leg, decimal currentPrice, string? baseAsset)
     {
-        if (leg.Type == LegType.Future)
+        if (IsUnderlyingLegType(leg.Type))
         {
             return currentPrice;
         }
@@ -270,5 +270,10 @@ public sealed class PositionPnlCalculator
         }
 
         return null;
+    }
+
+    private static bool IsUnderlyingLegType(LegType type)
+    {
+        return type is LegType.Future or LegType.Spot;
     }
 }

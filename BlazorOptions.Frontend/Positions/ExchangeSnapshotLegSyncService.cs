@@ -194,7 +194,11 @@ public sealed class ExchangeSnapshotLegSyncService
 
             if (!leg.IsReadOnly)
             {
-                leg.Status = LegStatus.New;
+                if (leg.Status != LegStatus.Active)
+                {
+                    leg.Status = LegStatus.New;
+                }
+
                 continue;
             }
 

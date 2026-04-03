@@ -3,6 +3,7 @@ namespace BlazorOptions.ViewModels;
 public enum AvailableLegSourceKind
 {
     Position,
+    SpotPosition,
     Order
 }
 

@@ -223,7 +223,7 @@ public sealed class LegViewModel : IDisposable
         RunLegUpdate(() =>
         {
             Leg.Type = type;
-            if (type == LegType.Future)
+            if (IsUnderlyingLegType(type))
             {
                 Leg.Strike = null;
                 Leg.ImpliedVolatility = null;
@@ -505,7 +505,7 @@ public sealed class LegViewModel : IDisposable
                 return;
             }
 
-            if (Leg.Type == LegType.Future)
+            if (IsUnderlyingLeg())
             {
                 _subscriptionRegistration = await _exchangeService.Tickers.SubscribeAsync(Leg.Symbol, HandleLinearTicker);
             }
@@ -677,7 +677,7 @@ public sealed class LegViewModel : IDisposable
     {
         using var activity = ActivitySources.Telemetry.StartActivity("LegViewModel.RefreshExpDatesAndStrikes");
 
-        if (Leg.Type == LegType.Future)
+        if (IsUnderlyingLeg())
         {
             var baseAsset = _collectionViewModel.BaseAsset;
             var quoteAsset = _collectionViewModel.Position?.Position.QuoteAsset;
@@ -714,7 +714,7 @@ public sealed class LegViewModel : IDisposable
 
     private bool IsAllowedExpiration(DateTime? date)
     {
-        if (Leg.Type == LegType.Future)
+        if (IsUnderlyingLeg())
         {
             if (!date.HasValue)
             {
@@ -801,7 +801,7 @@ public sealed class LegViewModel : IDisposable
 
     private void UpdateNonLiveGreeks()
     {
-        if (Leg.Type == LegType.Future)
+        if (IsUnderlyingLeg())
         {
             ResetGreeks();
             return;
@@ -849,7 +849,7 @@ public sealed class LegViewModel : IDisposable
             return;
         }
 
-        if (Leg.Type == LegType.Future)
+        if (IsUnderlyingLeg())
         {
             MarkPrice = ResolveNonLiveMarkPrice();
             Bid = null;
@@ -1475,7 +1475,7 @@ public sealed class LegViewModel : IDisposable
             return ResolveMarkPriceFromMissingRealized();
         }
 
-        if (Leg.Type == LegType.Future)
+        if (IsUnderlyingLeg())
         {
             return liveMarkPrice ?? MarkPrice ?? _indexPrice;
         }
@@ -1517,7 +1517,7 @@ public sealed class LegViewModel : IDisposable
 
     private bool IsOptionExpiredAtValuation()
     {
-        if (Leg.Type == LegType.Future || !Leg.ExpirationDate.HasValue)
+        if (IsUnderlyingLeg() || !Leg.ExpirationDate.HasValue)
         {
             return false;
         }
@@ -1554,7 +1554,7 @@ public sealed class LegViewModel : IDisposable
             return ResolveMarkPriceFromMissingRealized();
         }
 
-        if (Leg.Type == LegType.Future)
+        if (IsUnderlyingLeg())
         {
             if (!_indexPrice.HasValue)
             {
@@ -1599,12 +1599,22 @@ public sealed class LegViewModel : IDisposable
             return null;
         }
 
-        if (Leg.Type == LegType.Future)
+        if (IsUnderlyingLeg())
         {
             return valuationIndexPrice;
         }
 
         return valuationIndexPrice.Value + (Spread ?? 0m);
+    }
+
+    private bool IsUnderlyingLeg()
+    {
+        return IsUnderlyingLegType(Leg.Type);
+    }
+
+    private static bool IsUnderlyingLegType(LegType type)
+    {
+        return type is LegType.Future or LegType.Spot;
     }
 
     private decimal? ResolveOrderExecutionMarkPrice()

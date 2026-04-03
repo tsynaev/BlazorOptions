@@ -30,6 +30,7 @@
 - Exchange ticker updates must carry separate mark and index prices; do not overload one field for both market mark and underlying context.
 - On the position page, `IndexPrice` is the simulation/chart input. In non-live mode, option and futures marks must preserve their observed spread versus index instead of using index price as mark directly.
 - Futures UI display should prefer `MarkPrice` over `IndexPrice` in cards and edit placeholders when showing the current market price to the user.
+- Spot legs must use `LegType.Spot`. When created from wallet/spot holdings on the position page, they should use `LegStatus.Active` but remain editable so they do not enter exchange read-only missing-leg sync.
 - Position page header `% P/L` must use finite max gain as denominator for capped-profit strategies; if payoff is not reliably capped, fall back to included non-futures entry value.
 - Dashboard position card `% P/L` must match the position page denominator logic exactly.
 - Shared position/dashboard `% P/L` logic should live in a reusable calculator that may depend on `OptionsService` and exchange read services; do not duplicate payoff-based denominator logic across view models.

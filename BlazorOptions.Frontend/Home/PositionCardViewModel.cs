@@ -116,7 +116,7 @@ public sealed class PositionCardViewModel
     {
         var baseAsset = model.BaseAsset?.Trim();
         if (string.IsNullOrWhiteSpace(baseAsset)
-            || !model.Legs.Any(leg => leg.Type != LegType.Future))
+            || !model.Legs.Any(leg => leg.Type is not (LegType.Future or LegType.Spot)))
         {
             return;
         }
@@ -166,7 +166,7 @@ public sealed class PositionCardViewModel
 
         foreach (var leg in legs)
         {
-            if (leg.Type == LegType.Future)
+            if (leg.Type is LegType.Future or LegType.Spot)
             {
                 totalDelta += leg.Size;
                 continue;
@@ -359,6 +359,7 @@ public sealed class PositionCardViewModel
         return leg.Type switch
         {
             LegType.Future => $"{sign}{size} F",
+            LegType.Spot => $"{sign}{size} S",
             LegType.Call => $"{sign}{size} C {(leg.Strike ?? 0):0.####}",
             LegType.Put => $"{sign}{size} P {(leg.Strike ?? 0):0.####}",
             _ => $"{sign}{size}"
@@ -378,7 +379,7 @@ public sealed class PositionCardViewModel
         }
 
         var loss = Math.Abs(pnlPercent.Value);
-        var maxLoss = type == LegType.Future
+        var maxLoss = type is LegType.Future or LegType.Spot
             ? Math.Max(1m, riskSettings.MaxLossFuturesPercent)
             : Math.Max(1m, riskSettings.MaxLossOptionPercent);
 

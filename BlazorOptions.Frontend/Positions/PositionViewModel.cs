@@ -1681,7 +1681,7 @@ public sealed class PositionViewModel : IDisposable
         marker = default!;
 
         decimal? price;
-        if (leg.Leg.Type == LegType.Future)
+        if (leg.Leg.Type is LegType.Future or LegType.Spot)
         {
             price = leg.Leg.Price;
         }
@@ -1702,15 +1702,16 @@ public sealed class PositionViewModel : IDisposable
         {
             LegType.Call => "C",
             LegType.Put => "P",
+            LegType.Spot => "S",
             _ => "F"
         };
-        var legStrikeText = leg.Leg.Type == LegType.Future
+        var legStrikeText = leg.Leg.Type is LegType.Future or LegType.Spot
             ? "-"
             : (leg.Leg.Strike.HasValue ? Math.Round(leg.Leg.Strike.Value).ToString("0", CultureInfo.InvariantCulture) : "ATM");
 
         marker = new PriceMarker(
             (double)price.Value,
-            $"{FormatMarkerXPrice(price.Value, leg.Leg.Type == LegType.Future)}: Order {signedSide}{size:0.##} {legTypeText} {legStrikeText} @{orderPriceText}",
+            $"{FormatMarkerXPrice(price.Value, leg.Leg.Type is LegType.Future or LegType.Spot)}: Order {signedSide}{size:0.##} {legTypeText} {legStrikeText} @{orderPriceText}",
             color);
         return true;
     }
@@ -1720,7 +1721,7 @@ public sealed class PositionViewModel : IDisposable
         marker = default!;
 
         decimal? price;
-        if (leg.Leg.Type == LegType.Future)
+        if (leg.Leg.Type is LegType.Future or LegType.Spot)
         {
             price = order.Price ?? leg.Leg.Price;
         }
@@ -1743,9 +1744,10 @@ public sealed class PositionViewModel : IDisposable
         {
             LegType.Call => "C",
             LegType.Put => "P",
+            LegType.Spot => "S",
             _ => "F"
         };
-        var legStrikeText = leg.Leg.Type == LegType.Future
+        var legStrikeText = leg.Leg.Type is LegType.Future or LegType.Spot
             ? "-"
             : (leg.Leg.Strike.HasValue ? Math.Round(leg.Leg.Strike.Value).ToString("0", CultureInfo.InvariantCulture) : "ATM");
         var markerColor = order.ExpectedPnl switch
@@ -1758,8 +1760,8 @@ public sealed class PositionViewModel : IDisposable
         marker = new PriceMarker(
             (double)price.Value,
             order.NewAverageEntryPrice.HasValue
-                ? $"{FormatMarkerXPrice(price.Value, leg.Leg.Type == LegType.Future)}: Order {orderKind} {signedSide}{order.Quantity:0.##} {legTypeText} {legStrikeText} @{orderPriceText} Avg:{avgText}"
-                : $"{FormatMarkerXPrice(price.Value, leg.Leg.Type == LegType.Future)}: Order {orderKind} {signedSide}{order.Quantity:0.##} {legTypeText} {legStrikeText} @{orderPriceText} PnL:{pnlText}",
+                ? $"{FormatMarkerXPrice(price.Value, leg.Leg.Type is LegType.Future or LegType.Spot)}: Order {orderKind} {signedSide}{order.Quantity:0.##} {legTypeText} {legStrikeText} @{orderPriceText} Avg:{avgText}"
+                : $"{FormatMarkerXPrice(price.Value, leg.Leg.Type is LegType.Future or LegType.Spot)}: Order {orderKind} {signedSide}{order.Quantity:0.##} {legTypeText} {legStrikeText} @{orderPriceText} PnL:{pnlText}",
             markerColor);
         return true;
     }
@@ -1931,9 +1933,9 @@ public sealed class PositionViewModel : IDisposable
 
     private decimal ResolveLegEntryPrice(LegViewModel leg)
     {
-        if (leg.Leg.Type == LegType.Future && !leg.Leg.Price.HasValue)
+        if (leg.Leg.Type is LegType.Future or LegType.Spot && !leg.Leg.Price.HasValue)
         {
-        return leg.IndexPrice ?? leg.MarkPrice ?? 0m;
+            return leg.IndexPrice ?? leg.MarkPrice ?? 0m;
         }
 
         return leg.Leg.Price ?? leg.PlaceholderPrice ?? leg.MarkPrice ?? 0m;
