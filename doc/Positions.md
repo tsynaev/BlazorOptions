@@ -65,7 +65,7 @@ The Positions page is where you manage one position at a time and review its pay
 - Header total P/L also shows portfolio P/L percent.
 - For capped-profit structures, the denominator is finite max gain from the expiry payoff.
 - If the payoff is not reliably capped, the denominator falls back to included non-futures leg entry value.
-- On page open, `New` and `Order` legs start excluded so strategy experiments do not affect the saved position by default.
+- On page open, included `New` and `Order` legs are auto-excluded only when the position also has `Active` legs. Positions made only of `New` and/or `Order` legs keep their saved inclusion state.
 - While the position page is open, `New` and `Order` legs can still be manually included or excluded for scenario testing.
 - `Live` and `Candles` are switched with chips.
 - `Day Min/Max` chip toggles IV-based day range markers.

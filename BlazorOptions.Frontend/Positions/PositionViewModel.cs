@@ -241,6 +241,12 @@ public sealed class PositionViewModel : IDisposable
             return;
         }
 
+        var hasActiveLegs = _position.Legs.Any(leg => leg.Status == LegStatus.Active);
+        if (!hasActiveLegs)
+        {
+            return;
+        }
+
         foreach (var leg in _position.Legs)
         {
             if ((leg.Status == LegStatus.New || leg.Status == LegStatus.Order) && leg.IsIncluded)
