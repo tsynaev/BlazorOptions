@@ -55,6 +55,7 @@ Route: `/position/{positionId}`
 - `LegViewModel.IndexPrice` is the chart/user index context shared across the current base/quote pair. In live mode, displayed mark uses live market mark. In non-live mode, each leg preserves its own observed `Spread` versus index and prices from `IndexPrice + Spread`:
 - options: `underlying = IndexPrice + Spread`, then Black-Scholes uses that underlying
 - futures: `mark = IndexPrice + Spread`
+- Temp payoff charts keep the real x-axis price, including negative values. When theoretical option pricing is evaluated at a non-positive underlying, the app falls back to intrinsic value instead of forcing Black-Scholes onto a clamped positive spot.
 - Futures UI display is mark-first: leg cards and edit-dialog price placeholders prefer `MarkPrice` over `IndexPrice`.
 
 ## Chart Behavior

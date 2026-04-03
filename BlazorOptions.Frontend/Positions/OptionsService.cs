@@ -120,9 +120,9 @@ namespace BlazorOptions
             return leg.Type switch
             {
                 LegType.Call when strike.HasValue && expiration.HasValue && impliedVolatility.HasValue =>
-                    (_blackScholes.CalculatePriceDecimal(underlyingPrice, strike.Value, impliedVolatility.Value, expiration.Value, true, evaluationDate) - entryPrice) * leg.Size,
+                    (ResolveOptionTheoreticalPrice(underlyingPrice, strike.Value, impliedVolatility.Value, expiration.Value, true, evaluationDate) - entryPrice) * leg.Size,
                 LegType.Put when strike.HasValue && expiration.HasValue && impliedVolatility.HasValue =>
-                    (_blackScholes.CalculatePriceDecimal(underlyingPrice, strike.Value, impliedVolatility.Value, expiration.Value, false, evaluationDate) - entryPrice) * leg.Size,
+                    (ResolveOptionTheoreticalPrice(underlyingPrice, strike.Value, impliedVolatility.Value, expiration.Value, false, evaluationDate) - entryPrice) * leg.Size,
                 LegType.Future => (underlyingPrice - entryPrice) * leg.Size,
                 LegType.Spot => (underlyingPrice - entryPrice) * leg.Size,
                 _ => 0
@@ -175,6 +175,30 @@ namespace BlazorOptions
             // вернуть decimal
             decimal scale = (decimal)pow10;
             return niceFraction * scale;
+        }
+
+        private decimal ResolveOptionTheoreticalPrice(
+            decimal underlyingPrice,
+            decimal strike,
+            decimal impliedVolatility,
+            DateTime expirationDate,
+            bool isCall,
+            DateTime evaluationDate)
+        {
+            if (underlyingPrice <= 0m)
+            {
+                // Below-zero underlyings are valid for some contracts; use intrinsic value instead of
+                // forcing Black-Scholes onto a non-positive spot and distorting chart temp lines.
+                return Math.Max(isCall ? underlyingPrice - strike : strike - underlyingPrice, 0m);
+            }
+
+            return _blackScholes.CalculatePriceDecimal(
+                underlyingPrice,
+                strike,
+                impliedVolatility,
+                expirationDate,
+                isCall,
+                evaluationDate);
         }
     }
 }
