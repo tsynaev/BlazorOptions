@@ -513,7 +513,7 @@ public sealed class PositionViewModel : IDisposable
 
     public async Task<bool> RemovePositionAsync(PositionModel position)
     {
-        await _positionsPort.DeletePositionAsync(position.Id);
+        await _positionsPort.CompletePositionAsync(position.Id);
         await StopTickerAsync();
         return true;
     }

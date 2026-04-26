@@ -95,6 +95,24 @@ public sealed class PositionsController : ControllerBase, IPositionsPort
         return Ok();
     }
 
+    [HttpPost("{positionId:guid}/complete")]
+    public async Task<IActionResult> CompletePositionAsync([FromRoute] Guid positionId)
+    {
+        var userId = ResolveUserId();
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unauthorized");
+        }
+
+        if (positionId == Guid.Empty)
+        {
+            return Problem(statusCode: StatusCodes.Status400BadRequest, title: "Position id is required.");
+        }
+
+        await _store.CompletePositionAsync(userId, positionId);
+        return Ok();
+    }
+
 
     async Task<PositionModel?> IPositionsPort.LoadPositionAsync(Guid positionId)
     {
@@ -118,6 +136,12 @@ public sealed class PositionsController : ControllerBase, IPositionsPort
     {
         var userId = ResolveUserIdOrThrow();
         await _store.SavePositionAsync(userId, position);
+    }
+
+    async Task IPositionsPort.CompletePositionAsync(Guid positionId)
+    {
+        var userId = ResolveUserIdOrThrow();
+        await _store.CompletePositionAsync(userId, positionId);
     }
 
     async Task IPositionsPort.DeletePositionAsync(Guid positionId)

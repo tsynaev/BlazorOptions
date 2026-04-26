@@ -150,7 +150,7 @@ public sealed class HomeDashboardViewModel : Bindable, IAsyncDisposable
             return false;
         }
 
-        await _positionsPort.DeletePositionAsync(positionId);
+        await _positionsPort.CompletePositionAsync(positionId);
         await LoadAsync();
         return true;
     }

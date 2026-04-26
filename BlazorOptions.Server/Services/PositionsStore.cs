@@ -44,7 +44,7 @@ public sealed class PositionsStore
                 try
                 {
                     var item = PositionPayloadSerializer.Deserialize(payload, _serializerOptions);
-                    if (item is not null)
+                    if (item is not null && item.CompletedTimeUtc is null)
                     {
                         items.Add(item);
                     }
@@ -184,6 +184,31 @@ public sealed class PositionsStore
         }
     }
 
+    public async Task CompletePositionAsync(string userId, Guid positionId)
+    {
+        await AcquireWriteAsync();
+        try
+        {
+            await using var connection = await OpenConnectionAsync(userId);
+            await using var transaction = connection.BeginTransaction();
+
+            var existing = await LoadPositionForUpdateAsync(connection, transaction, positionId);
+            if (existing is null)
+            {
+                await transaction.CommitAsync();
+                return;
+            }
+
+            existing.CompletedTimeUtc = DateTime.UtcNow;
+            await SavePositionAsync(connection, transaction, existing);
+            await transaction.CommitAsync();
+        }
+        finally
+        {
+            ReleaseWrite();
+        }
+    }
+
     public async Task DeletePositionAsync(string userId, Guid positionId)
     {
         await AcquireWriteAsync();
@@ -202,6 +227,55 @@ public sealed class PositionsStore
         {
             ReleaseWrite();
         }
+    }
+
+    private async Task<PositionModel?> LoadPositionForUpdateAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid positionId)
+    {
+        var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"""
+            SELECT Payload
+            FROM {PositionsTable}
+            WHERE PositionId = $positionId
+            """;
+        command.Parameters.AddWithValue("$positionId", positionId.ToString("N"));
+
+        await using var reader = await command.ExecuteReaderAsync();
+        if (!await reader.ReadAsync())
+        {
+            return null;
+        }
+
+        var payload = reader.GetString(0);
+        return PositionPayloadSerializer.Deserialize(payload, _serializerOptions);
+    }
+
+    private async Task SavePositionAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        PositionModel position)
+    {
+        var sortIndex = await ResolveSortIndexAsync(connection, transaction, position.Id);
+        var now = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+
+        var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"""
+            INSERT INTO {PositionsTable} (PositionId, Payload, UpdatedUtc, SortIndex)
+            VALUES ($positionId, $payload, $updatedUtc, $sortIndex)
+            ON CONFLICT(PositionId) DO UPDATE SET
+                Payload = $payload,
+                UpdatedUtc = $updatedUtc,
+                SortIndex = $sortIndex
+            """;
+        command.Parameters.AddWithValue("$positionId", position.Id.ToString("N"));
+        command.Parameters.AddWithValue("$payload", PositionPayloadSerializer.Serialize(position, _serializerOptions));
+        command.Parameters.AddWithValue("$updatedUtc", now);
+        command.Parameters.AddWithValue("$sortIndex", sortIndex);
+        await command.ExecuteNonQueryAsync();
     }
 
     private async Task<int> ResolveSortIndexAsync(

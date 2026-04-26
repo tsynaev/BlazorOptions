@@ -8,6 +8,7 @@ public class PositionModel : Bindable
 {
     private Guid _id = Guid.NewGuid();
     private DateTime? _creationTimeUtc;
+    private DateTime? _completedTimeUtc;
     private string _baseAsset = "ETH";
     private string _quoteAsset = "USDT";
     private string _exchangeConnectionId = "bybit-main";
@@ -34,6 +35,12 @@ public class PositionModel : Bindable
     {
         get => _creationTimeUtc;
         set => SetField(ref _creationTimeUtc, value);
+    }
+
+    public DateTime? CompletedTimeUtc
+    {
+        get => _completedTimeUtc;
+        set => SetField(ref _completedTimeUtc, value);
     }
 
     public string QuoteAsset
@@ -106,6 +113,7 @@ public class PositionModel : Bindable
             Name = Name,
             Notes = Notes,
             CreationTimeUtc = CreationTimeUtc,
+            CompletedTimeUtc = CompletedTimeUtc,
             Color = Color,
             Legs = new(Legs.Select(leg => leg.Clone())),
             ChartRange = ChartRange,

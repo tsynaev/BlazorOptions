@@ -42,6 +42,11 @@ public sealed class PositionsPort : IPositionsPort
         await SendAsync(HttpMethod.Put, $"api/positions/{position.Id}", position);
     }
 
+    public async Task CompletePositionAsync(Guid positionId)
+    {
+        await SendAsync(HttpMethod.Post, $"api/positions/{positionId}/complete");
+    }
+
     public async Task DeletePositionAsync(Guid positionId)
     {
         await SendAsync(HttpMethod.Delete, $"api/positions/{positionId}");
