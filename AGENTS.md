@@ -17,7 +17,8 @@
 - Use ECharts for chart rendering.
 - Register new services or view models with dependency injection in `Program.cs`.
 - Dialog title must be shown only once: use the MudDialog header title from `ShowAsync(...)` and do not repeat the same heading inside dialog content.
-- Exchange integrations must be accessed through `IExchangeService` and its child interfaces (`IOrdersService`, `IPositionsService`, `ITickersService`, `IOptionsChainService`, `IOptionMarketDataService`, `IFuturesInstrumentsService`) rather than using Bybit concrete services directly in view models.
+- Exchange integrations must be accessed through `IExchangeService` and its child interfaces (`IOrdersService`, `IPositionsService`, `ITickersService`, `ITransactionHistoryService`, `IOptionsChainService`, `IOptionMarketDataService`, `IFuturesInstrumentsService`) rather than using Bybit concrete services directly in view models.
+- Trading history page exchange loading must go through `IExchangeService.TransactionHistory`. Do not inject `BybitTransactionService` or `BybitSettings` into trading-history view models.
 - `LegsParserService` must depend only on `IExchangeService` for exchange-backed parsing defaults; do not inject child exchange services such as `IOptionsChainService` separately.
 - `OptionsChainService` owns exchange-agnostic option-chain cache, filtering, and subscriber fan-out only. It must not inject `HttpClient`, Bybit settings, or Bybit transport; option-chain requests must go through `IExchangeService.OptionMarketData`.
 - Shared `JsonElement` parsing helpers must live in `JsonElementExtensions`; do not keep duplicated local `TryReadString`, `ReadDecimal`, `ReadNullableDecimal`, `TryReadInt`, or `TryReadLong` helpers in exchange services.

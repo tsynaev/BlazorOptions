@@ -24,6 +24,7 @@ public sealed class BybitExchangeService : IExchangeService
         var activePositionsService = new ActivePositionsService(bybitPositionService, bybitPrivateStreamService, bybitSettingsOptions);
         var activeWalletService = new ActiveWalletService(bybitWalletService, bybitPrivateStreamService, bybitSettingsOptions, activeWalletLogger);
         var bybitTickerService = new BybitTickerService(bybitSettingsOptions, httpClient);
+        var transactionHistoryService = new BybitTransactionService(httpClient, bybitSettingsOptions);
         var optionMarketDataService = new BybitOptionMarketDataService(httpClient, bybitSettingsOptions);
         var optionsChainService = new OptionsChainService(optionMarketDataService);
         var futuresInstrumentsService = new FuturesInstrumentsService(httpClient, bybitSettingsOptions);
@@ -31,6 +32,7 @@ public sealed class BybitExchangeService : IExchangeService
         Orders = activeOrdersService;
         Positions = activePositionsService;
         Tickers = bybitTickerService;
+        TransactionHistory = transactionHistoryService;
         Wallet = activeWalletService;
         OptionsChain = optionsChainService;
         OptionMarketData = optionMarketDataService;
@@ -42,6 +44,7 @@ public sealed class BybitExchangeService : IExchangeService
             activePositionsService,
             activeWalletService,
             bybitTickerService,
+            transactionHistoryService,
             optionMarketDataService,
             optionsChainService,
             futuresInstrumentsService
@@ -53,6 +56,8 @@ public sealed class BybitExchangeService : IExchangeService
     public IPositionsService Positions { get; }
 
     public ITickersService Tickers { get; }
+
+    public ITransactionHistoryService TransactionHistory { get; }
 
     public IWalletService Wallet { get; }
 

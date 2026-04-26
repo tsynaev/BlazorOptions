@@ -9,6 +9,7 @@ internal sealed class TestExchangeService : IExchangeService
     public IOrdersService Orders { get; } = new TestOrdersService();
     public IPositionsService Positions { get; } = new TestPositionsService();
     public ITickersService Tickers { get; } = new TestTickersService();
+    public ITransactionHistoryService TransactionHistory { get; } = new TestTransactionHistoryService();
     public IOptionsChainService OptionsChain { get; } = new TestOptionsChainService();
     public IOptionMarketDataService OptionMarketData { get; } = new TestOptionMarketDataService();
     public IFuturesInstrumentsService FuturesInstruments { get; } = new TestFuturesInstrumentsService();
@@ -79,6 +80,16 @@ internal sealed class TestExchangeService : IExchangeService
         public OptionChainTicker? FindTickerForLeg(LegModel leg, string? baseAsset = null) => null;
         public void TrackLegs(IEnumerable<LegModel> legs, string? baseAsset = null) { }
         public ValueTask<IDisposable> SubscribeAsync(string symbol, Func<OptionChainTicker, Task> when) => new(new SubscriptionRegistration(() => { }));
+    }
+
+    private sealed class TestTransactionHistoryService : ITransactionHistoryService
+    {
+        public Task<ExchangeTransactionPage> GetTransactionsPageAsync(
+            ExchangeTransactionQuery query,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new ExchangeTransactionPage(Array.Empty<TradingTransactionRaw>(), null));
+        }
     }
 
     private sealed class TestOptionMarketDataService : IOptionMarketDataService

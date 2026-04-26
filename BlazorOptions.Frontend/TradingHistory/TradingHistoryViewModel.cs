@@ -1,7 +1,6 @@
 using System.Globalization;
 using BlazorOptions.API.TradingHistory;
 using BlazorOptions.Services;
-using Microsoft.Extensions.Options;
 
 namespace BlazorOptions.ViewModels;
 
@@ -11,9 +10,8 @@ public class TradingHistoryViewModel
     private const int PageSize = 100;
     private static readonly TimeSpan WindowSize = TimeSpan.FromDays(7);
     private const string UnauthorizedMessage = "Sign in to view trading history.";
-    private readonly BybitTransactionService _transactionService;
+    private readonly IExchangeService _exchangeService;
     private readonly ITradingHistoryPort _tradingHistoryPort;
-    private readonly IOptions<BybitSettings> _bybitSettingsOptions;
     private TradingHistoryMeta _meta = new();
     private IReadOnlyList<TradingSummaryRow>? _summaryBySymbolCache;
     private IReadOnlyList<TradingPnlByCoinRow>? _pnlByCoinCache;
@@ -25,13 +23,11 @@ public class TradingHistoryViewModel
     private int _totalCount;
 
     public TradingHistoryViewModel(
-        BybitTransactionService transactionService,
-        ITradingHistoryPort tradingHistoryPort,
-        IOptions<BybitSettings> bybitSettingsOptions)
+        IExchangeService exchangeService,
+        ITradingHistoryPort tradingHistoryPort)
     {
-        _transactionService = transactionService;
+        _exchangeService = exchangeService;
         _tradingHistoryPort = tradingHistoryPort;
-        _bybitSettingsOptions = bybitSettingsOptions;
     }
 
     public event Action? OnChange;
@@ -110,14 +106,6 @@ public class TradingHistoryViewModel
 
         try
         {
-            var settings = _bybitSettingsOptions.Value;
-
-            if (string.IsNullOrWhiteSpace(settings.ApiKey) || string.IsNullOrWhiteSpace(settings.ApiSecret))
-            {
-                ErrorMessage = "Bybit API credentials are missing. Add them in the Bybit settings page.";
-                return;
-            }
-
             var registrationTime = _meta.RegistrationTimeMs;
             var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
@@ -149,9 +137,8 @@ public class TradingHistoryViewModel
 
                     while (true)
                     {
-                        var query = new BybitTransactionQuery
+                        var query = new ExchangeTransactionQuery
                         {
-                            AccountType = "UNIFIED",
                             Category = category,
                             Limit = PageLimit,
                             Cursor = cursor,
@@ -159,7 +146,7 @@ public class TradingHistoryViewModel
                             EndTime = endTime
                         };
 
-                        var page = await _transactionService.GetTransactionsPageAsync(settings, query, CancellationToken.None);
+                        var page = await _exchangeService.TransactionHistory.GetTransactionsPageAsync(query, CancellationToken.None);
                         if (page.Items.Count > 0)
                         {
                             categoryHadTrades = true;
@@ -394,12 +381,6 @@ public class TradingHistoryViewModel
 
         try
         {
-            var settings = _bybitSettingsOptions.Value;
-            if (string.IsNullOrWhiteSpace(settings.ApiKey) || string.IsNullOrWhiteSpace(settings.ApiSecret))
-            {
-                return;
-            }
-
             await LoadLatestAsync();
         }
         catch

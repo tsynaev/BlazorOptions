@@ -3,31 +3,31 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using BlazorOptions.ViewModels;
+using Microsoft.Extensions.Options;
 
 namespace BlazorOptions.Services;
 
-public record BybitTransactionQuery
+public class BybitTransactionService : BybitApiService, ITransactionHistoryService
 {
-    public string? AccountType { get; init; }
-    public string Category { get; init; } = "linear";
-    public int Limit { get; init; } = 50;
-    public string? Cursor { get; init; }
-    public long? StartTime { get; init; }
-    public long? EndTime { get; init; }
-}
+    private const string AccountType = "UNIFIED";
+    private readonly IOptions<BybitSettings> _bybitSettingsOptions;
 
-public record BybitTransactionPage(IReadOnlyList<TradingTransactionRaw> Items, string? NextCursor);
-
-public class BybitTransactionService : BybitApiService
-{
-    public BybitTransactionService(HttpClient httpClient)
+    public BybitTransactionService(HttpClient httpClient, IOptions<BybitSettings> bybitSettingsOptions)
         : base(httpClient)
     {
+        _bybitSettingsOptions = bybitSettingsOptions;
     }
 
-    public async Task<BybitTransactionPage> GetTransactionsPageAsync(
+    public async Task<ExchangeTransactionPage> GetTransactionsPageAsync(
+        ExchangeTransactionQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        return await GetTransactionsPageAsync(_bybitSettingsOptions.Value, query, cancellationToken);
+    }
+
+    public async Task<ExchangeTransactionPage> GetTransactionsPageAsync(
         BybitSettings settings,
-        BybitTransactionQuery query,
+        ExchangeTransactionQuery query,
         CancellationToken cancellationToken)
     {
         var queryString = BuildQueryString(query);
@@ -42,18 +42,15 @@ public class BybitTransactionService : BybitApiService
     }
 
 
-    private static string BuildQueryString(BybitTransactionQuery query)
+    private static string BuildQueryString(ExchangeTransactionQuery query)
     {
         var parameters = new Dictionary<string, string?>(StringComparer.Ordinal)
         {
             ["category"] = query.Category,
-            ["limit"] = Math.Clamp(query.Limit, 1, 100).ToString(CultureInfo.InvariantCulture)
+            ["limit"] = Math.Clamp(query.Limit, 1, 100).ToString(CultureInfo.InvariantCulture),
+            // Bybit requires the unified account scope for transaction log queries.
+            ["accountType"] = AccountType
         };
-
-        if (!string.IsNullOrWhiteSpace(query.AccountType))
-        {
-            parameters["accountType"] = query.AccountType;
-        }
 
         if (query.StartTime.HasValue)
         {
@@ -73,7 +70,7 @@ public class BybitTransactionService : BybitApiService
         return BuildQueryString(parameters);
     }
 
-    private static BybitTransactionPage ParseTransactions(string payload, string categoryFallback)
+    private static ExchangeTransactionPage ParseTransactions(string payload, string categoryFallback)
     {
         using var document = JsonDocument.Parse(payload);
         var root = document.RootElement;
@@ -82,7 +79,7 @@ public class BybitTransactionService : BybitApiService
 
         if (!root.TryGetProperty("result", out var resultElement))
         {
-            return new BybitTransactionPage(Array.Empty<TradingTransactionRaw>(), null);
+            return new ExchangeTransactionPage(Array.Empty<TradingTransactionRaw>(), null);
         }
 
         string? nextCursor = null;
@@ -95,7 +92,7 @@ public class BybitTransactionService : BybitApiService
         if (!resultElement.TryGetProperty("list", out var listElement)
             || listElement.ValueKind != JsonValueKind.Array)
         {
-            return new BybitTransactionPage(Array.Empty<TradingTransactionRaw>(), nextCursor);
+            return new ExchangeTransactionPage(Array.Empty<TradingTransactionRaw>(), nextCursor);
         }
 
         var grouped = new Dictionary<string, List<JsonElement>>(StringComparer.OrdinalIgnoreCase);
@@ -122,7 +119,7 @@ public class BybitTransactionService : BybitApiService
             items.Add(parsed);
         }
 
-        return new BybitTransactionPage(items, nextCursor);
+        return new ExchangeTransactionPage(items, nextCursor);
     }
 
     public static TradingTransactionRaw ParseRaw(JsonElement entry)

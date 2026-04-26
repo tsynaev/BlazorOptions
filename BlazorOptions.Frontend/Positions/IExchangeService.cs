@@ -9,6 +9,7 @@ public interface IExchangeService : IDisposable, IAsyncDisposable
     IOrdersService Orders { get; }
     IPositionsService Positions { get; }
     ITickersService Tickers { get; }
+    ITransactionHistoryService TransactionHistory { get; }
     IOptionsChainService OptionsChain { get; }
     IOptionMarketDataService OptionMarketData { get; }
     IFuturesInstrumentsService FuturesInstruments { get; }
