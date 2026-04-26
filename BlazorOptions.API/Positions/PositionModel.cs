@@ -10,6 +10,7 @@ public class PositionModel : Bindable
     private DateTime? _creationTimeUtc;
     private string _baseAsset = "ETH";
     private string _quoteAsset = "USDT";
+    private string _exchangeConnectionId = "bybit-main";
     private string _name = "Position";
     private string _notes = string.Empty;
     private string _color = "#1976D2";
@@ -39,6 +40,12 @@ public class PositionModel : Bindable
     {
         get => _quoteAsset;
         set => SetField(ref _quoteAsset, value);
+    }
+
+    public string ExchangeConnectionId
+    {
+        get => _exchangeConnectionId;
+        set => SetField(ref _exchangeConnectionId, value);
     }
 
     public string Name
@@ -95,6 +102,7 @@ public class PositionModel : Bindable
             Id = Id,
             BaseAsset = BaseAsset,
             QuoteAsset = QuoteAsset,
+            ExchangeConnectionId = ExchangeConnectionId,
             Name = Name,
             Notes = Notes,
             CreationTimeUtc = CreationTimeUtc,

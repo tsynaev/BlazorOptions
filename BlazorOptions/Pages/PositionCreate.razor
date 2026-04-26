@@ -1,0 +1,237 @@
+@page "/positions/new"
+@using MudBlazor
+@using Microsoft.AspNetCore.Components.Web
+@using System.ComponentModel
+@using BlazorOptions.ViewModels
+@using BlazorOptions.API.Positions
+@implements IDisposable
+@inject PositionCreateViewModel ViewModel
+@inject IPositionsPort PositionsPort
+@inject NavigationManager NavigationManager
+
+<PageTitle>Create Position</PageTitle>
+
+<MudStack Spacing="2">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+        <MudText Typo="Typo.h4">Create Position</MudText>
+        <MudStack Row="true" Spacing="1">
+            <MudButton Color="Color.Default" Variant="Variant.Outlined" OnClick="Cancel">Cancel</MudButton>
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="!CanSave" OnClick="SaveAsync">Create</MudButton>
+        </MudStack>
+    </MudStack>
+
+    <MudPaper Class="pa-4">
+        <MudStack Spacing="2">
+            <MudSelect T="string"
+                       Value="@ViewModel.SelectedExchangeConnectionId"
+                       ValueChanged="OnSelectedExchangeChanged"
+                       Label="Exchange"
+                       Margin="Margin.Dense"
+                       Variant="Variant.Outlined"
+                       FullWidth="true">
+                @foreach (var connection in ViewModel.ExchangeConnections)
+                {
+                    <MudSelectItem T="string" Value="@connection.Id">@connection.Name</MudSelectItem>
+                }
+            </MudSelect>
+
+            <MudTextField @bind-Value="_name"
+                          Label="Position name"
+                          Placeholder="Enter a name"
+                          Immediate="true"
+                          Margin="Margin.Dense"
+                          Variant="Variant.Outlined"
+                          FullWidth="true"
+                          OnKeyDown="HandleKeyDown" />
+
+            <MudStack Row="true" Spacing="2">
+                <MudTextField T="string"
+                              Value="@ViewModel.BaseAsset"
+                              ValueChanged="OnBaseAssetChanged"
+                              Label="Base asset"
+                              Placeholder="ETH"
+                              Immediate="true"
+                              Margin="Margin.Dense"
+                              Variant="Variant.Outlined"
+                              FullWidth="true" />
+                <MudTextField T="string"
+                              Value="@ViewModel.QuoteAsset"
+                              ValueChanged="OnQuoteAssetChanged"
+                              Label="Quote asset"
+                              Placeholder="USDT"
+                              Immediate="true"
+                              Margin="Margin.Dense"
+                              Variant="Variant.Outlined"
+                              FullWidth="true" />
+            </MudStack>
+
+            <MudTabs KeepPanelsAlive="true" Rounded="true" PanelClass="pt-4">
+                <MudTabPanel Text="Active Positions">
+                    <ActivePositionsPanel ViewModel="ViewModel.ActivePositions" ShowAssetInputs="false" />
+                </MudTabPanel>
+                <MudTabPanel Text="Quick Add">
+                    <MudStack Spacing="2">
+                        <MudTextField @bind-Value="ViewModel.LegInput"
+                                      Label="Legs quick input"
+                                      Placeholder="buy ETH-27MAR26-2200-P; -2 P 3000; Accepts JSON array or entries separated by commas, semicolons, or new lines."
+                                      Lines="4"
+                                      Margin="Margin.Dense"
+                                      Variant="Variant.Outlined"
+                                      FullWidth="true"
+                                      Error="@(!string.IsNullOrWhiteSpace(ViewModel.LegInputError))"
+                                      ErrorText="@ViewModel.LegInputError" />
+                        @if (ViewModel.LegPreviewItems.Count > 0)
+                        {
+                            <MudChipSet T="string" Class="leg-preview-chipset">
+                                @foreach (var preview in ViewModel.LegPreviewItems)
+                                {
+                                    <MudChip T="string"
+                                             Color="@(preview.IsBuy ? Color.Success : Color.Error)"
+                                             Variant="Variant.Filled"
+                                             @key="preview.Description">
+                                        @preview.Description
+                                    </MudChip>
+                                }
+                            </MudChipSet>
+                        }
+
+                        <MudText Typo="Typo.subtitle2">Defaults for quick input</MudText>
+                        <MudStack Row="true" Spacing="2">
+                            <MudNumericField T="decimal"
+                                             Value="@ViewModel.DefaultSize"
+                                             ValueChanged="OnDefaultSizeChanged"
+                                             Label="Default size"
+                                             Margin="Margin.Dense"
+                                             Variant="Variant.Outlined"
+                                             Min="0.0001m"
+                                             FullWidth="true" />
+                            <MudDatePicker Date="@ViewModel.DefaultExpirationDate"
+                                           DateChanged="OnDefaultExpirationChanged"
+                                           DateFormat="yyyy-MM-dd"
+                                           MinDate="@DateTime.UtcNow.Date"
+                                           Label="Default expiration"
+                                           Margin="Margin.Dense"
+                                           Variant="Variant.Outlined"
+                                           Clearable="false" />
+                        </MudStack>
+                    </MudStack>
+                </MudTabPanel>
+            </MudTabs>
+        </MudStack>
+    </MudPaper>
+</MudStack>
+
+@code {
+    private string _name = string.Empty;
+    private string _lastBaseAsset = string.Empty;
+    private bool _subscribed;
+
+    private bool CanSave => !string.IsNullOrWhiteSpace(_name)
+                            && !string.IsNullOrWhiteSpace(ViewModel.ActivePositions.BaseAsset)
+                            && !string.IsNullOrWhiteSpace(ViewModel.ActivePositions.QuoteAsset);
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!_subscribed)
+        {
+            ViewModel.ActivePositions.OnChange += HandleStateChanged;
+            ViewModel.PropertyChanged += HandleViewModelChanged;
+            _subscribed = true;
+        }
+
+        await ViewModel.InitializeAsync(
+            initialName: "Position",
+            initialBaseAsset: null,
+            initialQuoteAsset: "USDT",
+            initialExchangeConnectionId: null);
+        _name = string.IsNullOrWhiteSpace(ViewModel.InitialName) ? "Position" : ViewModel.InitialName;
+        _lastBaseAsset = ViewModel.ActivePositions.BaseAsset;
+    }
+
+    private void HandleStateChanged()
+    {
+        if (!string.Equals(_lastBaseAsset, ViewModel.ActivePositions.BaseAsset, StringComparison.OrdinalIgnoreCase))
+        {
+            _lastBaseAsset = ViewModel.ActivePositions.BaseAsset;
+            _ = ViewModel.UpdateBaseAssetAsync(_lastBaseAsset);
+        }
+
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleViewModelChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        HandleStateChanged();
+    }
+
+    private async Task SaveAsync()
+    {
+        var position = await ViewModel.CreatePositionAsync(_name.Trim());
+        if (position is null)
+        {
+            return;
+        }
+
+        await PositionsPort.SavePositionAsync(position);
+        NavigationManager.NavigateTo($"/position/{position.Id}");
+    }
+
+    private void Cancel()
+    {
+        NavigationManager.NavigateTo("/");
+    }
+
+    private void HandleKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter" && CanSave)
+        {
+            _ = SaveAsync();
+        }
+        else if (args.Key == "Escape")
+        {
+            Cancel();
+        }
+    }
+
+    private Task OnDefaultSizeChanged(decimal value)
+    {
+        return ViewModel.SetDefaultSizeAsync(value);
+    }
+
+    private Task OnDefaultExpirationChanged(DateTime? value)
+    {
+        return ViewModel.SetDefaultExpirationAsync(value);
+    }
+
+    private async Task OnSelectedExchangeChanged(string value)
+    {
+        await ViewModel.SetSelectedExchangeConnectionAsync(value);
+        _lastBaseAsset = ViewModel.ActivePositions.BaseAsset;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnBaseAssetChanged(string value)
+    {
+        await ViewModel.SetBaseAssetAsync(value);
+        _lastBaseAsset = ViewModel.ActivePositions.BaseAsset;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnQuoteAssetChanged(string value)
+    {
+        await ViewModel.SetQuoteAssetAsync(value);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        if (_subscribed)
+        {
+            ViewModel.ActivePositions.OnChange -= HandleStateChanged;
+            ViewModel.PropertyChanged -= HandleViewModelChanged;
+            _subscribed = false;
+        }
+
+        ViewModel.Dispose();
+    }
+}

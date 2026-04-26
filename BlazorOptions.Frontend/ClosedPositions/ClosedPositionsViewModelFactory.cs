@@ -6,24 +6,20 @@ namespace BlazorOptions.ViewModels;
 public sealed class ClosedPositionsViewModelFactory
 {
     private readonly ITradingHistoryPort _tradingHistoryPort;
-    private readonly IExchangeService _exchangeService;
 
-    public ClosedPositionsViewModelFactory(
-        ITradingHistoryPort tradingHistoryPort,
-        IExchangeService exchangeService)
+    public ClosedPositionsViewModelFactory(ITradingHistoryPort tradingHistoryPort)
     {
         _tradingHistoryPort = tradingHistoryPort;
-        _exchangeService = exchangeService;
     }
 
-    public ClosedPositionsViewModel Create(PositionViewModel positionViewModel, PositionModel position)
+    public ClosedPositionsViewModel Create(PositionViewModel positionViewModel, PositionModel position, IExchangeService exchangeService)
     {
 
         var viewModel =
             new ClosedPositionsViewModel(
                 positionViewModel,
                 _tradingHistoryPort,
-                _exchangeService);
+                exchangeService);
 
         viewModel.Model = position.Closed;
         viewModel.BaseAsset = position.BaseAsset;

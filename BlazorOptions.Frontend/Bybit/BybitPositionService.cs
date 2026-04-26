@@ -11,7 +11,6 @@ namespace BlazorOptions.Services;
 
 public class BybitPositionService : BybitApiService
 {
-    private const string RequestPath = "/v5/position/list";
     private readonly IOptions<BybitSettings> _bybitSettingsOptions;
 
     private const string DefaultSettleCoin = "USDT";
@@ -27,18 +26,39 @@ public class BybitPositionService : BybitApiService
 
     public async Task<IReadOnlyList<ExchangePosition>> GetPositionsAsync(CancellationToken cancellationToken = default)
     {
-        var requests = new List<Task<IReadOnlyList<ExchangePosition>>>();
+        var batches = new List<IReadOnlyList<ExchangePosition>>();
         foreach (var category in new[] { "linear", "inverse" })
         {
             foreach (var settleCoin in _settleCoins)
             {
-                requests.Add(GetPositionsAsync(category, settleCoin, cancellationToken));
+                var batch = await TryGetPositionsAsync(category, settleCoin, cancellationToken);
+                if (batch.Count > 0)
+                {
+                    batches.Add(batch);
+                }
             }
         }
 
-        requests.Add(GetPositionsAsync("option", null, cancellationToken));
-        var batches = await Task.WhenAll(requests);
+        var optionsBatch = await TryGetPositionsAsync("option", null, cancellationToken);
+        if (optionsBatch.Count > 0)
+        {
+            batches.Add(optionsBatch);
+        }
+
         return batches.SelectMany(batch => batch).ToList();
+    }
+
+    private async Task<IReadOnlyList<ExchangePosition>> TryGetPositionsAsync(string category, string? settleCoin, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await GetPositionsAsync(category, settleCoin, cancellationToken);
+        }
+        catch
+        {
+            // Demo/main accounts can reject categories that are not enabled; keep the rest of the snapshot usable.
+            return Array.Empty<ExchangePosition>();
+        }
     }
 
     public async Task<IReadOnlyList<ExchangePosition>> GetPositionsAsync(string category, string? settleCoin, CancellationToken cancellationToken = default)
@@ -53,7 +73,7 @@ public class BybitPositionService : BybitApiService
             var queryString = BuildQueryString(queryParameters.ToDictionary(p => p.Key, p => (string?)p.Value, StringComparer.Ordinal));
             var payload = await SendSignedRequestAsync(
                 HttpMethod.Get,
-                RequestPath,
+                settings.PositionListUri,
                 settings,
                 queryString,
                 cancellationToken: cancellationToken);
@@ -69,15 +89,15 @@ public class BybitPositionService : BybitApiService
             {
                 foreach (var entry in listElement.EnumerateArray())
                 {
-                    if (!TryReadString(entry, "symbol", out var symbol))
+                    if (!entry.TryReadString("symbol", out var symbol))
                     {
                         continue;
                     }
 
-                    TryReadString(entry, "side", out var side);
+                    entry.TryReadString("side", out var side);
 
-                    var size = ReadDecimal(entry, "size");
-                    var avgPrice = ReadDecimal(entry, "avgPrice");
+                    var size = entry.ReadDecimal("size");
+                    var avgPrice = entry.ReadDecimal("avgPrice");
 
                     var createdTimeUtc = ReadDateTimeUtc(entry, "createdTime");
                     positions.Add(new ExchangePosition(symbol, side, category, size, avgPrice, createdTimeUtc));
@@ -124,56 +144,6 @@ public class BybitPositionService : BybitApiService
         }
 
         return null;
-    }
-
-    private static bool TryReadString(JsonElement element, string propertyName, out string value)
-    {
-        value = string.Empty;
-
-        if (!element.TryGetProperty(propertyName, out var property))
-        {
-            return false;
-        }
-
-        value = property.ValueKind switch
-        {
-            JsonValueKind.String => property.GetString()?.Trim() ?? string.Empty,
-            _ => property.GetRawText().Trim()
-        };
-
-        return !string.IsNullOrWhiteSpace(value);
-    }
-
-    private static decimal ReadDecimal(JsonElement element, string propertyName)
-    {
-        if (!element.TryGetProperty(propertyName, out var property))
-        {
-            return 0;
-        }
-
-        switch (property.ValueKind)
-        {
-            case JsonValueKind.Number when property.TryGetDecimal(out var value):
-                return value;
-            case JsonValueKind.String:
-                var raw = property.GetString();
-                if (decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
-                {
-                    return parsed;
-                }
-
-                break;
-        }
-
-        if (property.ValueKind == JsonValueKind.Null)
-        {
-            return 0;
-        }
-
-        var trimmed = property.GetRawText();
-        return decimal.TryParse(trimmed, NumberStyles.Any, CultureInfo.InvariantCulture, out var fallback)
-            ? fallback
-            : 0;
     }
 
     private static DateTime? ReadDateTimeUtc(JsonElement element, string propertyName)

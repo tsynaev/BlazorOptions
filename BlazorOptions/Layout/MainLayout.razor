@@ -13,13 +13,6 @@
                     <MudNavLink Href="/data" Class="appbar-link">Data</MudNavLink>
                 </MudStack>
             </div>
-            <div class="appbar-wallet-row">
-                <WalletSummary ShowEquity="true"
-                               ShowWalletBalance="true"
-                               ShowUpdatedTimestamp="false"
-                               CollapseToSingleColumnOnMobile="false"
-                               Class="appbar-wallet" />
-            </div>
             <div class="appbar-account-group">
                 @if (ViewModel.IsAuthenticated && !string.IsNullOrWhiteSpace(ViewModel.UserName))
                 {
@@ -93,8 +86,8 @@
 <style>
     .appbar-shell {
         display: grid;
-        grid-template-columns: auto minmax(0, 1fr) auto auto;
-        grid-template-areas: "brand brand wallet account";
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        grid-template-areas: "brand brand account";
         align-items: center;
         gap: 12px;
         width: 100%;
@@ -106,13 +99,6 @@
         display: flex;
         align-items: center;
         gap: 12px;
-        min-width: 0;
-    }
-
-    .appbar-wallet-row {
-        grid-area: wallet;
-        display: flex;
-        align-items: center;
         min-width: 0;
     }
 
@@ -138,10 +124,6 @@
 
     .appbar-link.active {
         text-decoration: underline;
-    }
-
-    .appbar-wallet {
-        margin-right: 12px;
     }
 
     .mobile-bottom-nav {
@@ -218,14 +200,13 @@
             display: grid;
             grid-template-columns: 1fr;
             grid-template-areas:
-                "wallet wallet";
+                "brand";
             gap: 8px;
             align-items: stretch;
             padding: 8px 0;
         }
 
         .appbar-brand-row,
-        .appbar-wallet-row,
         .appbar-account-group {
             width: 100%;
         }

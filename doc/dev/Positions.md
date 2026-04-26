@@ -7,7 +7,7 @@ Route: `/position/{positionId}`
 - One position per page.
 - Position state is loaded by id and persisted through the server positions API.
 - Exchange integrations are accessed through `IExchangeService` child interfaces.
-- `PositionModel` stores only the current active portfolio state (`Legs`, `Color`).
+- `PositionModel` stores the active portfolio state and the immutable `ExchangeConnectionId` selected at creation time.
 - Position payload JSON is versioned.
 - The persistence layer always saves the latest payload version and converts older payloads during load.
 
@@ -17,6 +17,7 @@ Route: `/position/{positionId}`
 - Owns position state (selected/live price, valuation date, candles, chart data).
 - Coordinates chart refresh batching and persistence updates.
 - Manages exchange subscriptions while the page is open.
+- Creates its own isolated exchange service from `PositionModel.ExchangeConnectionId` before loading live data.
 - `LegsCollectionViewModel`
 - Owns one portfolio collection.
 - Synchronizes legs with exchange positions/orders and maintains available chips.
@@ -33,11 +34,23 @@ Route: `/position/{positionId}`
 - Cached values are pushed immediately on new subscriptions.
 - `ExchangePriceUpdate` carries both `MarkPrice` and `IndexPrice`; consumers must choose the correct field instead of treating one price as both mark and underlying.
 - `IOptionsChainService`
-- Uses the same snapshot/live contract as tickers service.
+- Owns exchange-agnostic option-chain cache, filtering, tracked symbols, and subscriber fan-out.
+- Sends REST and websocket requests only through `IExchangeService.OptionMarketData`.
+- `IOptionMarketDataService`
+- Owns exchange-specific option ticker transport and maps raw payloads into `OptionChainTicker`.
 - Cached values are pushed immediately on new subscriptions.
 - `IPositionsService` and `IOrdersService`
 - Page subscribes to both streams while open.
 - Updates are merged into legs/chips state without full reload.
+- Exchange-specific behavior must stop at the adapter boundary. After exchange payloads are mapped into `ExchangePosition`, `ExchangeOrder`, ticker, wallet, and option-chain models, the rest of the position pipeline stays shared and must not branch by exchange.
+- Connection selection is explicit. Position page and exchange-position dialogs build isolated exchange services from the saved or selected connection id instead of sharing a mutable global exchange target.
+- Dashboard cards are grouped first by exchange connection. Each exchange group contains `base/quote` asset-pair subgroups. `HomeDashboardViewModel` owns one exchange service per exchange group and passes that group's `IExchangeService` into each `PositionCardViewModel`.
+- `ActivePositionsPanelViewModel` consumes an existing `IExchangeService`. The owner screen or dialog creates the service for the selected connection and owns its lifetime.
+- Position creation owns the selected exchange service in `PositionCreateViewModel`. The `/positions/new` page owns the base/quote asset inputs and binds the active-positions panel as a child list/selection surface through `PositionCreateViewModel.ActivePositions`.
+- `BybitSettings` is the shared base settings type. Main and demo defaults live in `MainBybitSettings` and `DemoBybitSettings`; exchange connections convert to the appropriate derived settings type before runtime creation.
+- Exchange-service instances are single-connection objects. They must not retarget themselves at runtime; demo/main concurrency is handled by creating separate runtimes.
+- In non-live mode, the position page should bootstrap one static exchange snapshot for positions/orders and one market snapshot for legs, then stop. Continuous private-stream subscriptions are enabled only after live mode is turned on.
+- Non-live page open must not warm the option-chain cache only to render optional day-range markers. If option-chain data is not already cached, those markers stay empty until live mode or another explicit market-data load populates the cache.
 
 ## Synchronization Rules
 

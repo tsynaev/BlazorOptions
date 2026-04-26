@@ -6,12 +6,10 @@ namespace BlazorOptions.ViewModels;
 public sealed class PositionPnlCalculator
 {
     private readonly OptionsService _optionsService;
-    private readonly IExchangeService _exchangeService;
 
-    public PositionPnlCalculator(OptionsService optionsService, IExchangeService exchangeService)
+    public PositionPnlCalculator(OptionsService optionsService)
     {
         _optionsService = optionsService;
-        _exchangeService = exchangeService;
     }
 
     public decimal ResolveEntryValue(IEnumerable<LegModel> legs)
@@ -104,11 +102,11 @@ public sealed class PositionPnlCalculator
         return totalPnl.Value / denominator * 100m;
     }
 
-    public (decimal TotalPnl, decimal? PercentPnl) ResolvePnl(PositionModel positionModel, decimal indexPrice)
+    public (decimal TotalPnl, decimal? PercentPnl) ResolvePnl(PositionModel positionModel, decimal indexPrice, IExchangeService exchangeService)
     {
-        var preparedLegs = PrepareLegsForChart(positionModel);
+        var preparedLegs = PrepareLegsForChart(positionModel, exchangeService);
         var entryValue = ResolveEntryValue(preparedLegs);
-        var tempPnl = ResolveTempPnl(preparedLegs, indexPrice, positionModel.BaseAsset);
+        var tempPnl = ResolveTempPnl(preparedLegs, indexPrice, positionModel.BaseAsset, exchangeService);
         var realizedPnl = positionModel.Closed.Include ? positionModel.Closed.TotalNet : 0m;
         var totalPnl = tempPnl + realizedPnl;
         var boundedMaxGain = ResolveBoundedMaxGain(preparedLegs, positionModel.ChartRange, realizedPnl);
@@ -116,24 +114,25 @@ public sealed class PositionPnlCalculator
         return (totalPnl, percentPnl);
     }
 
-    public List<LegModel> PrepareLegsForChart(PositionModel positionModel)
+    public List<LegModel> PrepareLegsForChart(PositionModel positionModel, IExchangeService exchangeService)
     {
-        return PrepareLegsForChart(positionModel.GetEffectiveLegs(), positionModel.BaseAsset);
+        return PrepareLegsForChart(positionModel.GetEffectiveLegs(), positionModel.BaseAsset, exchangeService);
     }
 
-    public decimal ResolveTempPnl(PositionModel positionModel, decimal indexPrice)
+    public decimal ResolveTempPnl(PositionModel positionModel, decimal indexPrice, IExchangeService exchangeService)
     {
-        var preparedLegs = PrepareLegsForChart(positionModel);
-        return ResolveTempPnl(preparedLegs, indexPrice, positionModel.BaseAsset);
+        var preparedLegs = PrepareLegsForChart(positionModel, exchangeService);
+        return ResolveTempPnl(preparedLegs, indexPrice, positionModel.BaseAsset, exchangeService);
     }
 
     public (decimal EntryValue, decimal? MarkPrice, decimal Pnl, decimal? PnlPercent, decimal CurrentValue) ResolveLegSnapshot(
         LegModel leg,
         decimal indexPrice,
-        string? baseAsset)
+        string? baseAsset,
+        IExchangeService exchangeService)
     {
         var entryValue = ResolveEntryValue(leg);
-        var markPrice = ResolveLegMarkPrice(leg, indexPrice, baseAsset);
+        var markPrice = ResolveLegMarkPrice(leg, indexPrice, baseAsset, exchangeService);
         var entry = leg.Price ?? 0m;
         var pnl = markPrice.HasValue
             ? (markPrice.Value - entry) * leg.Size
@@ -153,7 +152,7 @@ public sealed class PositionPnlCalculator
         return (entryValue, markPrice, pnl, pnlPercent, currentValue);
     }
 
-    private List<LegModel> PrepareLegsForChart(IReadOnlyList<LegModel> legs, string? baseAsset)
+    private List<LegModel> PrepareLegsForChart(IReadOnlyList<LegModel> legs, string? baseAsset, IExchangeService exchangeService)
     {
         var prepared = new List<LegModel>(legs.Count);
         foreach (var leg in legs)
@@ -161,7 +160,7 @@ public sealed class PositionPnlCalculator
             var clone = leg.Clone();
             if (!IsUnderlyingLegType(clone.Type))
             {
-                var ticker = _exchangeService.OptionsChain.FindTickerForLeg(clone, baseAsset);
+                var ticker = exchangeService.OptionsChain.FindTickerForLeg(clone, baseAsset);
                 if (ticker is not null)
                 {
                     var ivPercent = NormalizeIv(ticker.MarkIv)
@@ -186,20 +185,20 @@ public sealed class PositionPnlCalculator
         return prepared;
     }
 
-    private decimal ResolveTempPnl(IReadOnlyList<LegModel> legs, decimal currentPrice, string? baseAsset)
+    private decimal ResolveTempPnl(IReadOnlyList<LegModel> legs, decimal currentPrice, string? baseAsset, IExchangeService exchangeService)
     {
         decimal total = 0m;
         foreach (var leg in legs)
         {
-            total += ResolveLegPnl(leg, currentPrice, baseAsset);
+            total += ResolveLegPnl(leg, currentPrice, baseAsset, exchangeService);
         }
 
         return total;
     }
 
-    private decimal ResolveLegPnl(LegModel leg, decimal currentPrice, string? baseAsset)
+    private decimal ResolveLegPnl(LegModel leg, decimal currentPrice, string? baseAsset, IExchangeService exchangeService)
     {
-        var mark = ResolveLegMarkPrice(leg, currentPrice, baseAsset);
+        var mark = ResolveLegMarkPrice(leg, currentPrice, baseAsset, exchangeService);
         if (mark.HasValue)
         {
             var entry = leg.Price ?? 0m;
@@ -227,14 +226,19 @@ public sealed class PositionPnlCalculator
         return movePercent * side;
     }
 
-    private decimal? ResolveLegMarkPrice(LegModel leg, decimal currentPrice, string? baseAsset)
+    private decimal? ResolveLegMarkPrice(LegModel leg, decimal currentPrice, string? baseAsset, IExchangeService? exchangeService)
     {
         if (IsUnderlyingLegType(leg.Type))
         {
             return currentPrice;
         }
 
-        return ResolveOptionMarkPrice(_exchangeService.OptionsChain.FindTickerForLeg(leg, baseAsset));
+        if (exchangeService is null)
+        {
+            return null;
+        }
+
+        return ResolveOptionMarkPrice(exchangeService.OptionsChain.FindTickerForLeg(leg, baseAsset));
     }
 
     private static decimal? NormalizeIv(decimal? value)

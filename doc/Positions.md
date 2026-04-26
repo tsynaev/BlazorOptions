@@ -12,6 +12,9 @@ The Positions page is where you manage one position at a time and review its pay
 
 - Manage a single portfolio inside one position.
 - Add legs manually, with quick add, from active exchange positions, or from open orders.
+- Position creation requires selecting an exchange connection.
+- The selected exchange connection is saved with the position and cannot be changed later.
+- The position header shows the exchange connection name used by that position.
 - The `Exchange positions` switch can hide or show exchange position chips across all expiration groups without hiding open-order chips.
 - The exchange-position chips also show current spot holdings for the position base asset; clicking a spot chip adds an editable `Spot` leg with `Active` status and the current spot size.
 - When an active position chip is added as a leg, same-symbol open orders are automatically attached as linked orders to that leg.

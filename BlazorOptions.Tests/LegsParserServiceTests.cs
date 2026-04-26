@@ -127,18 +127,18 @@ public sealed class LegsParserServiceTests
 
     private static LegsParserService CreateService()
     {
-        var httpClient = new HttpClient();
-        var exchangeService = new ExchangeService();
-        var optionsChainService = new OptionsChainService(httpClient, exchangeService);
-        return new LegsParserService(optionsChainService, exchangeService);
+        var exchangeService = new TestExchangeService();
+        return new LegsParserService(exchangeService);
     }
 
     private static void SeedTickers(LegsParserService service, string baseAsset, List<OptionChainTicker> tickers)
     {
-        var optionsField = typeof(LegsParserService)
-            .GetField("_optionsChainService", BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new AssertFailedException("OptionsChainService field not found.");
-        var optionsChainService = optionsField.GetValue(service) as OptionsChainService
+        var exchangeField = typeof(LegsParserService)
+            .GetField("_exchangeService", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new AssertFailedException("ExchangeService field not found.");
+        var exchangeService = exchangeField.GetValue(service) as TestExchangeService
+            ?? throw new AssertFailedException("ExchangeService instance is null.");
+        var optionsChainService = exchangeService.OptionsChain as OptionsChainService
             ?? throw new AssertFailedException("OptionsChainService instance is null.");
 
         var cacheField = typeof(OptionsChainService)

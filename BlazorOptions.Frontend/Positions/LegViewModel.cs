@@ -502,6 +502,13 @@ public sealed class LegViewModel : IDisposable
 
             if (string.IsNullOrWhiteSpace(Leg.Symbol))
             {
+                RefreshNonLiveMarketSnapshot();
+                return;
+            }
+
+            if (!IsLive)
+            {
+                RefreshNonLiveMarketSnapshot();
                 return;
             }
 
@@ -909,6 +916,12 @@ public sealed class LegViewModel : IDisposable
         Vega = ticker.Vega;
         Theta = ticker.Theta;
 
+    }
+
+    internal void RefreshNonLiveSnapshot()
+    {
+        RefreshNonLiveMarketSnapshot();
+        Changed?.Invoke(LegsCollectionUpdateKind.ViewModelDataUpdated);
     }
 
     private decimal? ResolvePnlFromMarkPrice()

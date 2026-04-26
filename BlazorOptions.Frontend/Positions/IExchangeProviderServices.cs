@@ -40,6 +40,18 @@ public interface IOptionsChainService
     ValueTask<IDisposable> SubscribeAsync(string symbol, Func<OptionChainTicker, Task> when);
 }
 
+public interface IOptionMarketDataService : IAsyncDisposable
+{
+    Task<IReadOnlyList<OptionChainTicker>> GetTickersAsync(string? baseAsset = null, CancellationToken cancellationToken = default);
+
+    IReadOnlyList<ExchangeTradingPair> GetConfiguredTradingPairs();
+
+    ValueTask<IDisposable> SubscribeAsync(
+        string symbol,
+        Func<OptionChainTicker, Task> handler,
+        CancellationToken cancellationToken = default);
+}
+
 public interface IFuturesInstrumentsService
 {
     IReadOnlyList<DateTime?> GetCachedExpirations(string baseAsset, string? quoteAsset);

@@ -1,6 +1,5 @@
 @using BlazorOptions.Services
 @implements IAsyncDisposable
-@inject IExchangeService ExchangeService
 
 @if (_snapshot is not null)
 {
@@ -56,18 +55,49 @@
 }
 
 @code {
+    [Parameter, EditorRequired] public IExchangeService ExchangeService { get; set; } = default!;
     [Parameter] public bool ShowEquity { get; set; }
     [Parameter] public bool ShowWalletBalance { get; set; }
     [Parameter] public bool ShowUpdatedTimestamp { get; set; } = true;
     [Parameter] public bool CollapseToSingleColumnOnMobile { get; set; } = true;
+    [Parameter] public bool SubscribeLive { get; set; }
     [Parameter] public string Class { get; set; } = string.Empty;
     private IDisposable? _subscription;
     private ExchangeWalletSnapshot? _snapshot;
+    private IExchangeService? _activeExchangeService;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnParametersSetAsync()
     {
-        _subscription = await ExchangeService.Wallet.SubscribeAsync(HandleWalletUpdatedAsync);
+        await LoadWalletAsync();
+    }
+
+    private async Task LoadWalletAsync()
+    {
+        if (ExchangeService is null)
+        {
+            _snapshot = null;
+            _activeExchangeService = null;
+            _subscription?.Dispose();
+            _subscription = null;
+            return;
+        }
+
+        if (ReferenceEquals(_activeExchangeService, ExchangeService) && _subscription is not null == SubscribeLive)
+        {
+            return;
+        }
+
+        _subscription?.Dispose();
+        _subscription = null;
+        _activeExchangeService = ExchangeService;
+
         _snapshot = await ExchangeService.Wallet.GetSnapshotAsync();
+        if (!SubscribeLive)
+        {
+            return;
+        }
+
+        _subscription = await ExchangeService.Wallet.SubscribeAsync(HandleWalletUpdatedAsync);
     }
 
     private Task HandleWalletUpdatedAsync(ExchangeWalletSnapshot snapshot)

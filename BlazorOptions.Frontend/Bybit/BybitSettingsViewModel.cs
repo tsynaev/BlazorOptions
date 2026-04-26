@@ -6,19 +6,19 @@ namespace BlazorOptions.ViewModels;
 public class BybitSettingsViewModel
 {
     private readonly IOptions<BybitSettings> _bybitSettingsOptions;
-    private readonly ILocalStorageService _localStorageService;
+    private readonly ExchangeConnectionsService _exchangeConnectionsService;
 
-    public BybitSettingsViewModel(IOptions<BybitSettings> bybitSettingsOptions, ILocalStorageService localStorageService)
+    public BybitSettingsViewModel(
+        IOptions<BybitSettings> bybitSettingsOptions,
+        ExchangeConnectionsService exchangeConnectionsService)
     {
         _bybitSettingsOptions = bybitSettingsOptions;
-        _localStorageService = localStorageService;
+        _exchangeConnectionsService = exchangeConnectionsService;
     }
 
     public string ApiKey { get; set; } = string.Empty;
 
     public string ApiSecret { get; set; } = string.Empty;
-
-    public string WebSocketUrl { get; set; } = "wss://stream.bybit.com/v5/public/linear";
 
     public int LivePriceUpdateIntervalMilliseconds { get; set; } = 1000;
 
@@ -33,7 +33,6 @@ public class BybitSettingsViewModel
         var settings = _bybitSettingsOptions.Value;
         ApiKey = settings.ApiKey;
         ApiSecret = settings.ApiSecret;
-        WebSocketUrl = settings.WebSocketUrl;
         LivePriceUpdateIntervalMilliseconds = Math.Max(100, settings.LivePriceUpdateIntervalMilliseconds);
         OptionBaseCoins = string.IsNullOrWhiteSpace(settings.OptionBaseCoins) ? "BTC, ETH, SOL" : settings.OptionBaseCoins;
         OptionQuoteCoins = string.IsNullOrWhiteSpace(settings.OptionQuoteCoins) ? "USDT" : settings.OptionQuoteCoins;
@@ -43,18 +42,22 @@ public class BybitSettingsViewModel
 
     public async Task SaveAsync()
     {
-        var settings = new BybitSettings
+        var settings = new MainBybitSettings
         {
             ApiKey = ApiKey,
             ApiSecret = ApiSecret,
-            WebSocketUrl = WebSocketUrl,
             LivePriceUpdateIntervalMilliseconds = Math.Max(100, LivePriceUpdateIntervalMilliseconds),
             OptionBaseCoins = OptionBaseCoins,
             OptionQuoteCoins = OptionQuoteCoins
         };
 
-        var payload = BybitSettingsStorage.Serialize(settings);
-        await _localStorageService.SetItemAsync(BybitSettingsStorage.StorageKey, payload);
+        var mainConnection = ExchangeConnectionModel.CreateBybitMain();
+        mainConnection.ApiKey = settings.ApiKey;
+        mainConnection.ApiSecret = settings.ApiSecret;
+        mainConnection.LivePriceUpdateIntervalMilliseconds = settings.LivePriceUpdateIntervalMilliseconds;
+        mainConnection.OptionBaseCoins = settings.OptionBaseCoins;
+        mainConnection.OptionQuoteCoins = settings.OptionQuoteCoins;
+        await _exchangeConnectionsService.SaveConnectionsAsync([mainConnection, ExchangeConnectionModel.CreateBybitDemo()]);
         OnChange?.Invoke();
     }
 }

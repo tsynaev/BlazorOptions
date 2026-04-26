@@ -17,19 +17,11 @@ public sealed class LegsParserService : ILegsParserService
     private static readonly Regex QuickAddDayMonthRegex = new(@"\b(?<day>\d{1,2})[./-](?<month>\d{1,2})\b", RegexOptions.Compiled);
     private static readonly string[] PositionExpirationFormats = { "ddMMMyy", "ddMMMyyyy" };
 
-    private readonly IOptionsChainService _optionsChainService;
     private readonly IExchangeService _exchangeService;
 
     public LegsParserService(
         IExchangeService exchangeService)
     {
-        _optionsChainService = exchangeService.OptionsChain;
-        _exchangeService = exchangeService;
-    }
-
-    public LegsParserService(IOptionsChainService optionsChainService, IExchangeService exchangeService)
-    {
-        _optionsChainService = optionsChainService;
         _exchangeService = exchangeService;
     }
 
@@ -82,17 +74,19 @@ public sealed class LegsParserService : ILegsParserService
             return;
         }
 
+        var optionsChainService = _exchangeService.OptionsChain;
+
         var resolvedBaseAsset = ResolveBaseAsset(baseAsset, legs);
         if (string.IsNullOrWhiteSpace(resolvedBaseAsset))
         {
             return;
         }
 
-        var tickers = _optionsChainService.GetTickersByBaseAsset(resolvedBaseAsset);
+        var tickers = optionsChainService.GetTickersByBaseAsset(resolvedBaseAsset);
         if (tickers.Count == 0)
         {
-            await _optionsChainService.UpdateTickersAsync(resolvedBaseAsset);
-            tickers = _optionsChainService.GetTickersByBaseAsset(resolvedBaseAsset);
+            await optionsChainService.UpdateTickersAsync(resolvedBaseAsset);
+            tickers = optionsChainService.GetTickersByBaseAsset(resolvedBaseAsset);
         }
 
         var defaultExpiration = ResolveNextExpirationDate(tickers);
@@ -165,7 +159,7 @@ public sealed class LegsParserService : ILegsParserService
         var resolvedBaseAsset = ResolveBaseAsset(baseAsset, list);
         var tickers = string.IsNullOrWhiteSpace(resolvedBaseAsset)
             ? new List<OptionChainTicker>()
-            : _optionsChainService.GetTickersByBaseAsset(resolvedBaseAsset);
+            : _exchangeService.OptionsChain.GetTickersByBaseAsset(resolvedBaseAsset);
 
         var defaultExpiration = ResolveNextExpirationDate(tickers) ?? DateTime.UtcNow.Date.AddDays(DefaultMinDaysOut);
         var descriptions = new List<string>(list.Count);

@@ -33,7 +33,7 @@ public class BybitTransactionService : BybitApiService
         var queryString = BuildQueryString(query);
         var payload = await SendSignedRequestAsync(
             HttpMethod.Get,
-            "/v5/account/transaction-log",
+            settings.TransactionLogUri,
             settings,
             queryString,
             cancellationToken: cancellationToken);
@@ -132,7 +132,7 @@ public class BybitTransactionService : BybitApiService
             return new TradingTransactionRaw();
         }
 
-        var category = ReadString(entry, "category");
+        var category = JsonElementExtensions.ReadString(entry, "category");
         return MapTransaction(entry, category);
     }
 
@@ -155,33 +155,33 @@ public class BybitTransactionService : BybitApiService
     {
         var timestamp = ReadTimestamp(entry, "transactionTime");
         _ = ReadTimestamp(entry, "transactionTime");
-        var transactionId = ReadString(entry, "tradeId");
-        var rawId = ReadString(entry, "id");
-        var orderId = ReadString(entry, "orderId");
-        var symbol = ReadString(entry, "symbol");
-        var category = ReadString(entry, "category");
+        var transactionId = JsonElementExtensions.ReadString(entry, "tradeId");
+        var rawId = JsonElementExtensions.ReadString(entry, "id");
+        var orderId = JsonElementExtensions.ReadString(entry, "orderId");
+        var symbol = JsonElementExtensions.ReadString(entry, "symbol");
+        var category = JsonElementExtensions.ReadString(entry, "category");
         if (string.IsNullOrWhiteSpace(category))
         {
             category = categoryFallback;
         }
 
-        var type = ReadString(entry, "type");
-        var transSubType = ReadString(entry, "transSubType");
-        var side = ReadString(entry, "side");
-        var funding = ReadNullableDecimal(entry, "funding");
-        var orderLinkId = ReadString(entry, "orderLinkId");
-        var bonusChange = ReadNullableDecimal(entry, "bonusChange");
-        var size = ReadNullableDecimal(entry, "size");
-        var cashBalance = ReadNullableDecimal(entry, "cashBalance");
-        var tradeId = ReadString(entry, "tradeId");
-        var extraFees = ReadString(entry, "extraFees");
-        var feeRate = ReadNullableDecimal(entry, "feeRate");
-        var qty = ReadNullableDecimal(entry, "qty");
-        var price = ReadNullableDecimal(entry, "tradePrice");
-        var fee = ReadNullableDecimal(entry, "fee");
-        var currency = ReadString(entry, "currency");
-        var change = ReadNullableDecimal(entry, "change");
-        var cashFlow = ReadNullableDecimal(entry, "cashFlow");
+        var type = JsonElementExtensions.ReadString(entry, "type");
+        var transSubType = JsonElementExtensions.ReadString(entry, "transSubType");
+        var side = JsonElementExtensions.ReadString(entry, "side");
+        var funding = JsonElementExtensions.ReadNullableDecimal(entry, "funding");
+        var orderLinkId = JsonElementExtensions.ReadString(entry, "orderLinkId");
+        var bonusChange = JsonElementExtensions.ReadNullableDecimal(entry, "bonusChange");
+        var size = JsonElementExtensions.ReadNullableDecimal(entry, "size");
+        var cashBalance = JsonElementExtensions.ReadNullableDecimal(entry, "cashBalance");
+        var tradeId = JsonElementExtensions.ReadString(entry, "tradeId");
+        var extraFees = JsonElementExtensions.ReadString(entry, "extraFees");
+        var feeRate = JsonElementExtensions.ReadNullableDecimal(entry, "feeRate");
+        var qty = JsonElementExtensions.ReadNullableDecimal(entry, "qty");
+        var price = JsonElementExtensions.ReadNullableDecimal(entry, "tradePrice");
+        var fee = JsonElementExtensions.ReadNullableDecimal(entry, "fee");
+        var currency = JsonElementExtensions.ReadString(entry, "currency");
+        var change = JsonElementExtensions.ReadNullableDecimal(entry, "change");
+        var cashFlow = JsonElementExtensions.ReadNullableDecimal(entry, "cashFlow");
 
         var uniqueKey = BuildUniqueKey(entry, categoryFallback);
 
@@ -217,11 +217,11 @@ public class BybitTransactionService : BybitApiService
     {
         if (IsSpotTrade(entry, categoryFallback))
         {
-            var orderId = ReadString(entry, "orderId");
-            var tradeId = ReadString(entry, "tradeId");
+            var orderId = JsonElementExtensions.ReadString(entry, "orderId");
+            var tradeId = JsonElementExtensions.ReadString(entry, "tradeId");
             var timestamp = ReadTimestamp(entry, "transactionTime");
-            var symbol = ReadString(entry, "symbol");
-            var side = ReadString(entry, "side");
+            var symbol = JsonElementExtensions.ReadString(entry, "symbol");
+            var side = JsonElementExtensions.ReadString(entry, "side");
 
             if (!string.IsNullOrWhiteSpace(orderId))
             {
@@ -242,16 +242,16 @@ public class BybitTransactionService : BybitApiService
     private static string BuildUniqueKey(JsonElement entry, string categoryFallback)
     {
         var timestamp = ReadTimestamp(entry, "transactionTime");
-        var orderId = ReadString(entry, "orderId");
-        var rawId = ReadString(entry, "id");
-        var symbol = ReadString(entry, "symbol");
-        var type = ReadString(entry, "type");
-        var side = ReadString(entry, "side");
-        var execPrice = ReadString(entry, "tradePrice");
-        var qty = ReadString(entry, "qty");
-        var fee = ReadString(entry, "fee");
-        var currency = ReadString(entry, "currency");
-        var category = ReadString(entry, "category");
+        var orderId = JsonElementExtensions.ReadString(entry, "orderId");
+        var rawId = JsonElementExtensions.ReadString(entry, "id");
+        var symbol = JsonElementExtensions.ReadString(entry, "symbol");
+        var type = JsonElementExtensions.ReadString(entry, "type");
+        var side = JsonElementExtensions.ReadString(entry, "side");
+        var execPrice = JsonElementExtensions.ReadString(entry, "tradePrice");
+        var qty = JsonElementExtensions.ReadString(entry, "qty");
+        var fee = JsonElementExtensions.ReadString(entry, "fee");
+        var currency = JsonElementExtensions.ReadString(entry, "currency");
+        var category = JsonElementExtensions.ReadString(entry, "category");
         if (string.IsNullOrWhiteSpace(category))
         {
             category = categoryFallback;
@@ -273,25 +273,25 @@ public class BybitTransactionService : BybitApiService
     private static TradingTransactionRaw MapSpotTrade(IReadOnlyList<JsonElement> entries, string categoryFallback)
     {
         var primary = entries[0];
-        var symbol = ReadString(primary, "symbol");
-        var side = ReadString(primary, "side");
-        var type = ReadString(primary, "type");
-        var transSubType = ReadString(primary, "transSubType");
-        var funding = ReadNullableDecimal(primary, "funding");
-        var orderLinkId = ReadString(primary, "orderLinkId");
-        var orderId = ReadString(primary, "orderId");
-        var bonusChange = ReadNullableDecimal(primary, "bonusChange");
-        var size = ReadNullableDecimal(primary, "size");
-        var cashBalance = ReadNullableDecimal(primary, "cashBalance");
-        var tradeId = ReadString(primary, "tradeId");
-        var extraFees = ReadString(primary, "extraFees");
+        var symbol = JsonElementExtensions.ReadString(primary, "symbol");
+        var side = JsonElementExtensions.ReadString(primary, "side");
+        var type = JsonElementExtensions.ReadString(primary, "type");
+        var transSubType = JsonElementExtensions.ReadString(primary, "transSubType");
+        var funding = JsonElementExtensions.ReadNullableDecimal(primary, "funding");
+        var orderLinkId = JsonElementExtensions.ReadString(primary, "orderLinkId");
+        var orderId = JsonElementExtensions.ReadString(primary, "orderId");
+        var bonusChange = JsonElementExtensions.ReadNullableDecimal(primary, "bonusChange");
+        var size = JsonElementExtensions.ReadNullableDecimal(primary, "size");
+        var cashBalance = JsonElementExtensions.ReadNullableDecimal(primary, "cashBalance");
+        var tradeId = JsonElementExtensions.ReadString(primary, "tradeId");
+        var extraFees = JsonElementExtensions.ReadString(primary, "extraFees");
         var timestamp = ReadTimestamp(primary, "transactionTime");
         _ = ReadTimestamp(primary, "transactionTime");
-        var tradePrice = ReadString(primary, "tradePrice");
-        var tradePriceValue = ReadNullableDecimal(primary, "tradePrice") ?? 0m;
+        var tradePrice = JsonElementExtensions.ReadString(primary, "tradePrice");
+        var tradePriceValue = JsonElementExtensions.ReadNullableDecimal(primary, "tradePrice") ?? 0m;
 
         var currencies = entries
-            .Select(entry => ReadString(entry, "currency"))
+            .Select(entry => JsonElementExtensions.ReadString(entry, "currency"))
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -310,9 +310,9 @@ public class BybitTransactionService : BybitApiService
             ?? string.Empty;
 
         var baseLeg = entries.FirstOrDefault(entry =>
-            string.Equals(ReadString(entry, "currency"), baseCoin, StringComparison.OrdinalIgnoreCase));
+            string.Equals(JsonElementExtensions.ReadString(entry, "currency"), baseCoin, StringComparison.OrdinalIgnoreCase));
         var baseQty = baseLeg.ValueKind != JsonValueKind.Undefined
-            ? Math.Abs(ReadDecimal(baseLeg, "qty"))
+            ? Math.Abs(JsonElementExtensions.ReadDecimal(baseLeg, "qty"))
             : 0m;
 
         var execQty = FormatDecimal(baseQty);
@@ -320,13 +320,13 @@ public class BybitTransactionService : BybitApiService
         var feeTotal = 0m;
         foreach (var entry in entries)
         {
-            var fee = ReadDecimal(entry, "fee");
+            var fee = JsonElementExtensions.ReadDecimal(entry, "fee");
             if (fee == 0m)
             {
                 continue;
             }
 
-            var feeCurrency = ReadString(entry, "currency");
+            var feeCurrency = JsonElementExtensions.ReadString(entry, "currency");
             if (string.Equals(feeCurrency, quote, StringComparison.OrdinalIgnoreCase))
             {
                 feeTotal += fee;
@@ -358,7 +358,7 @@ public class BybitTransactionService : BybitApiService
             Fee = feeTotal,
             Change = null,
             CashFlow = null,
-            FeeRate = ReadNullableDecimal(primary, "feeRate"),
+            FeeRate = JsonElementExtensions.ReadNullableDecimal(primary, "feeRate"),
             BonusChange = bonusChange,
             Size = size,
             Qty = baseQty,
@@ -373,38 +373,16 @@ public class BybitTransactionService : BybitApiService
 
     private static bool IsSpotTrade(JsonElement entry, string categoryFallback)
     {
-        var category = ReadString(entry, "category");
+        var category = JsonElementExtensions.ReadString(entry, "category");
         if (string.IsNullOrWhiteSpace(category))
         {
             category = categoryFallback;
         }
 
-        var type = ReadString(entry, "type");
+        var type = JsonElementExtensions.ReadString(entry, "type");
 
         return string.Equals(category, "spot", StringComparison.OrdinalIgnoreCase)
                && string.Equals(type, "TRADE", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string ReadString(JsonElement element, params string[] names)
-    {
-        foreach (var name in names)
-        {
-            if (!element.TryGetProperty(name, out var value)
-                || value.ValueKind == JsonValueKind.Null
-                || value.ValueKind == JsonValueKind.Undefined)
-            {
-                continue;
-            }
-
-            if (value.ValueKind == JsonValueKind.String)
-            {
-                return value.GetString() ?? string.Empty;
-            }
-
-            return value.GetRawText().Trim('"');
-        }
-
-        return string.Empty;
     }
 
     private static decimal? TryParseDecimal(string? value)
@@ -439,61 +417,6 @@ public class BybitTransactionService : BybitApiService
             : string.Empty;
     }
 
-    private static decimal ReadDecimal(JsonElement element, params string[] names)
-    {
-        foreach (var name in names)
-        {
-            if (!element.TryGetProperty(name, out var value))
-            {
-                continue;
-            }
-
-            if (value.ValueKind == JsonValueKind.Number && value.TryGetDecimal(out var number))
-            {
-                return number;
-            }
-
-            if (value.ValueKind == JsonValueKind.String)
-            {
-                var raw = value.GetString();
-                if (decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
-                {
-                    return parsed;
-                }
-            }
-        }
-
-        return 0m;
-    }
-
-    private static decimal? ReadNullableDecimal(JsonElement element, params string[] names)
-    {
-        foreach (var name in names)
-        {
-            if (!element.TryGetProperty(name, out var value)
-                || value.ValueKind == JsonValueKind.Null
-                || value.ValueKind == JsonValueKind.Undefined)
-            {
-                continue;
-            }
-
-            if (value.ValueKind == JsonValueKind.Number && value.TryGetDecimal(out var number))
-            {
-                return number;
-            }
-
-            if (value.ValueKind == JsonValueKind.String)
-            {
-                var raw = value.GetString();
-                if (decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
-                {
-                    return parsed;
-                }
-            }
-        }
-
-        return null;
-    }
 
     private static long? ReadLong(JsonElement element, params string[] names)
     {

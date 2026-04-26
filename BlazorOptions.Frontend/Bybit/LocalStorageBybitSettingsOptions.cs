@@ -5,20 +5,20 @@ namespace BlazorOptions.Services;
 
 public sealed class LocalStorageBybitSettingsOptions : IOptions<BybitSettings>
 {
-    private readonly ILocalStorageService _localStorageService;
+    private readonly ExchangeConnectionsService _exchangeConnectionsService;
 
-    public LocalStorageBybitSettingsOptions(ILocalStorageService localStorageService)
+    public LocalStorageBybitSettingsOptions(ExchangeConnectionsService exchangeConnectionsService)
     {
-        _localStorageService = localStorageService;
+        _exchangeConnectionsService = exchangeConnectionsService;
     }
 
     public BybitSettings Value
     {
         get
         {
-            var stored = _localStorageService.GetItem(BybitSettingsStorage.StorageKey);
-            var settings = BybitSettingsStorage.TryDeserialize(stored);
-            return settings ?? new BybitSettings();
+            return _exchangeConnectionsService
+                .GetConnectionOrDefault(null)
+                .ToBybitSettings();
         }
     }
 }

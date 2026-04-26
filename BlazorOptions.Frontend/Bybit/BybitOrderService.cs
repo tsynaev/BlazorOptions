@@ -7,8 +7,6 @@ namespace BlazorOptions.Services;
 
 public sealed class BybitOrderService : BybitApiService, IOrdersService
 {
-    private const string RequestPath = "/v5/order/realtime";
-    private const string DefaultSettleCoin = "USDT";
     private const int PageSize = 50;
     private readonly IOptions<BybitSettings> _bybitSettingsOptions;
 
@@ -21,12 +19,42 @@ public sealed class BybitOrderService : BybitApiService, IOrdersService
     public async Task<IReadOnlyList<ExchangeOrder>> GetOpenOrdersAsync(CancellationToken cancellationToken = default)
     {
         var settings = _bybitSettingsOptions.Value;
-        var batches = await Task.WhenAll(
-            GetOrdersByCategoryAsync(settings, "linear", DefaultSettleCoin, cancellationToken),
-            GetOrdersByCategoryAsync(settings, "inverse", DefaultSettleCoin, cancellationToken),
-            GetOrdersByCategoryAsync(settings, "option", null, cancellationToken));
+        var batches = new List<IReadOnlyList<ExchangeOrder>>();
+        var defaultSettleCoin = string.IsNullOrWhiteSpace(settings.DefaultSettleCoin)
+            ? "USDT"
+            : settings.DefaultSettleCoin.Trim().ToUpperInvariant();
+        foreach (var request in new[]
+                 {
+                     (Category: "linear", SettleCoin: defaultSettleCoin),
+                     (Category: "inverse", SettleCoin: defaultSettleCoin),
+                     (Category: "option", SettleCoin: (string?)null)
+                 })
+        {
+            var batch = await TryGetOrdersByCategoryAsync(settings, request.Category, request.SettleCoin, cancellationToken);
+            if (batch.Count > 0)
+            {
+                batches.Add(batch);
+            }
+        }
 
         return batches.SelectMany(batch => batch).ToList();
+    }
+
+    private async Task<IReadOnlyList<ExchangeOrder>> TryGetOrdersByCategoryAsync(
+        BybitSettings settings,
+        string category,
+        string? settleCoin,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await GetOrdersByCategoryAsync(settings, category, settleCoin, cancellationToken);
+        }
+        catch
+        {
+            // Demo/main accounts can reject categories that are not enabled; keep the rest of the snapshot usable.
+            return Array.Empty<ExchangeOrder>();
+        }
     }
 
     public ValueTask<IDisposable> SubscribeAsync(
@@ -59,7 +87,7 @@ public sealed class BybitOrderService : BybitApiService, IOrdersService
             var queryString = BuildQueryString(parameters);
             var payload = await SendSignedRequestAsync(
                 HttpMethod.Get,
-                RequestPath,
+                settings.OrderRealtimeUri,
                 settings,
                 queryString,
                 cancellationToken: cancellationToken);
@@ -75,24 +103,24 @@ public sealed class BybitOrderService : BybitApiService, IOrdersService
             {
                 foreach (var entry in listElement.EnumerateArray())
                 {
-                    if (!TryReadString(entry, "symbol", out var symbol))
+                    if (!entry.TryReadString("symbol", out var symbol))
                     {
                         continue;
                     }
 
-                    if (!TryReadString(entry, "orderStatus", out var orderStatus) || !IsOpenOrderStatus(orderStatus))
+                    if (!entry.TryReadString("orderStatus", out var orderStatus) || !IsOpenOrderStatus(orderStatus))
                     {
                         continue;
                     }
 
-                    TryReadString(entry, "orderId", out var orderId);
-                    TryReadString(entry, "side", out var side);
-                    TryReadString(entry, "orderType", out var orderType);
-                    TryReadString(entry, "stopOrderType", out var stopOrderType);
-                    var qty = ReadDecimal(entry, "qty");
+                    entry.TryReadString("orderId", out var orderId);
+                    entry.TryReadString("side", out var side);
+                    entry.TryReadString("orderType", out var orderType);
+                    entry.TryReadString("stopOrderType", out var stopOrderType);
+                    var qty = entry.ReadDecimal("qty");
                     if (qty == 0)
                     {
-                        qty = ReadDecimal(entry, "leavesQty");
+                        qty = entry.ReadDecimal("leavesQty");
                     }
 
                     var price = ResolveOrderPrice(entry);
@@ -129,80 +157,16 @@ public sealed class BybitOrderService : BybitApiService, IOrdersService
         return null;
     }
 
-    private static bool TryReadString(JsonElement element, string propertyName, out string value)
-    {
-        value = string.Empty;
-        if (!element.TryGetProperty(propertyName, out var property))
-        {
-            return false;
-        }
-
-        value = property.ValueKind switch
-        {
-            JsonValueKind.String => property.GetString()?.Trim() ?? string.Empty,
-            _ => property.GetRawText().Trim()
-        };
-
-        return !string.IsNullOrWhiteSpace(value);
-    }
-
-    private static decimal ReadDecimal(JsonElement element, string propertyName)
-    {
-        if (!element.TryGetProperty(propertyName, out var property))
-        {
-            return 0m;
-        }
-
-        if (property.ValueKind == JsonValueKind.Number && property.TryGetDecimal(out var numeric))
-        {
-            return numeric;
-        }
-
-        var raw = property.ValueKind == JsonValueKind.String
-            ? property.GetString()
-            : property.GetRawText();
-
-        return decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
-            ? parsed
-            : 0m;
-    }
-
-    private static decimal? ReadNullableDecimal(JsonElement element, string propertyName)
-    {
-        if (!element.TryGetProperty(propertyName, out var property))
-        {
-            return null;
-        }
-
-        if (property.ValueKind == JsonValueKind.Null)
-        {
-            return null;
-        }
-
-        if (property.ValueKind == JsonValueKind.Number && property.TryGetDecimal(out var numeric))
-        {
-            return numeric;
-        }
-
-        var raw = property.ValueKind == JsonValueKind.String
-            ? property.GetString()
-            : property.GetRawText();
-
-        return decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
-            ? parsed
-            : null;
-    }
-
     private static decimal? ResolveOrderPrice(JsonElement element)
     {
         return FirstPositive(
-            ReadNullableDecimal(element, "price"),
-            ReadNullableDecimal(element, "avgPrice"),
-            ReadNullableDecimal(element, "triggerPrice"),
-            ReadNullableDecimal(element, "takeProfit"),
-            ReadNullableDecimal(element, "stopLoss"),
-            ReadNullableDecimal(element, "tpLimitPrice"),
-            ReadNullableDecimal(element, "slLimitPrice"));
+            element.ReadNullableDecimal("price"),
+            element.ReadNullableDecimal("avgPrice"),
+            element.ReadNullableDecimal("triggerPrice"),
+            element.ReadNullableDecimal("takeProfit"),
+            element.ReadNullableDecimal("stopLoss"),
+            element.ReadNullableDecimal("tpLimitPrice"),
+            element.ReadNullableDecimal("slLimitPrice"));
     }
 
     private static decimal? FirstPositive(params decimal?[] values)

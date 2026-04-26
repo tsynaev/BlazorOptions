@@ -10,13 +10,11 @@ namespace BlazorOptions.Services;
 
 public sealed class ActivePositionsService : IActivePositionsService
 {
-    private const string StorageKey = "blazor-options-bybit-active-positions";
     private static readonly Uri BybitPrivateWebSocketUrl = new("wss://stream.bybit.com/v5/private");
 
     private static readonly TimeSpan ReconnectDelay = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(20);
 
-    private readonly ILocalStorageService _localStorageService;
     private readonly BybitPositionService _bybitPositionService;
     private readonly IBybitPrivateStreamService _privateStreamService;
     private readonly IOptions<BybitSettings> _bybitSettingsOptions;
@@ -31,62 +29,66 @@ public sealed class ActivePositionsService : IActivePositionsService
     private CancellationTokenSource? _socketCts;
     private Task? _socketTask;
     private Task? _heartbeatTask;
-    private bool _isInitialized;
+    private bool _snapshotInitialized;
+    private bool _streamingInitialized;
     private Task _snapshotTask = Task.CompletedTask;
     private IDisposable? _topicSubscription;
 
  
 
     public ActivePositionsService(
-        ILocalStorageService localStorageService,
         BybitPositionService bybitPositionService,
         IBybitPrivateStreamService privateStreamService,
         IOptions<BybitSettings> bybitSettingsOptions)
     {
-        _localStorageService = localStorageService;
         _bybitPositionService = bybitPositionService;
         _privateStreamService = privateStreamService;
         _bybitSettingsOptions = bybitSettingsOptions;
     }
 
 
-    private async Task EnsureInitializedAsync()
+    private async Task EnsureInitializedAsync(bool requireStreaming = false)
     {
-        if (_isInitialized)
+        if (!_snapshotInitialized)
+        {
+            _snapshotInitialized = true;
+
+            if (HasApiCredentials())
+            {
+                _snapshotTask = LoadSnapshotOnceAsync();
+            }
+            else
+            {
+                _snapshotTask = Task.CompletedTask;
+            }
+        }
+
+        if (!requireStreaming || _streamingInitialized || !HasApiCredentials())
         {
             return;
         }
 
-        _isInitialized = true;
-        await LoadFromStorageAsync();
-
-        if (!HasApiCredentials())
-        {
-            _snapshotTask = Task.CompletedTask;
-            return;
-        }
-
-        // Subscribe first, then fetch the full snapshot to avoid missing bootstrap updates.
+        _streamingInitialized = true;
+        // Snapshot-only consumers should not keep a private stream alive.
         _topicSubscription = await _privateStreamService.SubscribeTopicAsync("position", HandlePositionTopicAsync);
-        _snapshotTask = LoadSnapshotOnceAsync();
     }
 
     private async Task HandlePositionTopicAsync(IReadOnlyList<JsonElement> entries)
     {
         foreach (var entry in entries)
         {
-            if (!TryReadString(entry, "symbol", out var symbol))
+            if (!entry.TryReadString("symbol", out var symbol))
             {
                 continue;
             }
 
-            TryReadString(entry, "side", out var side);
-            TryReadString(entry, "category", out var category);
-            var size = ReadDecimal(entry, "size");
-            var avgPrice = ReadDecimal(entry, "avgPrice");
+            entry.TryReadString("side", out var side);
+            entry.TryReadString("category", out var category);
+            var size = entry.ReadDecimal("size");
+            var avgPrice = entry.ReadDecimal("avgPrice");
             if (avgPrice <= 0)
             {
-                avgPrice = ReadDecimal(entry, "entryPrice");
+                avgPrice = entry.ReadDecimal("entryPrice");
             }
 
             if (string.IsNullOrWhiteSpace(category))
@@ -149,35 +151,6 @@ public sealed class ActivePositionsService : IActivePositionsService
         }
     }
 
-    private async Task LoadFromStorageAsync()
-    {
-        try
-        {
-            var stored = await _localStorageService.GetItemAsync(StorageKey);
-            if (string.IsNullOrWhiteSpace(stored))
-            {
-                return;
-            }
-
-            var positions = JsonSerializer.Deserialize<List<ExchangePosition>>(stored, _serializerOptions);
-            if (positions is null)
-            {
-                return;
-            }
-
-            await UpdateSnapshotAsync(positions);
-        }
-        catch
-        {
-        }
-    }
-
-    private async Task PersistAsync()
-    {
-        var payload = JsonSerializer.Serialize(_positions, _serializerOptions);
-        await _localStorageService.SetItemAsync(StorageKey, payload);
-    }
-
     private async Task UpdateSnapshotAsync(IReadOnlyList<ExchangePosition> positions)
     {
         await _sync.WaitAsync();
@@ -200,10 +173,6 @@ public sealed class ActivePositionsService : IActivePositionsService
                     _positions.Add(position);
                 }
             }
-
-
-            await PersistAsync();
-
         }
         finally
         {
@@ -374,18 +343,18 @@ public sealed class ActivePositionsService : IActivePositionsService
 
             foreach (var entry in dataElement.EnumerateArray())
             {
-                if (!TryReadString(entry, "symbol", out var symbol))
+                if (!entry.TryReadString("symbol", out var symbol))
                 {
                     continue;
                 }
 
-                TryReadString(entry, "side", out var side);
-                TryReadString(entry, "category", out var category);
-                var size = ReadDecimal(entry, "size");
-                var avgPrice = ReadDecimal(entry, "avgPrice");
+                entry.TryReadString("side", out var side);
+                entry.TryReadString("category", out var category);
+                var size = entry.ReadDecimal("size");
+                var avgPrice = entry.ReadDecimal("avgPrice");
                 if (avgPrice <= 0)
                 {
-                    avgPrice = ReadDecimal(entry, "entryPrice");
+                    avgPrice = entry.ReadDecimal("entryPrice");
                 }
 
                 if (string.IsNullOrWhiteSpace(category))
@@ -433,8 +402,6 @@ public sealed class ActivePositionsService : IActivePositionsService
             {
                 _positions.Add(update);
             }
-
-            await PersistAsync();
         }
         finally
         {
@@ -553,56 +520,6 @@ public sealed class ActivePositionsService : IActivePositionsService
         return !string.IsNullOrWhiteSpace(settings.ApiKey) && !string.IsNullOrWhiteSpace(settings.ApiSecret);
     }
 
-    private static bool TryReadString(JsonElement element, string propertyName, out string value)
-    {
-        value = string.Empty;
-
-        if (!element.TryGetProperty(propertyName, out var property))
-        {
-            return false;
-        }
-
-        value = property.ValueKind switch
-        {
-            JsonValueKind.String => property.GetString()?.Trim() ?? string.Empty,
-            _ => property.GetRawText().Trim()
-        };
-
-        return !string.IsNullOrWhiteSpace(value);
-    }
-
-    private static decimal ReadDecimal(JsonElement element, string propertyName)
-    {
-        if (!element.TryGetProperty(propertyName, out var property))
-        {
-            return 0;
-        }
-
-        switch (property.ValueKind)
-        {
-            case JsonValueKind.Number when property.TryGetDecimal(out var value):
-                return value;
-            case JsonValueKind.String:
-                var raw = property.GetString();
-                if (decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
-                {
-                    return parsed;
-                }
-
-                break;
-        }
-
-        if (property.ValueKind == JsonValueKind.Null)
-        {
-            return 0;
-        }
-
-        var trimmed = property.GetRawText();
-        return decimal.TryParse(trimmed, NumberStyles.Any, CultureInfo.InvariantCulture, out var fallback)
-            ? fallback
-            : 0;
-    }
-
     private static DateTime? ReadDateTimeUtc(JsonElement element, string propertyName)
     {
         if (!element.TryGetProperty(propertyName, out var property))
@@ -681,7 +598,7 @@ public sealed class ActivePositionsService : IActivePositionsService
             _subscribers.Add(handler);
         }
 
-        await EnsureInitializedAsync();
+        await EnsureInitializedAsync(requireStreaming: true);
         await _snapshotTask;
 
         var snapshot = _positions.ToArray();

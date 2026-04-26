@@ -9,7 +9,6 @@ namespace BlazorOptions.ViewModels;
 
 public sealed class LegsCollectionViewModel : IDisposable
 {
-    private readonly ILegsCollectionDialogService _dialogService;
     private readonly LegViewModelFactory _legViewModelFactory;
     private readonly INotifyUserService _notifyUserService;
     private readonly ExchangeSnapshotLegSyncService _exchangeSnapshotLegSyncService;
@@ -36,14 +35,12 @@ public sealed class LegsCollectionViewModel : IDisposable
     private static readonly string[] PositionExpirationFormats = { "ddMMMyy", "ddMMMyyyy" };
 
     public LegsCollectionViewModel(
-        ILegsCollectionDialogService dialogService,
         LegViewModelFactory legViewModelFactory,
         INotifyUserService notifyUserService,
         ExchangeSnapshotLegSyncService exchangeSnapshotLegSyncService,
         IExchangeService exchangeService,
         ILegsParserService legsParserService)
     {
-        _dialogService = dialogService;
         _legViewModelFactory = legViewModelFactory;
         _notifyUserService = notifyUserService;
         _exchangeSnapshotLegSyncService = exchangeSnapshotLegSyncService;
@@ -202,27 +199,6 @@ public sealed class LegsCollectionViewModel : IDisposable
         set => _ = SetVisibilityAsync(value);
     }
 
-    public async Task AddLegAsync()
-    {
-        using var activity = ActivitySources.Telemetry.StartActivity("LegsCollection.AddLeg");
-        if (Position is null)
-        {
-            return;
-        }
-
-        var legs = await _dialogService.ShowOptionChainDialogAsync(
-            Position.Position,
-            Collection,
-            CurrentPrice);
-        if (legs is null)
-        {
-            return;
-        }
-
-        await UpdateLegsAsync(Collection, legs);
-        SyncLegViewModels();
-    }
-
     public async Task UpdateLegsAsync(LegsCollectionModel collection, IEnumerable<LegModel> legs)
     {
         collection.Legs.Clear();
@@ -271,27 +247,6 @@ public sealed class LegsCollectionViewModel : IDisposable
 
         Position.ClosedPositions.SetAddSymbolInput(symbols);
         return Task.CompletedTask;
-    }
-
-    public async Task LoadBybitPositionsAsync()
-    {
-        if (Position is null)
-        {
-            return;
-        }
-
-        await RefreshExchangeMissingFlagsAsync();
-
-        var positions = await _dialogService.ShowBybitPositionsDialogAsync(
-            Position.Position.BaseAsset,
-            Position.Position.QuoteAsset,
-            Collection.Legs.ToList());
-        if (positions is null)
-        {
-            return;
-        }
-
-        await AddBybitPositionsToCollectionAsync(positions);
     }
 
     public async Task RefreshAvailableLegCandidatesAsync()
@@ -379,6 +334,21 @@ public sealed class LegsCollectionViewModel : IDisposable
         {
             await RaiseUpdatedAsync(LegsCollectionUpdateKind.ViewModelDataUpdated);
         }
+    }
+
+    public async Task RefreshNonLiveMarketSnapshotsAsync()
+    {
+        if (_isLive)
+        {
+            return;
+        }
+
+        foreach (var legViewModel in _legs)
+        {
+            legViewModel.RefreshNonLiveSnapshot();
+        }
+
+        await RaiseUpdatedAsync(LegsCollectionUpdateKind.ViewModelDataUpdated);
     }
 
     public async Task AddAvailableCandidateAsLegAsync(AvailableLegCandidate candidate)
@@ -728,120 +698,9 @@ public sealed class LegsCollectionViewModel : IDisposable
         return false;
     }
 
-    public async Task AddBybitPositionsToCollectionAsync(IReadOnlyList<ExchangePosition> positions)
+    internal LegModel? CreateLegFromExchangePosition(ExchangePosition position, string baseAsset, string category)
     {
-        if (positions.Count == 0)
-        {
-            return;
-        }
-
-        var baseAsset = Position.Position.BaseAsset?.Trim();
-        if (string.IsNullOrWhiteSpace(baseAsset))
-        {
-            _notifyUserService.NotifyUser("Specify a base asset before loading Bybit positions.");
-            return;
-        }
-
-        var added = 0;
-
-        foreach (var bybitPosition in positions)
-        {
-            if (Math.Abs(bybitPosition.Size) < 0.0001m)
-            {
-                continue;
-            }
-
-            var leg = CreateLegFromBybitPosition(bybitPosition, baseAsset, bybitPosition.Category);
-            if (leg is null)
-            {
-                continue;
-            }
-
-            EnsureLegSymbol(leg);
-            var existing = PositionViewModel.FindMatchingLeg(Collection.Legs, leg);
-            if (existing is null)
-            {
-                Collection.Legs.Add(leg);
-                added++;
-            }
-            else
-            {
-                existing.Price = leg.Price;
-                existing.Size = leg.Size;
-            }
-        }
-
-        if (added == 0)
-        {
-            return;
-        }
-
-        SyncLegViewModels();
-        await RaiseUpdatedAsync(LegsCollectionUpdateKind.CollectionChanged);
-        await UpdateExchangeMissingFlagsAsync(positions);
-    }
-
-    internal LegModel? CreateLegFromBybitPosition(ExchangePosition position, string baseAsset, string category)
-    {
-        if (string.IsNullOrWhiteSpace(position.Symbol))
-        {
-            return null;
-        }
-
-        DateTime? expiration = null;
-        decimal? strike = null;
-        var type = LegType.Future;
-        if (string.Equals(category, "option", StringComparison.OrdinalIgnoreCase))
-        {
-           
-            if (!_exchangeService.TryParseSymbol(position.Symbol, out var parsedBase, out var parsedExpiration, out var parsedStrike, out var parsedType))
-            {
-                return null;
-            }
-
-            if (!string.Equals(parsedBase, baseAsset, StringComparison.OrdinalIgnoreCase))
-            {
-                return null;
-            }
-
-            expiration = parsedExpiration;
-            strike = parsedStrike;
-            type = parsedType;
-        }
-        else
-        {
-            if (!position.Symbol.StartsWith(baseAsset, StringComparison.OrdinalIgnoreCase))
-            {
-                return null;
-            }
-
-            if (TryParseFutureExpiration(position.Symbol, out var parsedFutureExpiration))
-            {
-                expiration = parsedFutureExpiration;
-            }
-        }
-
-
-        var size = DetermineSignedSize(position);
-        if (Math.Abs(size) < 0.0001m)
-        {
-            return null;
-        }
-
-        var price = position.AvgPrice;
-
-        return new LegModel
-        {
-            ReferenceId = BuildPositionReferenceId(position.Symbol, size),
-            IsReadOnly = true,
-            Type = type,
-            Strike = strike,
-            ExpirationDate = expiration,
-            Size = size,
-            Price = price,
-            ImpliedVolatility = null,
-            Symbol = position.Symbol
-        };
+        return _exchangeSnapshotLegSyncService.CreateLegFromExchangePosition(position, baseAsset, category, include: true);
     }
 
     internal LegModel? CreateLegFromExchangeOrder(ExchangeOrder order, string baseAsset)
@@ -862,7 +721,7 @@ public sealed class LegsCollectionViewModel : IDisposable
             .ToArray();
 
         var openPositionLegs = positions
-            .Select(position => CreateLegFromBybitPosition(position, baseAsset, position.Category))
+            .Select(position => CreateLegFromExchangePosition(position, baseAsset, position.Category))
             .Where(leg => leg is not null)
             .Cast<LegModel>()
             .ToArray();
@@ -893,7 +752,7 @@ public sealed class LegsCollectionViewModel : IDisposable
 
         foreach (var position in positions)
         {
-            var leg = CreateLegFromBybitPosition(position, baseAsset, position.Category);
+            var leg = CreateLegFromExchangePosition(position, baseAsset, position.Category);
             if (leg is null || string.IsNullOrWhiteSpace(leg.Symbol))
             {
                 continue;
@@ -1070,11 +929,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         return null;
     }
 
-    private static string BuildOrderCandidateId(ExchangeOrder order)
-    {
-        return $"order:{BuildOrderReferenceId(order)}";
-    }
-
+  
     private static string BuildOrderReferenceId(ExchangeOrder order)
     {
         if (!string.IsNullOrWhiteSpace(order.OrderId))
@@ -1114,31 +969,7 @@ public sealed class LegsCollectionViewModel : IDisposable
     }
 
 
-    private static bool TryParseFutureExpiration(string symbol, out DateTime expiration)
-    {
-        expiration = default;
-        if (string.IsNullOrWhiteSpace(symbol))
-        {
-            return false;
-        }
-
-        var tokens = symbol.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (tokens.Length >= 2 &&
-            DateTime.TryParseExact(tokens[1], PositionExpirationFormats, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
-        {
-            expiration = parsed.Date;
-            return true;
-        }
-
-        var match = Regex.Match(symbol, @"(\d{8}|\d{6})$");
-        if (!match.Success)
-        {
-            return false;
-        }
-
-        var format = match.Groups[1].Value.Length == 8 ? "yyyyMMdd" : "yyMMdd";
-        return DateTime.TryParseExact(match.Groups[1].Value, format, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out expiration);
-    }
+   
 
     private static decimal DetermineSignedSize(ExchangePosition position)
     {
@@ -1210,11 +1041,6 @@ public sealed class LegsCollectionViewModel : IDisposable
 
         Collection.Name = name.Trim();
         await RaiseUpdatedAsync(LegsCollectionUpdateKind.LegModelChanged);
-    }
-
-    public async Task OpenSettingsAsync()
-    {
-        await _dialogService.ShowPortfolioSettingsAsync(Collection.Id);
     }
 
     public async Task RemoveLegAsync(LegModel leg)
@@ -1337,7 +1163,7 @@ public sealed class LegsCollectionViewModel : IDisposable
 
             if (!_legViewModels.TryGetValue(key, out var viewModel))
             {
-                viewModel = _legViewModelFactory.Create(this, leg);
+                viewModel = _legViewModelFactory.Create(this, leg, _exchangeService);
                 _legViewModels[key] = viewModel;
                 AttachLegViewModel(viewModel);
             }
@@ -1539,7 +1365,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         }
 
         var activeLegs = positions
-            .Select(position => CreateLegFromBybitPosition(position, baseAsset, position.Category))
+            .Select(position => CreateLegFromExchangePosition(position, baseAsset, position.Category))
             .Where(leg => leg is not null)
             .Cast<LegModel>()
             .ToArray();

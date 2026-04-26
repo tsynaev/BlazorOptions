@@ -1,5 +1,4 @@
 using BlazorOptions.Services;
-using Microsoft.Extensions.Options;
 
 namespace BlazorOptions.ViewModels;
 
@@ -8,18 +7,18 @@ public class AccountSettingsViewModel : IDisposable
     private readonly AuthApiService _authApiService;
     private readonly AuthSessionService _sessionService;
     private readonly ILocalStorageService _localStorageService;
-    private readonly IOptions<BybitSettings> _bybitSettingsOptions;
+    private readonly ExchangeConnectionsService _exchangeConnectionsService;
 
     public AccountSettingsViewModel(
         AuthApiService authApiService,
         AuthSessionService sessionService,
         ILocalStorageService localStorageService,
-        IOptions<BybitSettings> bybitSettingsOptions)
+        ExchangeConnectionsService exchangeConnectionsService)
     {
         _authApiService = authApiService;
         _sessionService = sessionService;
         _localStorageService = localStorageService;
-        _bybitSettingsOptions = bybitSettingsOptions;
+        _exchangeConnectionsService = exchangeConnectionsService;
         _sessionService.OnChange += HandleSessionChanged;
     }
 
@@ -45,23 +44,13 @@ public class AccountSettingsViewModel : IDisposable
 
     public decimal MaxLossFuturesPercent { get; set; } = 30m;
 
-    public string ApiKey { get; set; } = string.Empty;
-
-    public string ApiSecret { get; set; } = string.Empty;
-
-    public string WebSocketUrl { get; set; } = "wss://stream.bybit.com/v5/public/linear";
-
-    public int LivePriceUpdateIntervalMilliseconds { get; set; } = 1000;
-
-    public string OptionBaseCoins { get; set; } = "BTC, ETH, SOL";
-
-    public string OptionQuoteCoins { get; set; } = "USDT";
+    public IReadOnlyList<ExchangeConnectionModel> ExchangeConnections { get; private set; } = Array.Empty<ExchangeConnectionModel>();
 
     public async Task InitializeAsync()
     {
         await _sessionService.InitializeAsync();
         await LoadRiskSettingsAsync();
-        await LoadBybitSettingsAsync();
+        LoadExchangeConnections();
     }
 
     public async Task RegisterAsync()
@@ -170,33 +159,58 @@ public class AccountSettingsViewModel : IDisposable
         OnChange?.Invoke();
     }
 
-    public async Task SaveBybitSettingsAsync()
+    public async Task AddBybitMainConnectionAsync()
     {
-        var settings = new BybitSettings
+        if (ExchangeConnections.Any(connection => string.Equals(connection.Id, ExchangeConnectionModel.BybitMainId, StringComparison.OrdinalIgnoreCase)))
         {
-            ApiKey = ApiKey,
-            ApiSecret = ApiSecret,
-            WebSocketUrl = WebSocketUrl,
-            LivePriceUpdateIntervalMilliseconds = Math.Max(100, LivePriceUpdateIntervalMilliseconds),
-            OptionBaseCoins = OptionBaseCoins,
-            OptionQuoteCoins = OptionQuoteCoins
-        };
+            return;
+        }
 
-        var payload = BybitSettingsStorage.Serialize(settings);
-        await _localStorageService.SetItemAsync(BybitSettingsStorage.StorageKey, payload);
+        var connections = ExchangeConnections.Select(connection => connection.Clone()).ToList();
+        connections.Add(ExchangeConnectionModel.CreateBybitMain());
+        await _exchangeConnectionsService.SaveConnectionsAsync(connections);
+        LoadExchangeConnections();
+    }
+
+    public async Task AddBybitDemoConnectionAsync()
+    {
+        if (ExchangeConnections.Any(connection => string.Equals(connection.Id, ExchangeConnectionModel.BybitDemoId, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        var connections = ExchangeConnections.Select(connection => connection.Clone()).ToList();
+        connections.Add(ExchangeConnectionModel.CreateBybitDemo());
+        await _exchangeConnectionsService.SaveConnectionsAsync(connections);
+        LoadExchangeConnections();
+    }
+
+    public async Task SaveExchangeConnectionsAsync()
+    {
+        var normalized = ExchangeConnections
+            .Select(connection =>
+            {
+                var clone = connection.Clone();
+                clone.Name = string.IsNullOrWhiteSpace(clone.Name) ? clone.Id : clone.Name.Trim();
+                clone.LivePriceUpdateIntervalMilliseconds = Math.Max(100, clone.LivePriceUpdateIntervalMilliseconds);
+                clone.OptionBaseCoins = string.IsNullOrWhiteSpace(clone.OptionBaseCoins) ? "BTC, ETH, SOL" : clone.OptionBaseCoins;
+                clone.OptionQuoteCoins = string.IsNullOrWhiteSpace(clone.OptionQuoteCoins) ? "USDT" : clone.OptionQuoteCoins;
+                return clone;
+            })
+            .ToList();
+
+        await _exchangeConnectionsService.SaveConnectionsAsync(normalized);
+        LoadExchangeConnections();
         OnChange?.Invoke();
     }
 
-    private Task LoadBybitSettingsAsync()
+    private void LoadExchangeConnections()
     {
-        var settings = _bybitSettingsOptions.Value;
-        ApiKey = settings.ApiKey;
-        ApiSecret = settings.ApiSecret;
-        WebSocketUrl = settings.WebSocketUrl;
-        LivePriceUpdateIntervalMilliseconds = Math.Max(100, settings.LivePriceUpdateIntervalMilliseconds);
-        OptionBaseCoins = string.IsNullOrWhiteSpace(settings.OptionBaseCoins) ? "BTC, ETH, SOL" : settings.OptionBaseCoins;
-        OptionQuoteCoins = string.IsNullOrWhiteSpace(settings.OptionQuoteCoins) ? "USDT" : settings.OptionQuoteCoins;
+        ExchangeConnections = _exchangeConnectionsService
+            .GetConnections()
+            .Select(connection => connection.Clone())
+            .OrderBy(connection => connection.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
         OnChange?.Invoke();
-        return Task.CompletedTask;
     }
 }

@@ -1,5 +1,5 @@
 @page "/"
-@implements IDisposable
+@implements IAsyncDisposable
 @inject HomeDashboardViewModel ViewModel
 @inject NavigationManager NavigationManager
 @inject IDialogService DialogService
@@ -41,195 +41,238 @@
     }
     else
     {
-        @foreach (var positionGroup in ViewModel.Groups)
+        @foreach (var exchangeGroup in ViewModel.Groups)
         {
-            <MudStack Spacing="1">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                    <MudText Typo="Typo.h6">@positionGroup.AssetPair</MudText>
-                    @if (positionGroup.DvolChart.IsAvailable && positionGroup.DvolChart.LatestValue.HasValue)
-                    {
-                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info">
-                            DVOL @positionGroup.DvolChart.BaseAsset: @positionGroup.DvolChart.LatestValue.Value.ToString("0.##")
-                        </MudChip>
-                    }
+            <MudStack Spacing="2">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="dashboard-exchange-header">
+                    <MudStack Spacing="0">
+                        <MudText Typo="Typo.h6">@exchangeGroup.ExchangeName</MudText>
+                    </MudStack>
+                    <MudStack Spacing="1" AlignItems="AlignItems.End">
+                        <WalletSummary ExchangeService="@exchangeGroup.ExchangeService"
+                                       ShowEquity="true"
+                                       ShowWalletBalance="true"
+                                       SubscribeLive="false"
+                                       ShowUpdatedTimestamp="false"
+                                       CollapseToSingleColumnOnMobile="true"
+                                       Class="dashboard-group-wallet" />
+                    </MudStack>
                 </MudStack>
-                <MudGrid Spacing="2">
-                    @if (positionGroup.DvolChart.IsLoading || positionGroup.DvolChart.IsAvailable)
-                    {
-                        <MudItem xs="12" md="12" lg="6" @key="@($"{positionGroup.AssetPair}-dvol")">
-                            <MudPaper Class="pa-3 home-position-card">
-                                <MudStack Spacing="1">
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                        <MudText Typo="Typo.subtitle1">DVOL @positionGroup.DvolChart.BaseAsset</MudText>
-                                        @if (positionGroup.DvolChart.LatestValue.HasValue)
-                                        {
-                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="Color.Info">
-                                                IV: @positionGroup.DvolChart.LatestValue.Value.ToString("0.##")%
-                                            </MudChip>
-                                        }
-                                    </MudStack>
-                                    @if (positionGroup.DvolChart.IsLoading)
-                                    {
-                                        <MudSkeleton Height="300px" Width="100%" Animation="Animation.Wave" />
-                                    }
-                                    else if (positionGroup.DvolChart.IsAvailable)
-                                    {
-                                        <DvolChart Labels="@positionGroup.DvolChart.XLabels"
-                                                   Candles="@positionGroup.DvolChart.Candles"
-                                                   AverageValue="@positionGroup.DvolChart.AverageLastYear"
-                                                   IsDarkTheme="true" />
-                                    }
-                                </MudStack>
-                            </MudPaper>
-                        </MudItem>
-                    }
-                    @foreach (var position in positionGroup.Positions)
-                    {
-                        <MudItem xs="12" md="6" lg="4" @key="position.Id">
-                            <MudPaper Class="pa-3 home-position-card home-position-card-clickable"
-                                      @onclick="() => OpenPosition(position.Id)">
-                                <MudStack Spacing="1">
-                                    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start">
-                                        <MudText Typo="Typo.h6">@position.Name</MudText>
-                                        <MudStack Row="true" Spacing="1" Class="home-position-pnl">
-                                            <MudChip T="string" Size="Size.Small" Color="@ResolvePnlColor(position.TotalPnl)">
-                                                P/L: @position.TotalPnl.ToString("0.##")
-                                            </MudChip>
-                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">
-                                                @if (position.PnlPercent.HasValue)
-                                                {
-                                                    @($"{position.PnlPercent.Value:+0.##;-0.##;0}%")
-                                                }
-                                                else
-                                                {
-                                                    @("n/a")
-                                                }
-                                            </MudChip>
-                                        </MudStack>
-                                    </MudStack>
 
-                                    <MudGrid Spacing="1">
-                                        <MudItem xs="12" md="6">
-                                            <MudStack Spacing="1">
-                                                <div class="home-mini-chart">
-                                                    @if (position.IsChartReady)
-                                                    {
-                                                        <MudChart ChartType="ChartType.Line"
-                                                                  Width="100%"
-                                                                  Height="180px"
-                                                                  XAxisLabels="@position.Chart.XLabels.ToArray()"
-                                                                  ChartOptions="@_miniChartOptions"
-                                                                  ChartSeries="@BuildSeries(position.Chart)" />
-                                                        @if (position.CurrentPricePercent.HasValue)
+                @foreach (var assetGroup in exchangeGroup.AssetGroups)
+                {
+                    <MudStack Spacing="1">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                            <MudText Typo="Typo.subtitle1">@assetGroup.AssetPair</MudText>
+                            @if (assetGroup.DvolChart.IsAvailable && assetGroup.DvolChart.LatestValue.HasValue)
+                            {
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info">
+                                    DVOL @assetGroup.DvolChart.BaseAsset: @assetGroup.DvolChart.LatestValue.Value.ToString("0.##")
+                                </MudChip>
+                            }
+                        </MudStack>
+                        <MudGrid Spacing="2">
+                            @if (assetGroup.DvolChart.IsLoading || assetGroup.DvolChart.IsAvailable)
+                            {
+                                <MudItem xs="12" md="12" lg="6" @key="@($"{exchangeGroup.ExchangeConnectionId}-{assetGroup.AssetPair}-dvol")">
+                                    <MudPaper Class="pa-3 home-position-card">
+                                        <MudStack Spacing="1">
+                                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                                <MudText Typo="Typo.subtitle1">DVOL @assetGroup.DvolChart.BaseAsset</MudText>
+                                                @if (assetGroup.DvolChart.LatestValue.HasValue)
+                                                {
+                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="Color.Info">
+                                                        IV: @assetGroup.DvolChart.LatestValue.Value.ToString("0.##")%
+                                                    </MudChip>
+                                                }
+                                            </MudStack>
+                                            @if (assetGroup.DvolChart.IsLoading)
+                                            {
+                                                <MudSkeleton Height="300px" Width="100%" Animation="Animation.Wave" />
+                                            }
+                                            else if (assetGroup.DvolChart.IsAvailable)
+                                            {
+                                                <DvolChart Labels="@assetGroup.DvolChart.XLabels"
+                                                           Candles="@assetGroup.DvolChart.Candles"
+                                                           AverageValue="@assetGroup.DvolChart.AverageLastYear"
+                                                           IsDarkTheme="true" />
+                                            }
+                                        </MudStack>
+                                    </MudPaper>
+                                </MudItem>
+                            }
+                            @foreach (var position in assetGroup.Positions)
+                            {
+                                <MudItem xs="12" md="6" lg="4" @key="position.Id">
+                                    <MudPaper Class="pa-3 home-position-card home-position-card-clickable"
+                                              @onclick="() => OpenPosition(position.Id)">
+                                        <MudStack Spacing="1">
+                                            <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start">
+                                                <MudText Typo="Typo.h6">@position.Name</MudText>
+                                                <MudStack Row="true" Spacing="1" Class="home-position-pnl">
+                                                    <MudChip T="string" Size="Size.Small" Color="@ResolvePnlColor(position.TotalPnl)">
+                                                        P/L: @position.TotalPnl.ToString("0.##")
+                                                    </MudChip>
+                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">
+                                                        @if (position.PnlPercent.HasValue)
                                                         {
-                                                            <div class="home-current-price-line" style="@BuildCurrentPriceLineStyle(position.CurrentPricePercent.Value)"></div>
+                                                            @($"{position.PnlPercent.Value:+0.##;-0.##;0}%")
                                                         }
-                                                    }
-                                                    else
-                                                    {
-                                                        <MudSkeleton Height="180px" Width="100%" Animation="Animation.Wave" />
-                                                    }
-                                                </div>
-                                                <MudStack Row="true" Spacing="1" Class="home-greeks-row">
-                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">О” @FormatGreek(position.GreekSummary.TotalDelta)</MudChip>
-                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">О“ @FormatGamma(position.GreekSummary.TotalGamma)</MudChip>
-                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">ОЅ @FormatGreek(position.GreekSummary.TotalVega)</MudChip>
-                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">О @FormatGreek(position.GreekSummary.TotalTheta)</MudChip>
-                                                </MudStack>
-                                                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" AlignItems="AlignItems.Center" Class="home-break-even-row">
-                                                    <MudText Typo="Typo.caption" Class="home-break-even-label">BE</MudText>
-                                                    @if (position.BreakEvens.Count == 0)
-                                                    {
-                                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Class="home-break-even-chip">
-                                                            n/a
-                                                        </MudChip>
-                                                    }
-                                                    else
-                                                    {
-                                                        @foreach (var breakEven in position.BreakEvens)
+                                                        else
                                                         {
-                                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Class="home-break-even-chip">
-                                                                @FormatBreakEven(breakEven)
-                                                            </MudChip>
+                                                            @("n/a")
                                                         }
-                                                    }
+                                                    </MudChip>
                                                 </MudStack>
                                             </MudStack>
-                                        </MudItem>
-                                        <MudItem xs="12" md="6">
-                                            <MudStack Spacing="1">
-                                                @foreach (var group in GroupLegsByExpiration(position.QuickAddLegs))
-                                                {
-                                                    <MudText Typo="Typo.caption" Class="home-legs-group-title">@group.Key</MudText>
-                                                    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
-                                                        @foreach (var leg in group.Value)
-                                                        {
-                                                            <MudTooltip Arrow="true" Placement="Placement.Top">
-                                                                <ChildContent>
-                                                                    <MudChip T="string"
-                                                                             Size="Size.Small"
-                                                                             Variant="Variant.Outlined"
-                                                                             Class="@($"home-leg-chip {leg.SeverityClass}")"
-                                                                             @onclick:stopPropagation="true">
-                                                                        @leg.Text
+
+                                            <MudGrid Spacing="1">
+                                                <MudItem xs="12" md="6">
+                                                    <MudStack Spacing="1">
+                                                        <div class="home-mini-chart">
+                                                            @if (position.IsChartReady)
+                                                            {
+                                                                <MudChart ChartType="ChartType.Line"
+                                                                          Width="100%"
+                                                                          Height="180px"
+                                                                          XAxisLabels="@position.Chart.XLabels.ToArray()"
+                                                                          ChartOptions="@_miniChartOptions"
+                                                                          ChartSeries="@BuildSeries(position.Chart)" />
+                                                                @if (position.CurrentPricePercent.HasValue)
+                                                                {
+                                                                    <div class="home-current-price-line" style="@BuildCurrentPriceLineStyle(position.CurrentPricePercent.Value)"></div>
+                                                                }
+                                                            }
+                                                            else
+                                                            {
+                                                                <MudSkeleton Height="180px" Width="100%" Animation="Animation.Wave" />
+                                                            }
+                                                        </div>
+                                                        <MudStack Row="true" Spacing="1" Class="home-greeks-row">
+                                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Δ @FormatGreek(position.GreekSummary.TotalDelta)</MudChip>
+                                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Γ @FormatGamma(position.GreekSummary.TotalGamma)</MudChip>
+                                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">V @FormatGreek(position.GreekSummary.TotalVega)</MudChip>
+                                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Θ @FormatGreek(position.GreekSummary.TotalTheta)</MudChip>
+                                                        </MudStack>
+                                                        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" AlignItems="AlignItems.Center" Class="home-break-even-row">
+                                                            <MudText Typo="Typo.caption" Class="home-break-even-label">BE</MudText>
+                                                            @if (position.BreakEvens.Count == 0)
+                                                            {
+                                                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Class="home-break-even-chip">
+                                                                    n/a
+                                                                </MudChip>
+                                                            }
+                                                            else
+                                                            {
+                                                                @foreach (var breakEven in position.BreakEvens)
+                                                                {
+                                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Class="home-break-even-chip">
+                                                                        @FormatBreakEven(breakEven)
                                                                     </MudChip>
-                                                                </ChildContent>
-                                                                <TooltipContent>
-                                                                    <table class="home-leg-tooltip-table">
-                                                                        <tbody>
-                                                                            <tr><td>Type</td><td>@leg.Type</td></tr>
-                                                                            <tr><td>Size</td><td>@leg.Size.ToString("0.####")</td></tr>
-                                                                            <tr><td>Entry</td><td>@FormatNullable(leg.EntryPrice)</td></tr>
-                                                                            <tr><td>Mark</td><td>@FormatNullable(leg.MarkPrice)</td></tr>
-                                                                            <tr><td>Entry value</td><td>@leg.EntryValue.ToString("0.##")</td></tr>
-                                                                            <tr><td>Current value</td><td>@leg.CurrentValue.ToString("0.##")</td></tr>
-                                                                            <tr><td>PnL</td><td>@leg.Pnl.ToString("0.##")</td></tr>
-                                                                            <tr><td>PnL %</td><td>@FormatPercent(leg.PnlPercent)</td></tr>
-                                                                            @if (!string.IsNullOrWhiteSpace(leg.Symbol))
-                                                                            {
-                                                                                <tr><td>Symbol</td><td>@leg.Symbol</td></tr>
-                                                                            }
-                                                                        </tbody>
-                                                                    </table>
-                                                                </TooltipContent>
-                                                            </MudTooltip>
+                                                                }
+                                                            }
+                                                        </MudStack>
+                                                    </MudStack>
+                                                </MudItem>
+                                                <MudItem xs="12" md="6">
+                                                    <MudStack Spacing="1">
+                                                        @foreach (var group in GroupLegsByExpiration(position.QuickAddLegs))
+                                                        {
+                                                            <MudText Typo="Typo.caption" Class="home-legs-group-title">@group.Key</MudText>
+                                                            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                                                                @foreach (var leg in group.Value)
+                                                                {
+                                                                    <MudTooltip Arrow="true" Placement="Placement.Top">
+                                                                        <ChildContent>
+                                                                            <MudChip T="string"
+                                                                                     Size="Size.Small"
+                                                                                     Variant="Variant.Outlined"
+                                                                                     Class="@($"home-leg-chip {leg.SeverityClass}")"
+                                                                                     @onclick:stopPropagation="true">
+                                                                                @leg.Text
+                                                                            </MudChip>
+                                                                        </ChildContent>
+                                                                        <TooltipContent>
+                                                                            <table class="home-leg-tooltip-table">
+                                                                                <tbody>
+                                                                                    <tr><td>Type</td><td>@leg.Type</td></tr>
+                                                                                    <tr><td>Size</td><td>@leg.Size.ToString("0.####")</td></tr>
+                                                                                    <tr><td>Entry</td><td>@FormatNullable(leg.EntryPrice)</td></tr>
+                                                                                    <tr><td>Mark</td><td>@FormatNullable(leg.MarkPrice)</td></tr>
+                                                                                    <tr><td>Entry value</td><td>@leg.EntryValue.ToString("0.##")</td></tr>
+                                                                                    <tr><td>Current value</td><td>@leg.CurrentValue.ToString("0.##")</td></tr>
+                                                                                    <tr><td>PnL</td><td>@leg.Pnl.ToString("0.##")</td></tr>
+                                                                                    <tr><td>PnL %</td><td>@FormatPercent(leg.PnlPercent)</td></tr>
+                                                                                    @if (!string.IsNullOrWhiteSpace(leg.Symbol))
+                                                                                    {
+                                                                                        <tr><td>Symbol</td><td>@leg.Symbol</td></tr>
+                                                                                    }
+                                                                                </tbody>
+                                                                            </table>
+                                                                        </TooltipContent>
+                                                                    </MudTooltip>
+                                                                }
+                                                            </MudStack>
                                                         }
                                                     </MudStack>
-                                                }
-                                            </MudStack>
-                                        </MudItem>
-                                    </MudGrid>
+                                                </MudItem>
+                                            </MudGrid>
 
-                                    @if (!string.IsNullOrWhiteSpace(position.Notes))
-                                    {
-                                        <MudText Typo="Typo.caption" Style="white-space: pre-line;">@position.Notes</MudText>
-                                    }
-                                </MudStack>
-                                <div class="home-card-delete" @onclick:stopPropagation="true">
-                                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                                                   Color="Color.Error"
-                                                   Size="Size.Small"
-                                                   OnClick="async () => await ConfirmAndRemovePositionAsync(position.Id, position.Name)" />
-                                </div>
-                            </MudPaper>
-                        </MudItem>
-                    }
-                </MudGrid>
+                                            @if (!string.IsNullOrWhiteSpace(position.Notes))
+                                            {
+                                                <MudText Typo="Typo.caption" Style="white-space: pre-line;">@position.Notes</MudText>
+                                            }
+                                        </MudStack>
+                                        <div class="home-card-delete" @onclick:stopPropagation="true">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                                           Color="Color.Error"
+                                                           Size="Size.Small"
+                                                           OnClick="async () => await ConfirmAndRemovePositionAsync(position.Id, position.Name)" />
+                                        </div>
+                                    </MudPaper>
+                                </MudItem>
+                            }
+                        </MudGrid>
+                    </MudStack>
+                }
             </MudStack>
         }
     }
 </MudStack>
 
 @code {
+    private bool _subscribed;
+
+    protected override void OnInitialized()
+    {
+        if (_subscribed)
+        {
+            return;
+        }
+
+        ViewModel.PropertyChanged += HandleViewModelChanged;
+        _subscribed = true;
+    }
+
     protected override async Task OnInitializedAsync()
     {
-        ViewModel.PropertyChanged += HandleViewModelChanged;
         await ViewModel.LoadAsync();
     }
 
-    public void Dispose()
+    protected override Task OnParametersSetAsync()
     {
-        ViewModel.PropertyChanged -= HandleViewModelChanged;
+        return ViewModel.LoadAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_subscribed)
+        {
+            ViewModel.PropertyChanged -= HandleViewModelChanged;
+            _subscribed = false;
+        }
+
+        await ViewModel.DisposeAsync();
     }
 
     private Task ReloadAsync()
@@ -239,13 +282,8 @@
 
     private async Task CreatePositionAsync()
     {
-        var createdPositionId = await ViewModel.CreatePositionAsync();
-        if (!createdPositionId.HasValue || createdPositionId.Value == Guid.Empty)
-        {
-            return;
-        }
-
-        OpenPosition(createdPositionId.Value);
+        NavigationManager.NavigateTo("/positions/new");
+        await Task.CompletedTask;
     }
 
     private async Task ConfirmAndRemovePositionAsync(Guid positionId, string? positionName)
@@ -405,6 +443,16 @@
 
     .home-break-even-chip {
         font-size: 0.72rem;
+    }
+
+    .dashboard-group-wallet {
+        max-width: 100%;
+    }
+
+    .dashboard-exchange-header {
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, rgba(30, 41, 59, 0.92), rgba(51, 65, 85, 0.82));
     }
 
     .home-position-card-clickable {

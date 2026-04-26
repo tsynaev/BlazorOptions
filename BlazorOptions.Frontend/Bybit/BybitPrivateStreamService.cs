@@ -19,7 +19,6 @@ public interface IBybitPrivateStreamService : IAsyncDisposable
 
 public sealed class BybitPrivateStreamService : IBybitPrivateStreamService
 {
-    private static readonly Uri BybitPrivateWebSocketUrl = new("wss://stream.bybit.com/v5/private?max_active_time=10m");
     private static readonly TimeSpan ReconnectDelay = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(20);
 
@@ -135,7 +134,7 @@ public sealed class BybitPrivateStreamService : IBybitPrivateStreamService
         }
 
         _socket = new ClientWebSocket();
-        await _socket.ConnectAsync(BybitPrivateWebSocketUrl, cancellationToken);
+        await _socket.ConnectAsync(settings.PrivateWebSocketUrl, cancellationToken);
         await AuthenticateAsync(settings, cancellationToken);
         await SubscribeAllTopicsAsync(cancellationToken);
         _ = SendHeartbeatLoopAsync(cancellationToken);
@@ -329,16 +328,18 @@ public sealed class BybitPrivateStreamService : IBybitPrivateStreamService
 
     private async Task CloseSocketAsync()
     {
-        if (_socket is null)
+        var socket = _socket;
+        _socket = null;
+        if (socket is null)
         {
             return;
         }
 
         try
         {
-            if (_socket.State == WebSocketState.Open)
+            if (socket.State == WebSocketState.Open)
             {
-                await _socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
+                await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
             }
         }
         catch
@@ -347,8 +348,7 @@ public sealed class BybitPrivateStreamService : IBybitPrivateStreamService
         }
         finally
         {
-            _socket.Dispose();
-            _socket = null;
+            socket.Dispose();
         }
     }
 
@@ -412,4 +412,5 @@ public sealed class BybitPrivateStreamService : IBybitPrivateStreamService
         await CloseSocketAsync();
         _sendLock.Dispose();
     }
+
 }

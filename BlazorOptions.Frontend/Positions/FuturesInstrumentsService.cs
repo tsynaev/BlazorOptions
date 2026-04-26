@@ -1,22 +1,25 @@
 using System.Globalization;
 using System.Linq;
 using System.Text.Json;
+using BlazorOptions.ViewModels;
+using Microsoft.Extensions.Options;
 
 namespace BlazorOptions.Services;
 
 public sealed class FuturesInstrumentsService : IFuturesInstrumentsService
 {
-    private const string BybitInstrumentsInfoUrl = "https://api.bybit.com/v5/market/instruments-info?category=linear";
     private const int PageSize = 500;
     private readonly HttpClient _httpClient;
+    private readonly IOptions<BybitSettings> _bybitSettingsOptions;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private readonly object _cacheLock = new();
     private readonly Dictionary<string, List<DateTime?>> _cachedExpirations = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<ExchangeTradingPair>? _cachedTradingPairs;
 
-    public FuturesInstrumentsService(HttpClient httpClient)
+    public FuturesInstrumentsService(HttpClient httpClient, IOptions<BybitSettings> bybitSettingsOptions)
     {
         _httpClient = httpClient;
+        _bybitSettingsOptions = bybitSettingsOptions;
     }
 
     public IReadOnlyList<DateTime?> GetCachedExpirations(string baseAsset, string? quoteAsset)
@@ -123,7 +126,7 @@ public sealed class FuturesInstrumentsService : IFuturesInstrumentsService
 
         do
         {
-            var url = BuildInstrumentsUrl(normalizedBase, cursor);
+            var url = BuildInstrumentsUrl(_bybitSettingsOptions.Value.InstrumentsInfoUri, normalizedBase, cursor);
             using var response = await _httpClient.GetAsync(url, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
@@ -144,7 +147,7 @@ public sealed class FuturesInstrumentsService : IFuturesInstrumentsService
             {
                 foreach (var entry in listElement.EnumerateArray())
                 {
-                    if (!TryReadString(entry, "baseCoin", out var entryBase)
+                    if (!entry.TryReadString("baseCoin", out var entryBase)
                         || !string.Equals(entryBase, normalizedBase, StringComparison.OrdinalIgnoreCase))
                     {
                         continue;
@@ -156,13 +159,13 @@ public sealed class FuturesInstrumentsService : IFuturesInstrumentsService
                         continue;
                     }
 
-                    if (!TryReadString(entry, "contractType", out var contractType)
+                    if (!entry.TryReadString("contractType", out var contractType)
                         || !contractType.Contains("Futures", StringComparison.OrdinalIgnoreCase))
                     {
                         continue;
                     }
 
-                    if (!TryReadLong(entry, "deliveryTime", out var deliveryTime) || deliveryTime <= 0)
+                    if (!entry.TryReadLong("deliveryTime", out var deliveryTime) || deliveryTime <= 0)
                     {
                         continue;
                     }
@@ -175,7 +178,7 @@ public sealed class FuturesInstrumentsService : IFuturesInstrumentsService
                 }
             }
 
-            cursor = TryReadString(resultElement, "nextPageCursor", out var nextCursor) && !string.IsNullOrWhiteSpace(nextCursor)
+            cursor = resultElement.TryReadString("nextPageCursor", out var nextCursor) && !string.IsNullOrWhiteSpace(nextCursor)
                 ? nextCursor
                 : null;
         } while (!string.IsNullOrWhiteSpace(cursor));
@@ -198,7 +201,7 @@ public sealed class FuturesInstrumentsService : IFuturesInstrumentsService
 
         do
         {
-            var url = BuildInstrumentsUrl(baseAsset: string.Empty, cursor: cursor, includeBase: false);
+            var url = BuildInstrumentsUrl(_bybitSettingsOptions.Value.InstrumentsInfoUri, baseAsset: string.Empty, cursor: cursor, includeBase: false);
             using var response = await _httpClient.GetAsync(url, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
@@ -219,17 +222,17 @@ public sealed class FuturesInstrumentsService : IFuturesInstrumentsService
             {
                 foreach (var entry in listElement.EnumerateArray())
                 {
-                    if (!TryReadString(entry, "baseCoin", out var baseCoin) || string.IsNullOrWhiteSpace(baseCoin))
+                    if (!entry.TryReadString("baseCoin", out var baseCoin) || string.IsNullOrWhiteSpace(baseCoin))
                     {
                         continue;
                     }
 
-                    if (!TryReadString(entry, "settleCoin", out var settleCoin) || string.IsNullOrWhiteSpace(settleCoin))
+                    if (!entry.TryReadString("settleCoin", out var settleCoin) || string.IsNullOrWhiteSpace(settleCoin))
                     {
                         continue;
                     }
 
-                    if (!TryReadString(entry, "status", out var status)
+                    if (!entry.TryReadString("status", out var status)
                         || !string.Equals(status, "Trading", StringComparison.OrdinalIgnoreCase))
                     {
                         continue;
@@ -241,7 +244,7 @@ public sealed class FuturesInstrumentsService : IFuturesInstrumentsService
                 }
             }
 
-            cursor = TryReadString(resultElement, "nextPageCursor", out var nextCursor) && !string.IsNullOrWhiteSpace(nextCursor)
+            cursor = resultElement.TryReadString("nextPageCursor", out var nextCursor) && !string.IsNullOrWhiteSpace(nextCursor)
                 ? nextCursor
                 : null;
         } while (!string.IsNullOrWhiteSpace(cursor));
@@ -252,11 +255,10 @@ public sealed class FuturesInstrumentsService : IFuturesInstrumentsService
             .ToArray();
     }
 
-    private static string BuildInstrumentsUrl(string baseAsset, string? cursor, bool includeBase = true)
+    private static Uri BuildInstrumentsUrl(Uri instrumentsInfoUrl, string baseAsset, string? cursor, bool includeBase = true)
     {
         var builder = new List<string>
         {
-            BybitInstrumentsInfoUrl,
             $"limit={PageSize.ToString(CultureInfo.InvariantCulture)}"
         };
 
@@ -270,29 +272,29 @@ public sealed class FuturesInstrumentsService : IFuturesInstrumentsService
             builder.Add($"cursor={Uri.EscapeDataString(cursor)}");
         }
 
-        return $"{BybitInstrumentsInfoUrl}&{string.Join("&", builder.Skip(1))}";
+        return new Uri($"{instrumentsInfoUrl}&{string.Join("&", builder)}");
     }
 
     private static bool MatchesQuote(JsonElement entry, string normalizedQuote)
     {
-        if (TryReadString(entry, "quoteCoin", out var quoteCoin)
+        if (entry.TryReadString("quoteCoin", out var quoteCoin)
             && string.Equals(quoteCoin, normalizedQuote, StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        return TryReadString(entry, "settleCoin", out var settleCoin)
+        return entry.TryReadString("settleCoin", out var settleCoin)
             && string.Equals(settleCoin, normalizedQuote, StringComparison.OrdinalIgnoreCase);
     }
 
     private static void ThrowIfRetCodeError(JsonElement root)
     {
-        if (!TryReadInt(root, "retCode", out var retCode) || retCode == 0)
+        if (!root.TryReadInt("retCode", out var retCode) || retCode == 0)
         {
             return;
         }
 
-        var message = TryReadString(root, "retMsg", out var retMsg) ? retMsg : "Unknown error";
+        var message = root.TryReadString("retMsg", out var retMsg) ? retMsg : "Unknown error";
         throw new InvalidOperationException($"Bybit API error {retCode}: {message}");
     }
 
@@ -306,57 +308,4 @@ public sealed class FuturesInstrumentsService : IFuturesInstrumentsService
         return DateTimeOffset.FromUnixTimeMilliseconds(timestamp).UtcDateTime;
     }
 
-    private static bool TryReadString(JsonElement element, string propertyName, out string value)
-    {
-        value = string.Empty;
-        if (!element.TryGetProperty(propertyName, out var property))
-        {
-            return false;
-        }
-
-        value = property.ValueKind == JsonValueKind.String ? property.GetString() ?? string.Empty : property.GetRawText();
-        return true;
-    }
-
-    private static bool TryReadInt(JsonElement element, string propertyName, out int value)
-    {
-        value = 0;
-        if (!element.TryGetProperty(propertyName, out var property))
-        {
-            return false;
-        }
-
-        if (property.ValueKind == JsonValueKind.Number && property.TryGetInt32(out value))
-        {
-            return true;
-        }
-
-        if (property.ValueKind != JsonValueKind.String)
-        {
-            return false;
-        }
-
-        return int.TryParse(property.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out value);
-    }
-
-    private static bool TryReadLong(JsonElement element, string propertyName, out long value)
-    {
-        value = 0;
-        if (!element.TryGetProperty(propertyName, out var property))
-        {
-            return false;
-        }
-
-        if (property.ValueKind == JsonValueKind.Number && property.TryGetInt64(out value))
-        {
-            return true;
-        }
-
-        if (property.ValueKind != JsonValueKind.String)
-        {
-            return false;
-        }
-
-        return long.TryParse(property.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out value);
-    }
 }

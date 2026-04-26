@@ -18,8 +18,11 @@ public sealed class PositionViewModel : IDisposable
     private readonly LegsCollectionViewModelFactory _collectionFactory;
     private readonly ClosedPositionsViewModelFactory _closedPositionsFactory;
     private readonly INotifyUserService _notifyUserService;
-    private readonly IExchangeService _exchangeService;
+    private readonly IExchangeServiceFactory _exchangeServiceFactory;
     private readonly BlackScholes _blackScholes;
+    private readonly ExchangeConnectionsService _exchangeConnectionsService;
+    private IExchangeService? _ownedExchangeService;
+    private IExchangeService _exchangeService = null!;
     private decimal? _currentPrice;
     private DateTime _valuationDate = DateTime.UtcNow;
     private decimal? _selectedPrice;
@@ -70,16 +73,18 @@ public sealed class PositionViewModel : IDisposable
         LegsCollectionViewModelFactory collectionFactory,
         ClosedPositionsViewModelFactory closedPositionsFactory,
         INotifyUserService notifyUserService,
-        IExchangeService exchangeService,
-        BlackScholes blackScholes)
+        IExchangeServiceFactory exchangeServiceFactory,
+        BlackScholes blackScholes,
+        ExchangeConnectionsService exchangeConnectionsService)
     {
         _optionsService = optionsService;
         _positionsPort = positionsPort;
         _collectionFactory = collectionFactory;
         _closedPositionsFactory = closedPositionsFactory;
         _notifyUserService = notifyUserService;
-        _exchangeService = exchangeService;
+        _exchangeServiceFactory = exchangeServiceFactory;
         _blackScholes = blackScholes;
+        _exchangeConnectionsService = exchangeConnectionsService;
        
   
     }
@@ -101,7 +106,7 @@ public sealed class PositionViewModel : IDisposable
             }
             LegsCollection = CreateCollectionViewModel(CreateWorkingCollection(_position));
 
-            ClosedPositions = _closedPositionsFactory.Create(this, _position);
+            ClosedPositions = _closedPositionsFactory.Create(this, _position, _exchangeService);
 
             ClosedPositions.Model.PropertyChanged += OnClosedPositionsChanged;
             ClosedPositions.UpdatedCompleted += OnClosedPositionsUpdated;
@@ -167,6 +172,10 @@ public sealed class PositionViewModel : IDisposable
 
     public string? ErrorMessage { get; set; }
 
+    public string ExchangeDisplayName => _exchangeConnectionsService.GetDisplayName(Position?.ExchangeConnectionId);
+
+    public IExchangeService ExchangeService => _exchangeService;
+
     public event Action? OnChange;
     public event Action<decimal?>? LivePriceChanged;
 
@@ -201,6 +210,8 @@ public sealed class PositionViewModel : IDisposable
                 return;
             }
 
+            await SwitchExchangeServiceAsync(storedPosition.ExchangeConnectionId);
+
             var normalizedStoredExpirations = NormalizeStoredLegExpirations(storedPosition);
             Position = storedPosition;
             ResetTransientStrategyLegInclusions();
@@ -209,8 +220,6 @@ public sealed class PositionViewModel : IDisposable
 
             UpdateDerivedState();
             await TryHydrateSelectedPriceFromRecentCandleAsync();
-
-            _ = _exchangeService.OptionsChain.UpdateTickersAsync(Position.BaseAsset);
 
             _chartRangeOverride = storedPosition.ChartRange;
             _chartTimeRange = null;
@@ -307,35 +316,6 @@ public sealed class PositionViewModel : IDisposable
         var hasError = false;
         try
         {
-            _ = EnsureLiveSubscriptionAsync();
-        }
-        catch
-        {
-            hasError = true;
-        }
-
-        try
-        {
-            _positionsSubscription?.Dispose();
-            _positionsSubscription = await _exchangeService.Positions.SubscribeAsync(HandleActivePositionsSnapshot);
-        }
-        catch
-        {
-            hasError = true;
-        }
-
-        try
-        {
-            _ordersSubscription?.Dispose();
-            _ordersSubscription = await _exchangeService.Orders.SubscribeAsync(HandleOpenOrdersSnapshot);
-        }
-        catch
-        {
-            hasError = true;
-        }
-
-        try
-        {
             await ClosedPositions.InitializeAsync();
         }
         catch
@@ -345,7 +325,15 @@ public sealed class PositionViewModel : IDisposable
 
         try
         {
-            await RefreshExchangeMissingFlagsAsync();
+            if (_isLive)
+            {
+                await EnsureExchangeRealtimeAsync();
+            }
+            else
+            {
+                await LoadStaticExchangeSnapshotAsync();
+            }
+
             NotifyStateChanged();
         }
         catch
@@ -374,7 +362,7 @@ public sealed class PositionViewModel : IDisposable
 
     private LegsCollectionViewModel CreateCollectionViewModel(LegsCollectionModel collection)
     {
-        var viewModel = _collectionFactory.Create(this, collection);
+        var viewModel = _collectionFactory.Create(this, collection, _exchangeService);
         viewModel.Updated += HandleCollectionUpdatedAsync;
         viewModel.CurrentPrice = _currentPrice;
         viewModel.ValuationDate = _valuationDate;
@@ -579,6 +567,12 @@ public sealed class PositionViewModel : IDisposable
             LegsCollection.Updated -= HandleCollectionUpdatedAsync;
             LegsCollection.Dispose();
         }
+        var exchangeService = _ownedExchangeService;
+        _ownedExchangeService = null;
+        if (exchangeService is not null)
+        {
+            _ = exchangeService.DisposeAsync();
+        }
     }
 
     private async Task HandleActivePositionsSnapshot(IReadOnlyList<ExchangePosition> positions)
@@ -626,7 +620,7 @@ public sealed class PositionViewModel : IDisposable
 
     private async Task RefreshExchangeMissingFlagsAsync()
     {
-        var snapshot = await GetExchangeSnapshotAsync(forceRefresh: true);
+        var snapshot = await GetExchangeSnapshotAsync();
         _lastPositionsSnapshot = snapshot.Positions.ToArray();
         _lastOrdersSnapshot = snapshot.Orders.ToArray();
         UpdateCachedExchangeSnapshot(_lastPositionsSnapshot, _lastOrdersSnapshot);
@@ -779,11 +773,12 @@ public sealed class PositionViewModel : IDisposable
         UpdateDerivedState();
         if (_isLive)
         {
-            _ = EnsureLiveSubscriptionAsync();
+            _ = EnsureExchangeRealtimeAsync();
         }
         else
         {
             _ = StopTickerAsync();
+            _ = StopExchangeSnapshotSubscriptionsAsync();
         }
     }
 
@@ -845,12 +840,93 @@ public sealed class PositionViewModel : IDisposable
         _tickerSubscription = await _exchangeService.Tickers.SubscribeAsync(symbol, HandlePriceUpdated);
     }
 
+    private async Task EnsureExchangeRealtimeAsync()
+    {
+        await EnsureLiveSubscriptionAsync();
+
+        if (_positionsSubscription is null)
+        {
+            _positionsSubscription = await _exchangeService.Positions.SubscribeAsync(HandleActivePositionsSnapshot);
+        }
+
+        if (_ordersSubscription is null)
+        {
+            _ordersSubscription = await _exchangeService.Orders.SubscribeAsync(HandleOpenOrdersSnapshot);
+        }
+
+        await RefreshExchangeMissingFlagsAsync();
+    }
+
+    private async Task LoadStaticExchangeSnapshotAsync()
+    {
+        await StopExchangeSnapshotSubscriptionsAsync();
+        var snapshot = await GetExchangeSnapshotAsync(forceRefresh: true);
+        _lastPositionsSnapshot = snapshot.Positions.ToArray();
+        _lastOrdersSnapshot = snapshot.Orders.ToArray();
+        UpdateCachedExchangeSnapshot(_lastPositionsSnapshot, _lastOrdersSnapshot);
+        await LoadStaticOptionChainSnapshotAsync();
+        await MoveClosedExchangePositionsToClosedAsync(_lastPositionsSnapshot);
+        await ApplyExchangeSnapshotsToCollectionsAsync();
+        await UpdateExchangeMissingFlagsAsync(_lastPositionsSnapshot);
+    }
+
+    private async Task LoadStaticOptionChainSnapshotAsync()
+    {
+        if (_isLive || Position is null)
+        {
+            return;
+        }
+
+        var baseAsset = Position.BaseAsset?.Trim();
+        if (string.IsNullOrWhiteSpace(baseAsset))
+        {
+            return;
+        }
+
+        var hasOptionLegs = Position.Legs.Any(leg =>
+            leg.IsIncluded
+            && !string.IsNullOrWhiteSpace(leg.Symbol)
+            && leg.Type is LegType.Call or LegType.Put);
+        if (!hasOptionLegs)
+        {
+            return;
+        }
+
+        if (_exchangeService.OptionsChain.GetTickersByBaseAsset(baseAsset).Count > 0)
+        {
+            return;
+        }
+
+        try
+        {
+            // Non-live position open should fetch one option snapshot and then stay idle.
+            await _exchangeService.OptionsChain.UpdateTickersAsync(baseAsset);
+            if (LegsCollection is not null)
+            {
+                await LegsCollection.RefreshNonLiveMarketSnapshotsAsync();
+            }
+        }
+        catch
+        {
+            // Keep page usable when option snapshot bootstrap fails.
+        }
+    }
+
     internal async Task StopTickerAsync()
     {
         _tickerSubscription?.Dispose();
         _tickerSubscription = null;
         _currentSymbol = null;
         await Task.CompletedTask;
+    }
+
+    internal Task StopExchangeSnapshotSubscriptionsAsync()
+    {
+        _positionsSubscription?.Dispose();
+        _positionsSubscription = null;
+        _ordersSubscription?.Dispose();
+        _ordersSubscription = null;
+        return Task.CompletedTask;
     }
 
     private Task HandlePriceUpdated(ExchangePriceUpdate update)
@@ -1401,6 +1477,12 @@ public sealed class PositionViewModel : IDisposable
             return;
         }
 
+        if (!_isLive && _exchangeService.OptionsChain.GetTickersByBaseAsset(baseAsset).Count == 0)
+        {
+            // Non-live page open must stay snapshot-only instead of warming the full option chain.
+            return;
+        }
+
         var targetDay = ResolveDayIvMarkerDayUtc();
         var nowUtc = DateTime.UtcNow;
 
@@ -1438,7 +1520,11 @@ public sealed class PositionViewModel : IDisposable
                 return;
             }
 
-            await _exchangeService.OptionsChain.UpdateTickersAsync(baseAsset, cancellationToken);
+            if (_isLive)
+            {
+                await _exchangeService.OptionsChain.UpdateTickersAsync(baseAsset, cancellationToken);
+            }
+
             var tickers = _exchangeService.OptionsChain.GetTickersByBaseAsset(baseAsset);
             var markerData = BuildDayIvMarkerData(tickers, targetDayUtc, dayOpen.Value);
             if (markerData is null)
@@ -2607,6 +2693,18 @@ public sealed class PositionViewModel : IDisposable
         }
 
         Dispose();
+    }
+
+    private async Task SwitchExchangeServiceAsync(string? exchangeConnectionId)
+    {
+        if (_ownedExchangeService is not null)
+        {
+            await _ownedExchangeService.DisposeAsync();
+            _ownedExchangeService = null;
+        }
+
+        _ownedExchangeService = _exchangeServiceFactory.Create(exchangeConnectionId);
+        _exchangeService = _ownedExchangeService;
     }
 
     private static void CancelAndDispose(ref CancellationTokenSource? source, object gate)

@@ -8,7 +8,6 @@ namespace BlazorOptions.Services;
 
 public abstract class BybitApiService
 {
-    private const string BaseUrl = "https://api.bybit.com";
     private const string RecvWindow = "5000";
     private readonly HttpClient _httpClient;
 
@@ -27,7 +26,7 @@ public abstract class BybitApiService
 
     protected async Task<string> SendSignedRequestAsync(
         HttpMethod method,
-        string path,
+        Uri url,
         BybitSettings settings,
         string? queryString = null,
         string? body = null,
@@ -42,9 +41,14 @@ public abstract class BybitApiService
         var payload = method == HttpMethod.Get ? (queryString ?? string.Empty) : (body ?? string.Empty);
         var signature = Sign($"{timestamp}{settings.ApiKey}{RecvWindow}{payload}", settings.ApiSecret);
 
+        if (!url.IsAbsoluteUri)
+        {
+            throw new InvalidOperationException("Bybit signed request URL must be absolute.");
+        }
+
         var uri = string.IsNullOrWhiteSpace(queryString)
-            ? $"{BaseUrl}{path}"
-            : $"{BaseUrl}{path}?{queryString}";
+            ? url
+            : new Uri($"{url}{(string.IsNullOrWhiteSpace(url.Query) ? "?" : "&")}{queryString}");
 
         using var request = new HttpRequestMessage(method, uri);
         request.Headers.Add("X-BAPI-API-KEY", settings.ApiKey);

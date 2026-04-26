@@ -22,16 +22,6 @@
                                            Disabled="@(ViewModel.Legs.Count == 0)"
                                            OnClick="async () => await ViewModel.CopySymbolsToClosedPositionsAsync()"/>
                         </MudTooltip>
-                        <MudTooltip Text="Load exchange positions">
-                            <MudIconButton Icon="@Icons.Material.Filled.CloudDownload"
-                                           Color="Color.Default"
-                                           OnClick="async () => await ViewModel.LoadBybitPositionsAsync()"/>
-                        </MudTooltip>
-                        <MudTooltip Text="Add leg">
-                            <MudIconButton Icon="@Icons.Material.Filled.AddCircle"
-                                           Color="Color.Primary"
-                                           OnClick="async () => await ViewModel.AddLegAsync()"/>
-                        </MudTooltip>
                     </MudStack>
                 </MudStack>
                 @{
@@ -97,6 +87,11 @@
             return;
         }
 
+        if (!ViewModel.ShowAvailablePositionChips)
+        {
+            return;
+        }
+
         var collectionId = ViewModel.Collection?.Id;
         if (!collectionId.HasValue || collectionId == _loadedForCollectionId)
         {
@@ -137,11 +132,16 @@
         return ViewModel.GetVisibleAvailableLegCandidates(expirationDate);
     }
 
-    private Task HandleShowAvailablePositionChipsChanged(bool value)
+    private async Task HandleShowAvailablePositionChipsChanged(bool value)
     {
         ViewModel.ShowAvailablePositionChips = value;
+        if (value)
+        {
+            _loadedForCollectionId = ViewModel.Collection?.Id;
+            await ViewModel.RefreshAvailableLegCandidatesAsync();
+        }
+
         StateHasChanged();
-        return Task.CompletedTask;
     }
 
     private static string FormatExpiration(DateTime? date)

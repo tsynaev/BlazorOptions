@@ -9,7 +9,7 @@ public sealed class PositionPnlCalculatorTests
 {
     private static PositionPnlCalculator CreateCalculator()
     {
-        return new PositionPnlCalculator(new OptionsService(new BlackScholes()), new ExchangeService());
+        return new PositionPnlCalculator(new OptionsService(new BlackScholes()));
     }
 
     [TestMethod]
@@ -76,7 +76,7 @@ public sealed class PositionPnlCalculatorTests
             }
         };
 
-        var (totalPnl, percentPnl) = calculator.ResolvePnl(position, 110m);
+        var (totalPnl, percentPnl) = calculator.ResolvePnl(position, 110m, new TestExchangeService());
 
         totalPnl.Should().Be(7m);
         percentPnl.Should().Be(100m);

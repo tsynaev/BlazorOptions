@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using BlazorOptions.ViewModels;
 using Microsoft.Extensions.Options;
@@ -7,7 +6,6 @@ namespace BlazorOptions.Services;
 
 public sealed class BybitWalletService : BybitApiService
 {
-    private const string RequestPath = "/v5/account/wallet-balance";
     private static readonly string[] AccountTypes = ["UNIFIED", "CONTRACT"];
     private readonly IOptions<BybitSettings> _bybitSettingsOptions;
 
@@ -31,7 +29,7 @@ public sealed class BybitWalletService : BybitApiService
 
             var payload = await SendSignedRequestAsync(
                 HttpMethod.Get,
-                RequestPath,
+                settings.WalletBalanceUri,
                 settings,
                 queryString,
                 cancellationToken: cancellationToken);
@@ -64,14 +62,16 @@ public sealed class BybitWalletService : BybitApiService
 
     private static ExchangeWalletSnapshot? MapWalletEntry(JsonElement entry, string fallbackAccountType)
     {
-        var accountType = ReadString(entry, "accountType") ?? fallbackAccountType;
+        var accountType = entry.TryReadString("accountType", out var parsedAccountType)
+            ? parsedAccountType
+            : fallbackAccountType;
         var coins = new List<ExchangeWalletCoin>();
 
         if (entry.TryGetProperty("coin", out var coinsElement) && coinsElement.ValueKind == JsonValueKind.Array)
         {
             foreach (var coinEntry in coinsElement.EnumerateArray())
             {
-                var coin = ReadString(coinEntry, "coin");
+                var coin = coinEntry.ReadString("coin");
                 if (string.IsNullOrWhiteSpace(coin))
                 {
                     continue;
@@ -79,10 +79,10 @@ public sealed class BybitWalletService : BybitApiService
 
                 var mapped = new ExchangeWalletCoin(
                     coin.ToUpperInvariant(),
-                    ReadDecimal(coinEntry, "equity"),
-                    ReadDecimal(coinEntry, "walletBalance"),
-                    ReadDecimal(coinEntry, "availableToWithdraw"),
-                    ReadDecimal(coinEntry, "usdValue"));
+                    coinEntry.ReadNullableDecimal("equity"),
+                    coinEntry.ReadNullableDecimal("walletBalance"),
+                    coinEntry.ReadNullableDecimal("availableToWithdraw"),
+                    coinEntry.ReadNullableDecimal("usdValue"));
                 coins.Add(mapped);
             }
         }
@@ -90,51 +90,13 @@ public sealed class BybitWalletService : BybitApiService
         return new ExchangeWalletSnapshot(
             DateTime.UtcNow,
             accountType.ToUpperInvariant(),
-            ReadDecimal(entry, "totalEquity"),
-            ReadDecimal(entry, "totalWalletBalance"),
-            ReadDecimal(entry, "totalMarginBalance"),
-            ReadDecimal(entry, "totalInitialMargin"),
-            ReadDecimal(entry, "totalMaintenanceMargin"),
-            ReadDecimal(entry, "totalAvailableBalance"),
-            ReadDecimal(entry, "totalPerpUPL"),
+            entry.ReadNullableDecimal("totalEquity"),
+            entry.ReadNullableDecimal("totalWalletBalance"),
+            entry.ReadNullableDecimal("totalMarginBalance"),
+            entry.ReadNullableDecimal("totalInitialMargin"),
+            entry.ReadNullableDecimal("totalMaintenanceMargin"),
+            entry.ReadNullableDecimal("totalAvailableBalance"),
+            entry.ReadNullableDecimal("totalPerpUPL"),
             coins);
-    }
-
-    private static string? ReadString(JsonElement element, string propertyName)
-    {
-        if (!element.TryGetProperty(propertyName, out var property))
-        {
-            return null;
-        }
-
-        return property.ValueKind == JsonValueKind.String
-            ? property.GetString()?.Trim()
-            : property.GetRawText().Trim();
-    }
-
-    private static decimal? ReadDecimal(JsonElement element, string propertyName)
-    {
-        if (!element.TryGetProperty(propertyName, out var property))
-        {
-            return null;
-        }
-
-        if (property.ValueKind == JsonValueKind.Null)
-        {
-            return null;
-        }
-
-        if (property.ValueKind == JsonValueKind.Number && property.TryGetDecimal(out var numeric))
-        {
-            return numeric;
-        }
-
-        var raw = property.ValueKind == JsonValueKind.String
-            ? property.GetString()
-            : property.GetRawText();
-
-        return decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
-            ? parsed
-            : null;
     }
 }

@@ -1,6 +1,8 @@
 @page "/account-settings"
 @implements IDisposable
 @inject BlazorOptions.ViewModels.AccountSettingsViewModel ViewModel
+@using BlazorOptions.ViewModels
+@using System.Linq
 
 <PageTitle>Account settings</PageTitle>
 
@@ -62,38 +64,67 @@
 
     <MudPaper Class="pa-6" Elevation="1">
         <MudStack Spacing="2">
-            <MudText Typo="Typo.h6">Bybit settings</MudText>
-            <MudTextField Label="API key"
-                          @bind-Value="ViewModel.ApiKey"
-                          Variant="Variant.Outlined"
-                          Margin="Margin.Dense" />
-            <MudTextField Label="API secret"
-                          @bind-Value="ViewModel.ApiSecret"
-                          Variant="Variant.Outlined"
-                          Margin="Margin.Dense"
-                          InputType="InputType.Password" />
-            <MudTextField Label="WebSocket URL"
-                          @bind-Value="ViewModel.WebSocketUrl"
-                          Variant="Variant.Outlined"
-                          Margin="Margin.Dense" />
-            <MudNumericField T="int"
-                             Label="Live price update interval (milliseconds)"
-                             @bind-Value="ViewModel.LivePriceUpdateIntervalMilliseconds"
-                             Variant="Variant.Outlined"
-                             Margin="Margin.Dense"
-                             Min="100" />
-            <MudTextField Label="Options base coins"
-                          @bind-Value="ViewModel.OptionBaseCoins"
-                          Variant="Variant.Outlined"
-                          Margin="Margin.Dense"
-                          HelperText="Examples: BTC, ETH, SOL. Any non-letter/digit separator is supported." />
-            <MudTextField Label="Options quote coins"
-                          @bind-Value="ViewModel.OptionQuoteCoins"
-                          Variant="Variant.Outlined"
-                          Margin="Margin.Dense"
-                          HelperText="Examples: USDT, USDC. Any non-letter/digit separator is supported." />
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="HandleSaveBybitSettingsAsync">
-                Save Bybit settings
+            <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                <MudText Typo="Typo.h6">Exchange connections</MudText>
+                <MudStack Row="true" Spacing="1">
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Primary"
+                               Disabled="ViewModel.ExchangeConnections.Any(connection => connection.Id == ExchangeConnectionModel.BybitMainId)"
+                               OnClick="HandleAddBybitMainConnectionAsync">
+                        Add Bybit main
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Primary"
+                               Disabled="ViewModel.ExchangeConnections.Any(connection => connection.Id == ExchangeConnectionModel.BybitDemoId)"
+                               OnClick="HandleAddBybitDemoConnectionAsync">
+                        Add Bybit demo
+                    </MudButton>
+                </MudStack>
+            </MudStack>
+
+            @foreach (var connection in ViewModel.ExchangeConnections)
+            {
+                <MudPaper Class="pa-4" Outlined="true" Elevation="0" @key="connection.Id">
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                            <MudText Typo="Typo.subtitle1">@connection.Id</MudText>
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@(ExchangeConnectionModel.IsDemoConnectionId(connection.Id) ? Color.Warning : Color.Info)">
+                                @(ExchangeConnectionModel.IsDemoConnectionId(connection.Id) ? "Demo" : "Main")
+                            </MudChip>
+                        </MudStack>
+                        <MudTextField Label="Connection name"
+                                      @bind-Value="connection.Name"
+                                      Variant="Variant.Outlined"
+                                      Margin="Margin.Dense" />
+                        <MudTextField Label="API key"
+                                      @bind-Value="connection.ApiKey"
+                                      Variant="Variant.Outlined"
+                                      Margin="Margin.Dense" />
+                        <MudTextField Label="API secret"
+                                      @bind-Value="connection.ApiSecret"
+                                      Variant="Variant.Outlined"
+                                      Margin="Margin.Dense"
+                                      InputType="InputType.Password" />
+                        <MudNumericField T="int"
+                                         Label="Live price update interval (milliseconds)"
+                                         @bind-Value="connection.LivePriceUpdateIntervalMilliseconds"
+                                         Variant="Variant.Outlined"
+                                         Margin="Margin.Dense"
+                                         Min="100" />
+                        <MudTextField Label="Options base coins"
+                                      @bind-Value="connection.OptionBaseCoins"
+                                      Variant="Variant.Outlined"
+                                      Margin="Margin.Dense" />
+                        <MudTextField Label="Options quote coins"
+                                      @bind-Value="connection.OptionQuoteCoins"
+                                      Variant="Variant.Outlined"
+                                      Margin="Margin.Dense" />
+                    </MudStack>
+                </MudPaper>
+            }
+
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="HandleSaveExchangeConnectionsAsync">
+                Save exchange connections
             </MudButton>
         </MudStack>
     </MudPaper>
@@ -141,8 +172,18 @@
         return ViewModel.SaveRiskSettingsAsync();
     }
 
-    private Task HandleSaveBybitSettingsAsync()
+    private Task HandleAddBybitMainConnectionAsync()
     {
-        return ViewModel.SaveBybitSettingsAsync();
+        return ViewModel.AddBybitMainConnectionAsync();
+    }
+
+    private Task HandleAddBybitDemoConnectionAsync()
+    {
+        return ViewModel.AddBybitDemoConnectionAsync();
+    }
+
+    private Task HandleSaveExchangeConnectionsAsync()
+    {
+        return ViewModel.SaveExchangeConnectionsAsync();
     }
 }

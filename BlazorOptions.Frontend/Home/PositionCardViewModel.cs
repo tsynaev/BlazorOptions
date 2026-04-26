@@ -1,4 +1,3 @@
-using BlazorOptions.API.Positions;
 using BlazorOptions.Services;
 
 namespace BlazorOptions.ViewModels;
@@ -6,24 +5,26 @@ namespace BlazorOptions.ViewModels;
 public sealed class PositionCardViewModel
 {
     private readonly OptionsService _optionsService;
-    private readonly IExchangeService _exchangeService;
     private readonly PositionPnlCalculator _positionPnlCalculator;
     private readonly ExchangeSnapshotLegSyncService _exchangeSnapshotLegSyncService;
+    private readonly ExchangeConnectionsService _exchangeConnectionsService;
 
     public PositionCardViewModel(
         OptionsService optionsService,
-        IExchangeService exchangeService,
         PositionPnlCalculator positionPnlCalculator,
-        ExchangeSnapshotLegSyncService exchangeSnapshotLegSyncService)
+        ExchangeSnapshotLegSyncService exchangeSnapshotLegSyncService,
+        ExchangeConnectionsService exchangeConnectionsService)
     {
         _optionsService = optionsService;
-        _exchangeService = exchangeService;
         _positionPnlCalculator = positionPnlCalculator;
         _exchangeSnapshotLegSyncService = exchangeSnapshotLegSyncService;
+        _exchangeConnectionsService = exchangeConnectionsService;
     }
 
     public Guid Id { get; private set; }
+    public string ExchangeConnectionId { get; private set; } = string.Empty;
     public string AssetPair { get; private set; } = string.Empty;
+    public string ExchangeName { get; private set; } = string.Empty;
     public string Name { get; private set; } = string.Empty;
     public decimal TotalPnl { get; private set; }
     public decimal? PnlPercent { get; private set; }
@@ -38,19 +39,20 @@ public sealed class PositionCardViewModel
 
     public async Task ApplyPositionAsync(
         PositionModel model,
+        IExchangeService exchangeService,
         decimal? exchangePrice,
         bool withChart,
         bool includeTempLine,
         AccountRiskSettings riskSettings)
     {
         var effectiveModel = model.Clone();
-        await ApplyExchangeSnapshotAsync(effectiveModel);
-        await EnsureOptionChainAsync(effectiveModel);
+        await ApplyExchangeSnapshotAsync(effectiveModel, exchangeService);
+        await EnsureOptionChainAsync(effectiveModel, exchangeService);
 
-        var legs = _positionPnlCalculator.PrepareLegsForChart(effectiveModel);
+        var legs = _positionPnlCalculator.PrepareLegsForChart(effectiveModel, exchangeService);
         var currentPrice = exchangePrice ?? ResolveFallbackCurrentPrice(effectiveModel.ChartRange, legs);
-        var (totalPnl, pnlPercent) = _positionPnlCalculator.ResolvePnl(effectiveModel, currentPrice);
-        var tempPnl = _positionPnlCalculator.ResolveTempPnl(effectiveModel, currentPrice);
+        var (totalPnl, pnlPercent) = _positionPnlCalculator.ResolvePnl(effectiveModel, currentPrice, exchangeService);
+        var tempPnl = _positionPnlCalculator.ResolveTempPnl(effectiveModel, currentPrice, exchangeService);
         var theoreticalAtCurrent = legs.Count > 0
             ? _optionsService.CalculateTotalTheoreticalProfit(legs, currentPrice, DateTime.UtcNow)
             : 0m;
@@ -61,15 +63,17 @@ public sealed class PositionCardViewModel
             : MiniChartModel.Empty;
 
         Id = effectiveModel.Id;
+        ExchangeConnectionId = effectiveModel.ExchangeConnectionId ?? string.Empty;
         AssetPair = $"{effectiveModel.BaseAsset}/{effectiveModel.QuoteAsset}";
+        ExchangeName = _exchangeConnectionsService.GetDisplayName(effectiveModel.ExchangeConnectionId);
         Name = effectiveModel.Name;
         TotalPnl = totalPnl;
         PnlPercent = pnlPercent;
-        QuickAddLegs = legs.Select(leg => BuildLegChip(leg, currentPrice, effectiveModel.BaseAsset, riskSettings)).ToArray();
+        QuickAddLegs = legs.Select(leg => BuildLegChip(leg, currentPrice, effectiveModel.BaseAsset, exchangeService, riskSettings)).ToArray();
         Notes = effectiveModel.Notes;
         Chart = chart;
         BreakEvens = BuildBreakEvensOnly(legs, effectiveModel.ChartRange, realizedPnl);
-        GreekSummary = BuildGreekSummary(legs, effectiveModel.BaseAsset);
+        GreekSummary = BuildGreekSummary(legs, effectiveModel.BaseAsset, exchangeService);
         CurrentPrice = exchangePrice;
         CurrentPricePercent = withChart && exchangePrice.HasValue
             ? ResolveCurrentPricePercent(currentPrice, chart.XMin, chart.XMax)
@@ -77,10 +81,10 @@ public sealed class PositionCardViewModel
         IsChartReady = withChart;
     }
 
-    private async Task ApplyExchangeSnapshotAsync(PositionModel model)
+    private async Task ApplyExchangeSnapshotAsync(PositionModel model, IExchangeService exchangeService)
     {
-        var positionsTask = _exchangeService.Positions.GetPositionsAsync();
-        var ordersTask = _exchangeService.Orders.GetOpenOrdersAsync();
+        var positionsTask = exchangeService.Positions.GetPositionsAsync();
+        var ordersTask = exchangeService.Orders.GetOpenOrdersAsync();
         await Task.WhenAll(positionsTask, ordersTask);
 
         var positions = positionsTask.Result?.ToArray() ?? Array.Empty<ExchangePosition>();
@@ -112,7 +116,7 @@ public sealed class PositionCardViewModel
         _exchangeSnapshotLegSyncService.SyncReadOnlyLegs(model.Legs, activeLegs);
     }
 
-    private async Task EnsureOptionChainAsync(PositionModel model)
+    private async Task EnsureOptionChainAsync(PositionModel model, IExchangeService exchangeService)
     {
         var baseAsset = model.BaseAsset?.Trim();
         if (string.IsNullOrWhiteSpace(baseAsset)
@@ -123,7 +127,7 @@ public sealed class PositionCardViewModel
 
         try
         {
-            await _exchangeService.OptionsChain.EnsureTickersForBaseAssetAsync(baseAsset);
+            await exchangeService.OptionsChain.EnsureTickersForBaseAssetAsync(baseAsset);
         }
         catch
         {
@@ -157,7 +161,7 @@ public sealed class PositionCardViewModel
         return ResolveBreakEvens(fullXs, fullProfits, pnlShift);
     }
 
-    private GreekSummary BuildGreekSummary(IReadOnlyList<LegModel> legs, string? baseAsset)
+    private GreekSummary BuildGreekSummary(IReadOnlyList<LegModel> legs, string? baseAsset, IExchangeService exchangeService)
     {
         decimal totalDelta = 0m;
         decimal totalGamma = 0m;
@@ -172,7 +176,7 @@ public sealed class PositionCardViewModel
                 continue;
             }
 
-            var ticker = _exchangeService.OptionsChain.FindTickerForLeg(leg, baseAsset);
+            var ticker = exchangeService.OptionsChain.FindTickerForLeg(leg, baseAsset);
             if (ticker is null)
             {
                 continue;
@@ -228,9 +232,9 @@ public sealed class PositionCardViewModel
         return new MiniChartModel(sparseLabels, values, tempValues, (double)xs[0], (double)xs[^1], breakEvens, includeTempLine);
     }
 
-    private LegChipModel BuildLegChip(LegModel leg, decimal currentPrice, string? baseAsset, AccountRiskSettings riskSettings)
+    private LegChipModel BuildLegChip(LegModel leg, decimal currentPrice, string? baseAsset, IExchangeService exchangeService, AccountRiskSettings riskSettings)
     {
-        var snapshot = _positionPnlCalculator.ResolveLegSnapshot(leg, currentPrice, baseAsset);
+        var snapshot = _positionPnlCalculator.ResolveLegSnapshot(leg, currentPrice, baseAsset, exchangeService);
         var severityClass = ResolveLegSeverityClass(leg.Type, snapshot.PnlPercent, riskSettings);
         return new LegChipModel(
             FormatQuickAdd(leg),
@@ -433,31 +437,36 @@ public sealed class PositionCardViewModel
 public sealed class PositionCardViewModelFactory
 {
     private readonly OptionsService _optionsService;
-    private readonly IExchangeService _exchangeService;
     private readonly PositionPnlCalculator _positionPnlCalculator;
     private readonly ExchangeSnapshotLegSyncService _exchangeSnapshotLegSyncService;
+    private readonly ExchangeConnectionsService _exchangeConnectionsService;
 
     public PositionCardViewModelFactory(
         OptionsService optionsService,
-        IExchangeService exchangeService,
         PositionPnlCalculator positionPnlCalculator,
-        ExchangeSnapshotLegSyncService exchangeSnapshotLegSyncService)
+        ExchangeSnapshotLegSyncService exchangeSnapshotLegSyncService,
+        ExchangeConnectionsService exchangeConnectionsService)
     {
         _optionsService = optionsService;
-        _exchangeService = exchangeService;
         _positionPnlCalculator = positionPnlCalculator;
         _exchangeSnapshotLegSyncService = exchangeSnapshotLegSyncService;
+        _exchangeConnectionsService = exchangeConnectionsService;
     }
 
     public async Task<PositionCardViewModel> CreateAsync(
         PositionModel model,
+        IExchangeService exchangeService,
         decimal? exchangePrice,
         bool withChart,
         bool includeTempLine,
         AccountRiskSettings riskSettings)
     {
-        var viewModel = new PositionCardViewModel(_optionsService, _exchangeService, _positionPnlCalculator, _exchangeSnapshotLegSyncService);
-        await viewModel.ApplyPositionAsync(model, exchangePrice, withChart, includeTempLine, riskSettings);
+        var viewModel = new PositionCardViewModel(
+            _optionsService,
+            _positionPnlCalculator,
+            _exchangeSnapshotLegSyncService,
+            _exchangeConnectionsService);
+        await viewModel.ApplyPositionAsync(model, exchangeService, exchangePrice, withChart, includeTempLine, riskSettings);
         return viewModel;
     }
 }

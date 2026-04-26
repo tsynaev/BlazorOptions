@@ -4,38 +4,31 @@ namespace BlazorOptions.ViewModels;
 
 public sealed class LegsCollectionViewModelFactory
 {
-    private readonly ILegsCollectionDialogService _dialogService;
     private readonly LegViewModelFactory _legViewModelFactory;
     private readonly INotifyUserService _notifyUserService;
     private readonly ExchangeSnapshotLegSyncService _exchangeSnapshotLegSyncService;
-    private readonly IExchangeService _exchangeService;
     private readonly ILegsParserService _legsParserService;
 
 
     public LegsCollectionViewModelFactory(
-        ILegsCollectionDialogService dialogService,
         LegViewModelFactory legViewModelFactory,
         INotifyUserService notifyUserService,
         ExchangeSnapshotLegSyncService exchangeSnapshotLegSyncService,
-        IExchangeService exchangeService,
         ILegsParserService legsParserService)
     {
-        _dialogService = dialogService;
         _legViewModelFactory = legViewModelFactory;
         _notifyUserService = notifyUserService;
         _exchangeSnapshotLegSyncService = exchangeSnapshotLegSyncService;
-        _exchangeService = exchangeService;
         _legsParserService = legsParserService;
     }
 
-    public LegsCollectionViewModel Create(PositionViewModel position, LegsCollectionModel collection)
+    public LegsCollectionViewModel Create(PositionViewModel position, LegsCollectionModel collection, IExchangeService exchangeService)
     {
         var vm = new LegsCollectionViewModel(
-            _dialogService,
             _legViewModelFactory,
             _notifyUserService,
             _exchangeSnapshotLegSyncService,
-            _exchangeService,
+            exchangeService,
             _legsParserService)
         {
             Position = position,

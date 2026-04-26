@@ -1,6 +1,7 @@
 @page "/position/{PositionId:guid}"
 
 @implements IAsyncDisposable
+@inject IPositionsPort PositionsPort
 @inject PositionViewModel ViewModel
 @inject PositionPnlCalculator PositionPnlCalculator
 @inject IDialogService DialogService
@@ -14,11 +15,11 @@
 
 <PageTitle>Position</PageTitle>
 
-@if (ViewModel.ErrorMessage is not null)
+@if (!string.IsNullOrWhiteSpace(_errorMessage))
 {
     <MudStack Spacing="2" Class="route-error-panel">
         <MudAlert Severity="Severity.Error" Variant="Variant.Filled">
-            @ViewModel.ErrorMessage
+            @_errorMessage
         </MudAlert>
         <MudStack Row="true" Spacing="1">
             <MudButton Color="Color.Primary" Variant="Variant.Filled" Href="/">Open dashboard</MudButton>
@@ -38,12 +39,22 @@ else
         {
             <div class="position-mobile-fixed-root">
                 <MudPaper Class="mobile-position-header" Elevation="0">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="position-title-row">
-                            <MudText Typo="Typo.h6" Class="position-title">
-                                @FormatPositionName(ViewModel.Position)
-                            </MudText>
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="position-title-row">
+                                <MudStack Spacing="0">
+                                    <MudText Typo="Typo.h6" Class="position-title">
+                                        @FormatPositionName(ViewModel.Position)
+                                </MudText>
+                                <MudText Typo="Typo.caption">@ViewModel.ExchangeDisplayName</MudText>
+                            </MudStack>
                         </MudStack>
+                        <WalletSummary ExchangeService="@ViewModel.ExchangeService"
+                                       ShowEquity="true"
+                                       ShowWalletBalance="true"
+                                       SubscribeLive="@ViewModel.IsLive"
+                                       ShowUpdatedTimestamp="false"
+                                       CollapseToSingleColumnOnMobile="true"
+                                       Class="position-header-wallet" />
                         <MudMenu Dense="true"
                                  AnchorOrigin="Origin.BottomRight"
                                  TransformOrigin="Origin.TopRight">
@@ -105,24 +116,40 @@ else
         <MudCard>
         <MudCardContent Class="position-header-surface">
             <MudStack Spacing="2">
-                <MudStack Spacing="1">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
+                    <MudStack Spacing="1">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="position-title-row">
-                            <MudText Typo="Typo.h6" Class="position-title">
-                                @(!HasActivePosition
-                                    ? "No position selected"
-                                    : FormatPositionName(ViewModel.Position))
-                            </MudText>
+                            <MudStack Spacing="0">
+                                <MudText Typo="Typo.h6" Class="position-title">
+                                    @(!HasActivePosition
+                                        ? "No position selected"
+                                        : FormatPositionName(ViewModel.Position))
+                                </MudText>
+                                @if (HasActivePosition)
+                                {
+                                    <MudText Typo="Typo.caption">@ViewModel.ExchangeDisplayName</MudText>
+                                }
+                            </MudStack>
                         </MudStack>
                         <MudIconButton Icon="@Icons.Material.Filled.Settings"
                                        Disabled="@(!HasActivePosition)"
                                        Color="Color.Default"
                                        OnClick="OpenPositionSettingsDialogAsync"
                                        aria-label="Position settings" />
+                        </MudStack>
+                        @if (HasActivePosition)
+                        {
+                            <WalletSummary ExchangeService="@ViewModel.ExchangeService"
+                                           ShowEquity="true"
+                                           ShowWalletBalance="true"
+                                           SubscribeLive="@ViewModel.IsLive"
+                                           ShowUpdatedTimestamp="false"
+                                           CollapseToSingleColumnOnMobile="true"
+                                           Class="position-header-wallet" />
+                        }
                     </MudStack>
                 </MudStack>
-            </MudStack>
-        </MudCardContent>
+            </MudCardContent>
         <MudCardContent Class="position-content">
             <div class="position-desktop-shell">
                 <div class="position-chart-column desktop-chart-column">
@@ -288,6 +315,9 @@ else
     .position-summary-row {
         flex-wrap: wrap;
         gap: 6px;
+    }
+    .position-header-wallet {
+        max-width: 100%;
     }
     .position-title-row {
         flex-wrap: wrap;
@@ -474,6 +504,9 @@ else
         .position-title-row {
             min-height: 0;
         }
+        .position-header-wallet {
+            width: 100%;
+        }
         .position-header-surface .mud-icon-button {
             width: 32px;
             height: 32px;
@@ -623,6 +656,7 @@ else
     private bool HasActivePosition => _viewModelReady && ViewModel.Position?.Id != Guid.Empty;
     private bool _viewModelReady;
     private bool _isRouteLoading = true;
+    private string? _errorMessage;
     private IJSObjectReference? _chartRangeModule;
     private string? _restoredChartRangeKey;
     private readonly object _liveRenderLock = new();
@@ -641,31 +675,40 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        _chartSettingsPanelViewModel = new PositionChartSettingsPanelViewModel(
-            ViewModel,
-            PositionPnlCalculator,
-            OnTemporaryPriceChanged,
-            OnValuationTimelineChanged,
-            ToggleLive,
-            ToggleCandles,
-            ToggleDayMinMaxMarkers,
-            ToggleOrderMarkers,
-            ToggleSkewShift);
-        _notesPanelViewModel = new PositionNotesPanelViewModel(ViewModel);
-        _equityPanelViewModel = new PositionEquityPanelViewModel();
-        _moreActionsPanelViewModel = new PositionMoreActionsPanelViewModel(OpenPositionSettingsDialogAsync);
-
         _isRouteLoading = true;
         try
         {
-            ViewModel.ErrorMessage = null;
+            _errorMessage = null;
 
             if (!PositionId.HasValue || PositionId.Value == Guid.Empty)
             {
-                ViewModel.ErrorMessage = "Open a position from the dashboard.";
+                _errorMessage = "Open a position from the dashboard.";
                 return;
             }
 
+            var storedPosition = await PositionsPort.LoadPositionAsync(PositionId.Value);
+            if (storedPosition is null)
+            {
+                _errorMessage = $"Position {PositionId.Value} not found.";
+                return;
+            }
+
+            _chartSettingsPanelViewModel = new PositionChartSettingsPanelViewModel(
+                ViewModel,
+                PositionPnlCalculator,
+                OnTemporaryPriceChanged,
+                OnValuationTimelineChanged,
+                ToggleLive,
+                ToggleCandles,
+                ToggleDayMinMaxMarkers,
+                ToggleOrderMarkers,
+                ToggleSkewShift);
+            _notesPanelViewModel = new PositionNotesPanelViewModel(ViewModel);
+            _equityPanelViewModel = new PositionEquityPanelViewModel
+            {
+                ExchangeService = ViewModel.ExchangeService
+            };
+            _moreActionsPanelViewModel = new PositionMoreActionsPanelViewModel(OpenPositionSettingsDialogAsync);
 
             ViewModel.OnChange += HandleViewModelChanged;
             ViewModel.LivePriceChanged += HandleLivePriceChanged;
@@ -691,14 +734,20 @@ else
 
     public async ValueTask DisposeAsync()
     {
-        ViewModel.OnChange -= HandleViewModelChanged;
-        ViewModel.LivePriceChanged -= HandleLivePriceChanged;
+        if (_viewModelReady)
+        {
+            ViewModel.OnChange -= HandleViewModelChanged;
+            ViewModel.LivePriceChanged -= HandleLivePriceChanged;
+        }
         if (_chartRangeModule is not null)
         {
             await _chartRangeModule.DisposeAsync();
         }
         CancelLiveRenderDebounce();
-        await ViewModel.DisposeAsync();
+        if (_viewModelReady)
+        {
+            await ViewModel.DisposeAsync();
+        }
     }
 
     // protected override async Task OnParametersSetAsync()

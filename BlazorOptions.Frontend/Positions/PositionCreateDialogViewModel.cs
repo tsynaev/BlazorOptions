@@ -6,33 +6,55 @@ using BlazorOptions.Services;
 
 namespace BlazorOptions.ViewModels;
 
-public sealed class PositionCreateDialogViewModel : Bindable
+public sealed class PositionCreateViewModel : Bindable, IDisposable
 {
     private const string DefaultsStoragePrefix = "positionCreateDefaults:";
     private const decimal DefaultSizeFallback = 10m;
     private const int DefaultMinDaysOut = 7;
-    private readonly IExchangeService _exchangeService;
+    private readonly IExchangeServiceFactory _exchangeServiceFactory;
     private readonly ILocalStorageService _localStorageService;
     private readonly ILegsParserService _legsParserService;
-    private TaskCompletionSource<PositionModel?>? _resultTcs;
+    private readonly ExchangeConnectionsService _exchangeConnectionsService;
+    private readonly ActivePositionsPanelViewModel _activePositions;
     private string? _initialName;
     private string? _initialBaseAsset;
     private string? _initialQuoteAsset;
+    private string? _selectedExchangeConnectionId;
     private string? _currentBaseAsset;
     private decimal _defaultSize = DefaultSizeFallback;
     private DateTime? _defaultExpirationDate;
     private string _legInput = string.Empty;
     private string? _legInputError;
     private IReadOnlyList<LegPreviewItem> _legPreviewItems = Array.Empty<LegPreviewItem>();
+    private string? _exchangeServiceConnectionId;
+    private IExchangeService? _exchangeServiceHandle;
 
-    public PositionCreateDialogViewModel(
-        IExchangeService exchangeService,
+    public PositionCreateViewModel(
+        IExchangeServiceFactory exchangeServiceFactory,
         ILocalStorageService localStorageService,
-        ILegsParserService legsParserService)
+        ILegsParserService legsParserService,
+        ExchangeConnectionsService exchangeConnectionsService,
+        ActivePositionsPanelViewModel activePositions)
     {
-        _exchangeService = exchangeService;
+        _exchangeServiceFactory = exchangeServiceFactory;
         _localStorageService = localStorageService;
         _legsParserService = legsParserService;
+        _exchangeConnectionsService = exchangeConnectionsService;
+        _activePositions = activePositions;
+    }
+
+    public IReadOnlyList<ExchangeConnectionModel> ExchangeConnections { get; private set; } = Array.Empty<ExchangeConnectionModel>();
+
+    public ActivePositionsPanelViewModel ActivePositions => _activePositions;
+
+    public string BaseAsset => ActivePositions.BaseAsset;
+
+    public string QuoteAsset => ActivePositions.QuoteAsset;
+
+    public string SelectedExchangeConnectionId
+    {
+        get => _selectedExchangeConnectionId ?? ExchangeConnectionModel.BybitMainId;
+        private set => SetField(ref _selectedExchangeConnectionId, value);
     }
 
     public string LegInput
@@ -89,30 +111,61 @@ public sealed class PositionCreateDialogViewModel : Bindable
         private set => SetField(ref _initialQuoteAsset, value);
     }
 
-    public Task InitializeAsync(string? initialName, string? initialBaseAsset, string? initialQuoteAsset)
+    public async Task InitializeAsync(string? initialName, string? initialBaseAsset, string? initialQuoteAsset, string? initialExchangeConnectionId)
     {
         InitialName = string.IsNullOrWhiteSpace(initialName) ? "Position" : initialName.Trim();
         InitialBaseAsset = string.IsNullOrWhiteSpace(initialBaseAsset) ? null : initialBaseAsset.Trim();
         InitialQuoteAsset = string.IsNullOrWhiteSpace(initialQuoteAsset) ? null : initialQuoteAsset.Trim();
+        ExchangeConnections = _exchangeConnectionsService.GetConnections();
+        SelectedExchangeConnectionId = _exchangeConnectionsService.GetConnectionOrDefault(initialExchangeConnectionId).Id;
         LegInput = string.Empty;
         LegInputError = null;
-        _resultTcs = new TaskCompletionSource<PositionModel?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        return UpdateBaseAssetAsync(InitialBaseAsset);
+        await UpdateBaseAssetAsync(InitialBaseAsset);
+        await InitializeActivePositionsAsync(InitialBaseAsset, InitialQuoteAsset);
+
+        if (string.IsNullOrWhiteSpace(initialExchangeConnectionId))
+        {
+            await AutoSelectConnectionWithPositionsAsync(InitialBaseAsset, InitialQuoteAsset);
+        }
     }
 
-    public Task<PositionModel?> WaitForResultAsync()
+    public async Task SetSelectedExchangeConnectionAsync(string? connectionId)
     {
-        return _resultTcs?.Task ?? Task.FromResult<PositionModel?>(null);
+        SelectedExchangeConnectionId = _exchangeConnectionsService.GetConnectionOrDefault(connectionId).Id;
+        await InitializeActivePositionsAsync(ActivePositions.BaseAsset, ActivePositions.QuoteAsset);
+        OnPropertyChanged(nameof(BaseAsset));
+        OnPropertyChanged(nameof(QuoteAsset));
     }
 
-    public void Confirm(PositionModel request)
+    public async Task SetBaseAssetAsync(string value)
     {
-        _resultTcs?.TrySetResult(request);
+        await ActivePositions.SetBaseAsset(value);
+        await UpdateBaseAssetAsync(ActivePositions.BaseAsset);
+        OnPropertyChanged(nameof(BaseAsset));
     }
 
-    public void Cancel()
+    public async Task SetQuoteAssetAsync(string value)
     {
-        _resultTcs?.TrySetResult(null);
+        await ActivePositions.SetQuoteAsset(value);
+        OnPropertyChanged(nameof(QuoteAsset));
+    }
+
+    public async Task<PositionModel?> CreatePositionAsync(string? name)
+    {
+        var baseAsset = ActivePositions.BaseAsset.Trim().ToUpperInvariant();
+        var quoteAsset = ActivePositions.QuoteAsset.Trim().ToUpperInvariant();
+        var initialLegs = await TryBuildLegsAsync(baseAsset);
+        if (initialLegs is null)
+        {
+            return null;
+        }
+
+        return CreatePositionModel(
+            name,
+            baseAsset,
+            quoteAsset,
+            initialLegs,
+            ActivePositions.SelectedPositions.ToList());
     }
 
     public PositionModel CreatePositionModel(
@@ -127,6 +180,7 @@ public sealed class PositionCreateDialogViewModel : Bindable
             Name = string.IsNullOrWhiteSpace(name) ? "Position" : name.Trim(),
             BaseAsset = string.IsNullOrWhiteSpace(baseAsset) ? "ETH" : baseAsset.Trim().ToUpperInvariant(),
             QuoteAsset = string.IsNullOrWhiteSpace(quoteAsset) ? "USDT" : quoteAsset.Trim().ToUpperInvariant(),
+            ExchangeConnectionId = SelectedExchangeConnectionId,
             CreationTimeUtc = ResolveCreationTimeUtc(selectedBybitPositions)
         };
 
@@ -142,6 +196,7 @@ public sealed class PositionCreateDialogViewModel : Bindable
 
         if (selectedBybitPositions is not null && selectedBybitPositions.Count > 0)
         {
+            using var exchangeService = _exchangeServiceFactory.Create(SelectedExchangeConnectionId);
             foreach (var exchangePosition in selectedBybitPositions)
             {
                 var size = DetermineSignedSize(exchangePosition);
@@ -150,12 +205,13 @@ public sealed class PositionCreateDialogViewModel : Bindable
                     continue;
                 }
 
-                if (!_exchangeService.TryCreateLeg(exchangePosition.Symbol, size, position.BaseAsset, exchangePosition.Category, out var leg))
+                if (!exchangeService.TryCreateLeg(exchangePosition.Symbol, size, position.BaseAsset, exchangePosition.Category, out var leg))
                 {
                     continue;
                 }
 
                 leg.IsReadOnly = true;
+                leg.Status = LegStatus.Active;
                 leg.Price = exchangePosition.AvgPrice;
                 leg.Symbol = exchangePosition.Symbol;
                 leg.ImpliedVolatility = null;
@@ -168,7 +224,8 @@ public sealed class PositionCreateDialogViewModel : Bindable
 
     private string? ResolveLegSymbolForPosition(LegModel leg, PositionModel position)
     {
-        var formatted = _exchangeService.FormatSymbol(leg, position.BaseAsset, position.QuoteAsset);
+        using var exchangeService = _exchangeServiceFactory.Create(SelectedExchangeConnectionId);
+        var formatted = exchangeService.FormatSymbol(leg, position.BaseAsset, position.QuoteAsset);
         if (!string.IsNullOrWhiteSpace(formatted))
         {
             return formatted;
@@ -362,21 +419,69 @@ public sealed class PositionCreateDialogViewModel : Bindable
 
     private async Task<DateTime?> ResolveNextExpirationAsync(string baseAsset)
     {
-        var next = ResolveNextExpirationFromSnapshot(baseAsset);
+        using var exchangeService = _exchangeServiceFactory.Create(SelectedExchangeConnectionId);
+        var next = ResolveNextExpirationFromSnapshot(baseAsset, exchangeService);
         if (next.HasValue)
         {
             return next.Value.Date;
         }
 
-        await _exchangeService.OptionsChain.UpdateTickersAsync(baseAsset);
-        next = ResolveNextExpirationFromSnapshot(baseAsset);
+        await exchangeService.OptionsChain.UpdateTickersAsync(baseAsset);
+        next = ResolveNextExpirationFromSnapshot(baseAsset, exchangeService);
         return next?.Date ?? DateTime.UtcNow.Date.AddDays(DefaultMinDaysOut);
     }
 
-    private DateTime? ResolveNextExpirationFromSnapshot(string baseAsset)
+    private async Task InitializeActivePositionsAsync(string? baseAsset, string? quoteAsset)
+    {
+        var exchangeService = SwitchExchangeService(SelectedExchangeConnectionId);
+        await _activePositions.InitializeAsync(exchangeService, baseAsset, quoteAsset, null);
+    }
+
+    private async Task AutoSelectConnectionWithPositionsAsync(string? baseAsset, string? quoteAsset)
+    {
+        if (_activePositions.Positions.Count > 0)
+        {
+            return;
+        }
+
+        foreach (var connection in ExchangeConnections)
+        {
+            if (string.Equals(connection.Id, SelectedExchangeConnectionId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            SelectedExchangeConnectionId = connection.Id;
+            await InitializeActivePositionsAsync(baseAsset, quoteAsset);
+            if (_activePositions.Positions.Count > 0)
+            {
+                OnPropertyChanged(nameof(SelectedExchangeConnectionId));
+                OnPropertyChanged(nameof(BaseAsset));
+                OnPropertyChanged(nameof(QuoteAsset));
+                return;
+            }
+        }
+    }
+
+    private IExchangeService SwitchExchangeService(string? exchangeConnectionId)
+    {
+        if (_exchangeServiceHandle is not null &&
+            string.Equals(_exchangeServiceConnectionId, exchangeConnectionId, StringComparison.OrdinalIgnoreCase))
+        {
+            return _exchangeServiceHandle;
+        }
+
+        var previousService = _exchangeServiceHandle;
+        _exchangeServiceHandle = _exchangeServiceFactory.Create(exchangeConnectionId);
+        _exchangeServiceConnectionId = exchangeConnectionId;
+        previousService?.Dispose();
+        return _exchangeServiceHandle;
+    }
+
+    private static DateTime? ResolveNextExpirationFromSnapshot(string baseAsset, IExchangeService exchangeService)
     {
         var minDate = DateTime.UtcNow.Date.AddDays(DefaultMinDaysOut);
-        var expirations = _exchangeService.OptionsChain
+        var expirations = exchangeService.OptionsChain
             .GetTickersByBaseAsset(baseAsset)
             .Select(ticker => ticker.ExpirationDate.Date)
             .Distinct()
@@ -482,5 +587,12 @@ public sealed class PositionCreateDialogViewModel : Bindable
         {
             return JsonSerializer.Serialize(defaults);
         }
+    }
+
+    public void Dispose()
+    {
+        _activePositions.Dispose();
+        _exchangeServiceHandle?.Dispose();
+        _exchangeServiceHandle = null;
     }
 }

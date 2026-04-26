@@ -17,7 +17,10 @@
 - Use ECharts for chart rendering.
 - Register new services or view models with dependency injection in `Program.cs`.
 - Dialog title must be shown only once: use the MudDialog header title from `ShowAsync(...)` and do not repeat the same heading inside dialog content.
-- Exchange integrations must be accessed through `IExchangeService` and its child interfaces (`IOrdersService`, `IPositionsService`, `ITickersService`, `IOptionsChainService`, `IFuturesInstrumentsService`) rather than using Bybit concrete services directly in view models.
+- Exchange integrations must be accessed through `IExchangeService` and its child interfaces (`IOrdersService`, `IPositionsService`, `ITickersService`, `IOptionsChainService`, `IOptionMarketDataService`, `IFuturesInstrumentsService`) rather than using Bybit concrete services directly in view models.
+- `LegsParserService` must depend only on `IExchangeService` for exchange-backed parsing defaults; do not inject child exchange services such as `IOptionsChainService` separately.
+- `OptionsChainService` owns exchange-agnostic option-chain cache, filtering, and subscriber fan-out only. It must not inject `HttpClient`, Bybit settings, or Bybit transport; option-chain requests must go through `IExchangeService.OptionMarketData`.
+- Shared `JsonElement` parsing helpers must live in `JsonElementExtensions`; do not keep duplicated local `TryReadString`, `ReadDecimal`, `ReadNullableDecimal`, `TryReadInt`, or `TryReadLong` helpers in exchange services.
 - Position aggregate and persistence models (`PositionModel`, `LegsCollectionModel`, `LegModel`, `ClosedModel`, `ClosedPositionModel`) live in `BlazorOptions.API` and are reused by Frontend/Server.
 - Position persistence uses API models directly; DTO types and mappers are removed.
 - API project namespaces must use `BlazorOptions.API.*` (do not place API classes under `BlazorOptions.ViewModels`).
@@ -28,6 +31,9 @@
 - `IndexPrice` is shared across all legs for the same base/quote pair. Leg-specific valuation differences must come from each leg's spread versus index, not from per-expiration index substitution.
 - On the position page, pricing-context rebroadcast can stay synchronous because the typical leg count is small; avoid async batching unless the collection size meaningfully grows.
 - Exchange ticker updates must carry separate mark and index prices; do not overload one field for both market mark and underlying context.
+- `PositionModel.ExchangeConnectionId` is immutable after creation. Position creation must require an exchange selection, and position/dashboard views must use that saved exchange context instead of a global default.
+- Do not use an ambient mutable exchange context object. When a view model or dialog depends on a specific saved/selected exchange connection, create an isolated `IExchangeService` explicitly from that connection id and keep it isolated from other open screens.
+- Exchange service implementations must not keep internal connection-switch state such as `_activeConnectionId`. If both demo and main are needed at the same time, create two isolated `IExchangeService` instances instead of retargeting one instance.
 - On the position page, `IndexPrice` is the simulation/chart input. In non-live mode, option and futures marks must preserve their observed spread versus index instead of using index price as mark directly.
 - Futures UI display should prefer `MarkPrice` over `IndexPrice` in cards and edit placeholders when showing the current market price to the user.
 - Spot legs must use `LegType.Spot`. When created from wallet/spot holdings on the position page, they should use `LegStatus.Active` but remain editable so they do not enter exchange read-only missing-leg sync.
@@ -36,9 +42,16 @@
 - Shared position/dashboard `% P/L` logic should live in a reusable calculator that may depend on `OptionsService` and exchange read services; do not duplicate payoff-based denominator logic across view models.
 - `HomeDashboardViewModel` must not calculate position or leg P/L locally; it should consume calculator outputs for total/percent/leg snapshot values.
 - Dashboard position-card presentation logic must live in `PositionCardViewModel.ApplyPosition(...)`; `HomeDashboardViewModel` should stay limited to loading, caching, exchange snapshot application, and grouping.
+- Dashboard exchange services are owned by `HomeDashboardViewModel` per exchange connection group. `PositionCardViewModel` must receive the already-created `IExchangeService` for its group and must not create its own service.
+- `ActivePositionsPanelViewModel` must receive an already-created `IExchangeService` from its owner. Position pages pass their position-bound service; position creation creates the service when the exchange selection is chosen.
+- `PositionCreate.razor` must not inject `ActivePositionsPanelViewModel` or `IExchangeServiceFactory`. `PositionCreateViewModel` owns the selected exchange service for the selected connection and exposes `ActivePositions` as its child view model.
+- `BybitSettings` is the shared base settings type. Use `MainBybitSettings` and `DemoBybitSettings` for main/demo defaults, and keep exchange services consuming `IOptions<BybitSettings>`.
+- `ExchangeConnectionModel` stores user-facing connection identity and credentials only. Transport URLs come from `MainBybitSettings` and `DemoBybitSettings`, not from user-editable connection fields.
 - Dashboard option-chain ensure/loading for a card must happen inside `PositionCardViewModel`, not as a batch preload in `HomeDashboardViewModel`.
 - Exchange snapshot leg sync (`Order`/`Active`/`Missing`, executed-order conversion, reference-id matching) must be shared between `PositionViewModel` flow and `PositionCardViewModel` flow through one reusable service; do not keep a dashboard-specific copy.
-- `HomeDashboardViewModel` should fetch raw exchange positions/orders once and pass that snapshot down; `PositionCardViewModel` should apply the snapshot to its local card state instead of dashboard mutating models first.
+- Exchange selection changes only the data source/adapter. Position, order, leg, chip, sync, and P/L processing must remain exchange-agnostic and shared after raw exchange payloads are normalized into the common interfaces/models.
+- `BybitExchangeService` is the composed Bybit service object. It owns its child services (`Orders`, `Positions`, `Tickers`, `Wallet`, `OptionMarketData`, `OptionsChain`, `FuturesInstruments`), must be configured only from `BybitSettings` plus transport/logging dependencies, and disposal should happen through that composed service object, not by disposing child services separately in callers.
+- Do not keep a separate ticker transport abstraction such as `IExchangeTickerClient` for Bybit. `BybitTickerService` is the single Bybit ticker implementation behind `ITickersService` and owns its own websocket subscriptions internally.
 - `HomeDashboardViewModel` should not store exchange snapshot copies for cards. `PositionCardViewModel` should read positions/orders from the exchange-service snapshot/cache directly.
 - Position page `Day Min/Max` markers must render separate `3W` and `4W` pairs. Each pair uses the next expiry at or after 3 weeks / 4 weeks, ATM call and put prices for that expiry, and a symmetric `2 * theta` offset where theta is derived from the ATM call/put tickers.
 - Position valuation timeline and expiry-state logic must use the full UTC expiration timestamp. Do not widen same-day expirations to end-of-day or compare expiries by date-only.

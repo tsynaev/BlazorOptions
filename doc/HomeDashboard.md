@@ -11,7 +11,9 @@ Route: `/`
 - load the latest saved position state from the server
 - then apply current exchange positions and open orders so cards and charts reflect the latest live position state
 - If no cached positions are available yet, the page shows a loading indicator instead of the empty-state panel until the server response arrives.
-- Cards are grouped by `base/quote` asset pair.
+- Cards are grouped by exchange connection. Inside each exchange group, positions are split into `base/quote` asset-pair subgroups.
+- Each group header shows both the asset pair and the exchange connection name.
+- Dashboard exchange reads are grouped by connection. One connection-bound exchange service is created for each exchange group and reused by that group's cards.
 - Each asset-pair group can show a DVOL chart (Deribit implied volatility index) for the group base asset when available.
 - DVOL is shown as the first card in each asset-pair group.
 - DVOL card includes:

@@ -11,12 +11,10 @@ namespace BlazorOptions.Services;
 
 public sealed class ActiveWalletService : IWalletService
 {
-    private const string StorageKey = "blazor-options-bybit-wallet";
     private static readonly Uri BybitPrivateWebSocketUrl = new("wss://stream.bybit.com/v5/private");
     private static readonly TimeSpan ReconnectDelay = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(20);
 
-    private readonly ILocalStorageService _localStorageService;
     private readonly BybitWalletService _bybitWalletService;
     private readonly IBybitPrivateStreamService _privateStreamService;
     private readonly IOptions<BybitSettings> _bybitSettingsOptions;
@@ -37,13 +35,11 @@ public sealed class ActiveWalletService : IWalletService
     private DateTime _lastWalletEventUtc = DateTime.MinValue;
 
     public ActiveWalletService(
-        ILocalStorageService localStorageService,
         BybitWalletService bybitWalletService,
         IBybitPrivateStreamService privateStreamService,
         IOptions<BybitSettings> bybitSettingsOptions,
         ILogger<ActiveWalletService> logger)
     {
-        _localStorageService = localStorageService;
         _bybitWalletService = bybitWalletService;
         _privateStreamService = privateStreamService;
         _bybitSettingsOptions = bybitSettingsOptions;
@@ -110,7 +106,6 @@ public sealed class ActiveWalletService : IWalletService
         }
 
         _isInitialized = true;
-        await LoadFromStorageAsync();
 
         if (!HasApiCredentials())
         {
@@ -136,30 +131,6 @@ public sealed class ActiveWalletService : IWalletService
             }
 
             await UpdateSnapshotAsync(mapped, notify: true);
-        }
-    }
-
-    private async Task LoadFromStorageAsync()
-    {
-        try
-        {
-            var payload = await _localStorageService.GetItemAsync(StorageKey);
-            if (string.IsNullOrWhiteSpace(payload))
-            {
-                return;
-            }
-
-            var snapshot = JsonSerializer.Deserialize<ExchangeWalletSnapshot>(payload, _serializerOptions);
-            if (snapshot is null)
-            {
-                return;
-            }
-
-            await UpdateSnapshotAsync(snapshot, notify: false);
-        }
-        catch
-        {
-            // Ignore storage corruption and continue with live fetch.
         }
     }
 
@@ -388,13 +359,15 @@ public sealed class ActiveWalletService : IWalletService
 
     private static ExchangeWalletSnapshot? MapWalletEntry(JsonElement entry)
     {
-        var accountType = ReadString(entry, "accountType") ?? "UNIFIED";
+        var accountType = entry.TryReadString("accountType", out var parsedAccountType)
+            ? parsedAccountType
+            : "UNIFIED";
         var coins = new List<ExchangeWalletCoin>();
         if (entry.TryGetProperty("coin", out var coinsElement) && coinsElement.ValueKind == JsonValueKind.Array)
         {
             foreach (var coinEntry in coinsElement.EnumerateArray())
             {
-                var coin = ReadString(coinEntry, "coin");
+                var coin = coinEntry.ReadString("coin");
                 if (string.IsNullOrWhiteSpace(coin))
                 {
                     continue;
@@ -402,23 +375,23 @@ public sealed class ActiveWalletService : IWalletService
 
                 coins.Add(new ExchangeWalletCoin(
                     coin.ToUpperInvariant(),
-                    ReadDecimal(coinEntry, "equity"),
-                    ReadDecimal(coinEntry, "walletBalance"),
-                    ReadDecimal(coinEntry, "availableToWithdraw"),
-                    ReadDecimal(coinEntry, "usdValue")));
+                    coinEntry.ReadNullableDecimal("equity"),
+                    coinEntry.ReadNullableDecimal("walletBalance"),
+                    coinEntry.ReadNullableDecimal("availableToWithdraw"),
+                    coinEntry.ReadNullableDecimal("usdValue")));
             }
         }
 
         return new ExchangeWalletSnapshot(
             DateTime.UtcNow,
             accountType.ToUpperInvariant(),
-            ReadDecimal(entry, "totalEquity"),
-            ReadDecimal(entry, "totalWalletBalance"),
-            ReadDecimal(entry, "totalMarginBalance"),
-            ReadDecimal(entry, "totalInitialMargin"),
-            ReadDecimal(entry, "totalMaintenanceMargin"),
-            ReadDecimal(entry, "totalAvailableBalance"),
-            ReadDecimal(entry, "totalPerpUPL"),
+            entry.ReadNullableDecimal("totalEquity"),
+            entry.ReadNullableDecimal("totalWalletBalance"),
+            entry.ReadNullableDecimal("totalMarginBalance"),
+            entry.ReadNullableDecimal("totalInitialMargin"),
+            entry.ReadNullableDecimal("totalMaintenanceMargin"),
+            entry.ReadNullableDecimal("totalAvailableBalance"),
+            entry.ReadNullableDecimal("totalPerpUPL"),
             coins);
     }
 
@@ -431,8 +404,6 @@ public sealed class ActiveWalletService : IWalletService
             // Wallet topic payloads may omit some totals/coins, so keep the latest complete view by merging.
             mergedSnapshot = MergeWithCurrentSnapshot(snapshot, _snapshot);
             _snapshot = mergedSnapshot;
-            var payload = JsonSerializer.Serialize(mergedSnapshot, _serializerOptions);
-            await _localStorageService.SetItemAsync(StorageKey, payload);
         }
         finally
         {
@@ -544,44 +515,6 @@ public sealed class ActiveWalletService : IWalletService
         }
     }
 
-    private static string? ReadString(JsonElement element, string propertyName)
-    {
-        if (!element.TryGetProperty(propertyName, out var property))
-        {
-            return null;
-        }
-
-        return property.ValueKind == JsonValueKind.String
-            ? property.GetString()?.Trim()
-            : property.GetRawText().Trim();
-    }
-
-    private static decimal? ReadDecimal(JsonElement element, string propertyName)
-    {
-        if (!element.TryGetProperty(propertyName, out var property))
-        {
-            return null;
-        }
-
-        if (property.ValueKind == JsonValueKind.Null)
-        {
-            return null;
-        }
-
-        if (property.ValueKind == JsonValueKind.Number && property.TryGetDecimal(out var numeric))
-        {
-            return numeric;
-        }
-
-        var raw = property.ValueKind == JsonValueKind.String
-            ? property.GetString()
-            : property.GetRawText();
-
-        return decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
-            ? parsed
-            : null;
-    }
-
     private bool HasApiCredentials()
     {
         var settings = _bybitSettingsOptions.Value;
@@ -623,7 +556,6 @@ public sealed class ActiveWalletService : IWalletService
             await handler.Invoke(snapshot);
         }
     }
-
     public async ValueTask DisposeAsync()
     {
         _fallbackRefreshCts?.Cancel();

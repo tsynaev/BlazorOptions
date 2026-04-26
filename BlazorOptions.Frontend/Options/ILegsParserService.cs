@@ -1,5 +1,7 @@
 namespace BlazorOptions.ViewModels;
 
+using BlazorOptions.Services;
+
 public interface ILegsParserService
 {
     IReadOnlyList<LegModel> ParseLegs(string input, decimal defaultSize, DateTime? defaultExpiration, string? baseAsset);

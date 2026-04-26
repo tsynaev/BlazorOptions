@@ -1,51 +1,24 @@
 using BlazorOptions.Diagnostics;
-using BlazorOptions.ViewModels;
-using System.Buffers;
-using System.Globalization;
-using System.Net;
-using System.Net.WebSockets;
-using System.Text;
-using System.Text.Json;
-using System.Text.RegularExpressions;
-using Microsoft.Extensions.Options;
 
 namespace BlazorOptions.Services;
 
 public class OptionsChainService : IOptionsChainService
 {
-    private const string BybitOptionsTickerUrl = "https://api.bybit.com/v5/market/tickers?category=option";
-    private static readonly Uri BybitOptionsWebSocketUrl = new("wss://stream.bybit.com/v5/public/option");
-
-    private readonly HttpClient _httpClient;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
-    private readonly SemaphoreSlim _socketLock = new(1, 1);
+    private readonly SemaphoreSlim _liveModeLock = new(1, 1);
     private readonly object _cacheLock = new();
     private readonly object _subscriberLock = new();
-    private Dictionary<string, List<OptionChainTicker>> _cachedTickers = new();
+    private readonly IOptionMarketDataService _optionMarketDataService;
+    private readonly Dictionary<string, List<Func<OptionChainTicker, Task>>> _subscriberHandlers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, IDisposable> _marketDataSubscriptions = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, List<OptionChainTicker>> _cachedTickers = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _trackedSymbols = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, List<Func<OptionChainTicker, Task>>>
-        _subscriberHandlers = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<ExchangeTradingPair> _availableOptionPairs = Array.Empty<ExchangeTradingPair>();
-    private readonly IOptions<BybitSettings>? _bybitSettingsOptions;
-    private ClientWebSocket? _socket;
-    private CancellationTokenSource? _socketCts;
-    private Task? _socketTask;
-    private Task? _heartbeatTask;
-    private readonly HashSet<string> _subscribedSymbols = new(StringComparer.OrdinalIgnoreCase);
-    private readonly SemaphoreSlim _liveModeLock = new(1, 1);
-    private int _reconnectState;
-    private static readonly TimeSpan ReconnectDelayMin = TimeSpan.FromSeconds(2);
-    private static readonly TimeSpan ReconnectDelayMax = TimeSpan.FromSeconds(30);
-    private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(20);
-  
-    private readonly IExchangeService _exchangeService;
     private bool _isLive;
 
-    public OptionsChainService(HttpClient httpClient, IExchangeService exchangeService, IOptions<BybitSettings>? bybitSettingsOptions = null)
+    public OptionsChainService(IOptionMarketDataService optionMarketDataService)
     {
-        _httpClient = httpClient;
-        _exchangeService = exchangeService;
-        _bybitSettingsOptions = bybitSettingsOptions;
+        _optionMarketDataService = optionMarketDataService;
     }
 
     public DateTime? LastUpdatedUtc { get; private set; }
@@ -67,35 +40,26 @@ public class OptionsChainService : IOptionsChainService
         }
     }
 
-  
-
-
-
     public List<OptionChainTicker> GetTickersByBaseAsset(string baseAsset, LegType? legType = null)
     {
         using var activity = ActivitySources.Telemetry.StartActivity("OptionsChainService.GetTickersByBaseAsset");
-
         if (string.IsNullOrWhiteSpace(baseAsset))
         {
             return [];
         }
 
         var normalizedBase = baseAsset.Trim().ToUpperInvariant();
-
-
-        if (!_cachedTickers.TryGetValue(normalizedBase, out List<OptionChainTicker>? tickers))
+        lock (_cacheLock)
         {
-            return new List<OptionChainTicker>();
+            if (!_cachedTickers.TryGetValue(normalizedBase, out var tickers))
+            {
+                return [];
+            }
+
+            return legType.HasValue
+                ? tickers.Where(x => x.Type == legType).ToList()
+                : tickers.ToList();
         }
-
-        if (legType.HasValue)
-        {
-
-            return tickers.Where(x => x.Type == legType).ToList();
-        }
-
-        return tickers;
-
     }
 
     public IReadOnlyList<string> GetCachedBaseAssets()
@@ -166,22 +130,22 @@ public class OptionsChainService : IOptionsChainService
         }
     }
 
-
-
-    public IReadOnlyCollection<string> GetTrackedSymbols()
-    {
-        lock (_cacheLock)
-        {
-            return _trackedSymbols.ToList();
-        }
-    }
-
     public async Task EnsureTickersForBaseAssetAsync(string baseAsset)
     {
-        if (!_cachedTickers.TryGetValue(baseAsset, out _))
+        if (string.IsNullOrWhiteSpace(baseAsset))
         {
-            await UpdateTickersAsync(baseAsset);
+            return;
         }
+
+        lock (_cacheLock)
+        {
+            if (_cachedTickers.ContainsKey(baseAsset.Trim().ToUpperInvariant()))
+            {
+                return;
+            }
+        }
+
+        await UpdateTickersAsync(baseAsset);
     }
 
     public async Task UpdateTickersAsync(string? baseAsset = null, CancellationToken cancellationToken = default)
@@ -205,7 +169,7 @@ public class OptionsChainService : IOptionsChainService
             var allUpdated = new List<OptionChainTicker>();
             foreach (var currentBase in baseAssets)
             {
-                var updated = await FetchTickersAsync(currentBase, cancellationToken);
+                var updated = await _optionMarketDataService.GetTickersAsync(currentBase, cancellationToken);
                 if (updated.Count == 0)
                 {
                     continue;
@@ -213,22 +177,23 @@ public class OptionsChainService : IOptionsChainService
 
                 lock (_cacheLock)
                 {
-                    _cachedTickers[currentBase] = updated;
+                    _cachedTickers[currentBase] = updated.ToList();
                 }
 
                 allUpdated.AddRange(updated);
             }
 
-            if (allUpdated.Count > 0)
+            if (allUpdated.Count == 0)
             {
-                LastUpdatedUtc = DateTime.UtcNow;
+                return;
+            }
 
-                foreach (var ticker in allUpdated
-                             .GroupBy(t => t.Symbol, StringComparer.OrdinalIgnoreCase)
-                             .Select(group => group.Last()))
-                {
-                    await DispatchSubscriberHandlers(ticker);
-                }
+            LastUpdatedUtc = DateTime.UtcNow;
+            foreach (var ticker in allUpdated
+                         .GroupBy(t => t.Symbol, StringComparer.OrdinalIgnoreCase)
+                         .Select(group => group.Last()))
+            {
+                await DispatchSubscriberHandlers(ticker);
             }
         }
         finally
@@ -240,21 +205,23 @@ public class OptionsChainService : IOptionsChainService
 
     public OptionChainTicker? FindTickerForLeg(LegModel leg, string? baseAsset = null)
     {
-        if (string.IsNullOrEmpty(leg.Symbol)) return null;
+        if (string.IsNullOrEmpty(leg.Symbol))
+        {
+            return null;
+        }
 
         if (string.IsNullOrEmpty(baseAsset))
         {
-            _exchangeService.TryParseSymbol(leg.Symbol, out baseAsset ,out _,out _, out _ );
+            BybitSymbolMapper.TryParseSymbol(leg.Symbol, out baseAsset, out _, out _, out _);
         }
 
         var tickers = GetTickersByBaseAsset(baseAsset);
-
         return tickers.FirstOrDefault(ticker => string.Equals(ticker.Symbol, leg.Symbol, StringComparison.OrdinalIgnoreCase));
     }
 
     public void TrackLegs(IEnumerable<LegModel> legs, string? baseAsset = null)
     {
-        var symbols = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+        var symbols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var leg in legs)
         {
@@ -262,6 +229,11 @@ public class OptionsChainService : IOptionsChainService
             if (ticker is not null)
             {
                 symbols.Add(ticker.Symbol);
+            }
+            else if (!string.IsNullOrWhiteSpace(leg.Symbol) &&
+                     BybitSymbolMapper.TryParseSymbol(leg.Symbol, out _, out _, out _, out _))
+            {
+                symbols.Add(leg.Symbol.Trim());
             }
         }
 
@@ -272,7 +244,7 @@ public class OptionsChainService : IOptionsChainService
 
         if (IsLive)
         {
-            _ = EnsureWebSocketSubscriptionsAsync(symbols);
+            _ = SyncMarketDataSubscriptionsAsync();
         }
     }
 
@@ -298,20 +270,7 @@ public class OptionsChainService : IOptionsChainService
             handlers.Add(when);
         }
 
-        OptionChainTicker? cachedTicker = null;
-        lock (_cacheLock)
-        {
-            foreach (var tickers in _cachedTickers.Values)
-            {
-                cachedTicker = tickers.FirstOrDefault(t =>
-                    string.Equals(t.Symbol, symbol, StringComparison.OrdinalIgnoreCase));
-                if (cachedTicker is not null)
-                {
-                    break;
-                }
-            }
-        }
-
+        var cachedTicker = FindCachedTicker(symbol);
         if (cachedTicker is not null)
         {
             try
@@ -320,507 +279,30 @@ public class OptionsChainService : IOptionsChainService
             }
             catch
             {
-                // Keep subscription flow resilient if consumer callback fails.
+                // Consumer callbacks must not break subscription registration.
             }
         }
 
         if (shouldSubscribe && IsLive)
         {
-            await EnsureWebSocketSubscriptionsAsync(new[] { symbol });
+            await EnsureMarketDataSubscriptionsAsync(new[] { symbol });
         }
 
         return new SubscriptionRegistration(() => _ = UnsubscribeAsync(symbol, when));
     }
 
-    private async Task<List<OptionChainTicker>> FetchTickersAsync(string baseAsset, CancellationToken cancellationToken)
-    {
-        var requestUrl = BuildTickerUrl(baseAsset);
-        using var response = await _httpClient.GetAsync(requestUrl, cancellationToken);
-
-        response.EnsureSuccessStatusCode();
-
-
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-
-        return ParseTickersFromDocument(document);
-    }
-
-    private static string BuildTickerUrl(string baseAsset)
-    {
-        if (string.IsNullOrWhiteSpace(baseAsset))
-        {
-            return BybitOptionsTickerUrl;
-        }
-
-        return $"{BybitOptionsTickerUrl}&baseCoin={Uri.EscapeDataString(baseAsset.Trim())}";
-    }
-
     private async Task EnsureAvailableOptionPairsAsync(CancellationToken cancellationToken)
     {
-        var fetched = await FetchAvailableOptionPairsAsync(cancellationToken);
+        await Task.CompletedTask;
         lock (_cacheLock)
         {
-            _availableOptionPairs = fetched.Count > 0 ? fetched : BuildPairsFromSettings();
+            _availableOptionPairs = _optionMarketDataService.GetConfiguredTradingPairs();
         }
     }
 
-    private async Task<IReadOnlyList<ExchangeTradingPair>> FetchAvailableOptionPairsAsync(CancellationToken cancellationToken)
+    private IReadOnlyList<ExchangeTradingPair> BuildPairsFromExchange()
     {
-        // Bybit doesn't expose a reliable complete options instruments list without base filter.
-        // We use user-configured base/quote settings as source of truth for selectable instruments.
-        await Task.CompletedTask;
-        return BuildPairsFromSettings();
-    }
-
-    private IReadOnlyList<ExchangeTradingPair> BuildPairsFromSettings()
-    {
-        var settings = _bybitSettingsOptions?.Value ?? new BybitSettings();
-        var bases = ParseAssetList(settings.OptionBaseCoins, ["BTC", "ETH", "SOL"]);
-        var quotes = ParseAssetList(settings.OptionQuoteCoins, ["USDT"]);
-        var pairs = new List<ExchangeTradingPair>(bases.Count * quotes.Count);
-
-        foreach (var baseAsset in bases)
-        {
-            foreach (var quoteAsset in quotes)
-            {
-                pairs.Add(new ExchangeTradingPair(baseAsset, quoteAsset));
-            }
-        }
-
-        return pairs;
-    }
-
-    private static IReadOnlyList<string> ParseAssetList(string? raw, IReadOnlyList<string> fallback)
-    {
-        if (string.IsNullOrWhiteSpace(raw))
-        {
-            return fallback;
-        }
-
-        var parsed = Regex.Split(raw, "[^a-zA-Z0-9]+")
-            .Select(x => x.Trim().ToUpperInvariant())
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-        return parsed.Length > 0 ? parsed : fallback;
-    }
-
-    private List<OptionChainTicker> ParseTickersFromDocument(JsonDocument? document)
-    {
-        if (document is null)
-        {
-            return new List<OptionChainTicker>();
-        }
-
-        ThrowIfRetCodeError(document.RootElement);
-
-        if (!document.RootElement.TryGetProperty("result", out var resultElement))
-        {
-            return new List<OptionChainTicker>();
-        }
-
-        if (!resultElement.TryGetProperty("list", out var listElement) || listElement.ValueKind != JsonValueKind.Array)
-        {
-            return new List<OptionChainTicker>();
-        }
-
-        var tickers = new List<OptionChainTicker>();
-
-        foreach (var entry in listElement.EnumerateArray())
-        {
-            var ticker = ReadTickerFromPayload(entry);
-            if (ticker is not null)
-            {
-                tickers.Add(ticker);
-            }
-        }
-
-        return tickers;
-    }
-
-    private static void ThrowIfRetCodeError(JsonElement rootElement)
-    {
-        if (!rootElement.TryGetProperty("retCode", out var retCodeElement))
-        {
-            return;
-        }
-
-        if (!TryReadInt(retCodeElement, out var retCode) || retCode == 0)
-        {
-            return;
-        }
-
-        var message = rootElement.TryGetProperty("retMsg", out var retMsgElement)
-            ? retMsgElement.GetString()
-            : null;
-        throw new InvalidOperationException($"Bybit API error {retCode}: {message ?? "Unknown error"}");
-    }
-
-    private static bool TryReadInt(JsonElement element, out int value)
-    {
-        value = 0;
-
-        if (element.ValueKind == JsonValueKind.Number && element.TryGetInt32(out value))
-        {
-            return true;
-        }
-
-        if (element.ValueKind != JsonValueKind.String)
-        {
-            return false;
-        }
-
-        var raw = element.GetString();
-        return int.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out value);
-    }
-
- 
-    private static JsonDocument? TryParseJson(string content)
-    {
-        try
-        {
-            return JsonDocument.Parse(content);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static bool TryReadString(JsonElement element, string propertyName, out string value)
-    {
-        value = string.Empty;
-
-        if (!element.TryGetProperty(propertyName, out var property))
-        {
-            return false;
-        }
-
-        value = property.ValueKind == JsonValueKind.String ? property.GetString() ?? string.Empty : property.GetRawText();
-        return !string.IsNullOrWhiteSpace(value);
-    }
-
-    private static decimal ReadDecimal(JsonElement element, string propertyName, params string[] fallbackPropertyNames)
-    {
-        if (TryReadDecimal(element, propertyName, out var value))
-        {
-            return value;
-        }
-
-        if (fallbackPropertyNames is null || fallbackPropertyNames.Length == 0)
-        {
-            return 0;
-        }
-
-        foreach (var fallback in fallbackPropertyNames)
-        {
-            if (TryReadDecimal(element, fallback, out value))
-            {
-                return value;
-            }
-        }
-
-        return 0;
-    }
-
-    private static bool TryReadDecimal(JsonElement element, string propertyName, out decimal value)
-    {
-        value = 0;
-
-        if (!element.TryGetProperty(propertyName, out var property))
-        {
-            return false;
-        }
-
-        var raw = property.ValueKind == JsonValueKind.String ? property.GetString() : property.GetRawText();
-        if (string.IsNullOrWhiteSpace(raw))
-        {
-            return false;
-        }
-
-        return decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out value);
-    }
-
-    private async Task EnsureWebSocketSubscriptionsAsync(IEnumerable<string> symbols)
-    {
-        if (!IsLive)
-        {
-            return;
-        }
-
-        var symbolList = symbols
-            .Where(symbol => !string.IsNullOrWhiteSpace(symbol))
-            .Distinct(System.StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        if (symbolList.Count == 0)
-        {
-            return;
-        }
-
-        await _socketLock.WaitAsync();
-        try
-        {
-            await EnsureSocketAsync();
-
-            if (_socket is null || _socket.State != WebSocketState.Open)
-            {
-                return;
-            }
-
-            var newSymbols = symbolList
-                .Where(symbol => !_subscribedSymbols.Contains(symbol))
-                .ToList();
-
-            if (newSymbols.Count == 0)
-            {
-                return;
-            }
-
-            var subscribePayload = JsonSerializer.Serialize(new
-            {
-                op = "subscribe",
-                args = newSymbols.Select(symbol => $"tickers.{symbol}")
-            });
-
-            var subscribeBytes = Encoding.UTF8.GetBytes(subscribePayload);
-            await _socket.SendAsync(subscribeBytes, WebSocketMessageType.Text, true, _socketCts?.Token ?? CancellationToken.None);
-
-            foreach (var symbol in newSymbols)
-            {
-                _subscribedSymbols.Add(symbol);
-            }
-        }
-        catch
-        {
-            // ignore websocket subscription errors
-        }
-        finally
-        {
-            _socketLock.Release();
-        }
-    }
-
-    private async Task EnsureSocketAsync()
-    {
-        if (_socket is not null && _socket.State == WebSocketState.Open)
-        {
-            return;
-        }
-
-        await StopSocketAsync();
-
-        _socketCts = new CancellationTokenSource();
-        _socket = new ClientWebSocket();
-        await _socket.ConnectAsync(BybitOptionsWebSocketUrl, _socketCts.Token);
-        _socketTask = ReceiveLoopAsync(_socket, _socketCts.Token);
-        _heartbeatTask = SendHeartbeatLoopAsync(_socket, _socketCts.Token);
-    }
-
-    private async Task ReceiveLoopAsync(ClientWebSocket socket, CancellationToken cancellationToken)
-    {
-        var buffer = new byte[4096];
-        var segment = new ArraySegment<byte>(buffer);
-        var builder = new ArrayBufferWriter<byte>();
-
-        while (socket.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested)
-        {
-            builder.Clear();
-            WebSocketReceiveResult? result = null;
-
-            do
-            {
-                result = await socket.ReceiveAsync(segment, cancellationToken);
-                if (result.MessageType == WebSocketMessageType.Close)
-                {
-                    if (!cancellationToken.IsCancellationRequested)
-                    {
-                        TriggerReconnect();
-                    }
-                    return;
-                }
-
-                builder.Write(buffer.AsSpan(0, result.Count));
-            }
-            while (!result.EndOfMessage);
-
-            if (result.MessageType != WebSocketMessageType.Text)
-            {
-                continue;
-            }
-
-            var payload = Encoding.UTF8.GetString(builder.WrittenSpan);
-            await TryHandleTickerPayload(payload);
-        }
-
-        if (!cancellationToken.IsCancellationRequested)
-        {
-            TriggerReconnect();
-        }
-    }
-
-    private async Task SendHeartbeatLoopAsync(ClientWebSocket socket, CancellationToken cancellationToken)
-    {
-        var heartbeatPayload = Encoding.UTF8.GetBytes("{\"op\":\"ping\"}");
-
-        while (!cancellationToken.IsCancellationRequested && socket.State == WebSocketState.Open)
-        {
-            try
-            {
-                await Task.Delay(HeartbeatInterval, cancellationToken);
-                if (cancellationToken.IsCancellationRequested || socket.State != WebSocketState.Open)
-                {
-                    break;
-                }
-
-                await socket.SendAsync(heartbeatPayload, WebSocketMessageType.Text, true, cancellationToken);
-            }
-            catch (TaskCanceledException)
-            {
-                break;
-            }
-            catch
-            {
-                if (!cancellationToken.IsCancellationRequested)
-                {
-                    TriggerReconnect();
-                }
-
-                break;
-            }
-        }
-    }
-
-    private async Task TryHandleTickerPayload(string payload)
-    {
-        if (!IsLive)
-        {
-            return;
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(payload);
-            var root = document.RootElement;
-
-            if (!root.TryGetProperty("topic", out var topicElement))
-            {
-                return;
-            }
-
-            var topic = topicElement.GetString();
-            if (string.IsNullOrWhiteSpace(topic) || !topic.StartsWith("tickers.", StringComparison.OrdinalIgnoreCase))
-            {
-                return;
-            }
-
-            if (!root.TryGetProperty("data", out var dataElement))
-            {
-                return;
-            }
-
-            var topicSymbol = topic["tickers.".Length..];
-
-            if (dataElement.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var entry in dataElement.EnumerateArray())
-                {
-                    var updatedTicker = UpdateTickerFromPayload(entry);
-                    if (updatedTicker is not null)
-                    {
-                        await DispatchSubscriberHandlers(updatedTicker);
-                    }
-                }
-
-                return;
-            }
-
-            if (dataElement.ValueKind == JsonValueKind.Object)
-            {
-                var updatedTicker = UpdateTickerFromPayload(dataElement);
-                if (updatedTicker is not null)
-                {
-                    await DispatchSubscriberHandlers(updatedTicker);
-                }
-            }
-        }
-        catch
-        {
-            // ignore malformed websocket messages
-        }
-    }
-
-    private void TriggerReconnect()
-    {
-        if (!IsLive)
-        {
-            return;
-        }
-
-        if (Interlocked.Exchange(ref _reconnectState, 1) == 1)
-        {
-            return;
-        }
-
-        _ = Task.Run(async () =>
-        {
-            var delay = ReconnectDelayMin;
-
-            while (true)
-            {
-                try
-                {
-                    await Task.Delay(delay);
-                    var symbols = GetTrackedSymbols();
-                    if (symbols.Count == 0)
-                    {
-                        delay = ReconnectDelayMin;
-                        continue;
-                    }
-
-                    await EnsureWebSocketSubscriptionsAsync(symbols);
-                    break;
-                }
-                catch
-                {
-                    var nextSeconds = Math.Min(delay.TotalSeconds * 2, ReconnectDelayMax.TotalSeconds);
-                    delay = TimeSpan.FromSeconds(nextSeconds);
-                }
-            }
-
-            Interlocked.Exchange(ref _reconnectState, 0);
-        });
-    }
-
-    private async Task SetLiveModeAsync(bool isLive)
-    {
-        await _liveModeLock.WaitAsync();
-        try
-        {
-            if (!isLive)
-            {
-                await StopSocketAsync();
-                return;
-            }
-
-            var symbols = GetAllSymbolsToSubscribe();
-            if (symbols.Count == 0)
-            {
-                return;
-            }
-
-            await EnsureWebSocketSubscriptionsAsync(symbols);
-        }
-        catch
-        {
-            // Keep service usable if live mode transition fails.
-        }
-        finally
-        {
-            _liveModeLock.Release();
-        }
+        return _optionMarketDataService.GetConfiguredTradingPairs();
     }
 
     private List<string> ResolveBaseAssetsToRefresh(string? baseAsset)
@@ -841,11 +323,95 @@ public class OptionsChainService : IOptionsChainService
             }
         }
 
-        return BuildPairsFromSettings()
+        return BuildPairsFromExchange()
             .Select(pair => pair.BaseAsset)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(x => x)
             .ToList();
+    }
+
+    private async Task SetLiveModeAsync(bool isLive)
+    {
+        await _liveModeLock.WaitAsync();
+        try
+        {
+            if (!isLive)
+            {
+                DisposeMarketDataSubscriptions();
+                return;
+            }
+
+            await SyncMarketDataSubscriptionsAsync();
+        }
+        catch
+        {
+            // Keep the option-chain cache usable if live transport fails.
+        }
+        finally
+        {
+            _liveModeLock.Release();
+        }
+    }
+
+    private async Task SyncMarketDataSubscriptionsAsync()
+    {
+        var symbols = GetAllSymbolsToSubscribe();
+        if (symbols.Count == 0)
+        {
+            return;
+        }
+
+        await EnsureMarketDataSubscriptionsAsync(symbols);
+    }
+
+    private async Task EnsureMarketDataSubscriptionsAsync(IEnumerable<string> symbols)
+    {
+        if (!IsLive)
+        {
+            return;
+        }
+
+        foreach (var symbol in symbols
+                     .Where(symbol => !string.IsNullOrWhiteSpace(symbol))
+                     .Select(symbol => symbol.Trim())
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (_marketDataSubscriptions.ContainsKey(symbol))
+            {
+                continue;
+            }
+
+            _marketDataSubscriptions[symbol] = await _optionMarketDataService.SubscribeAsync(symbol, HandleMarketDataTickerAsync);
+        }
+    }
+
+    private async Task HandleMarketDataTickerAsync(OptionChainTicker ticker)
+    {
+        UpdateTicker(ticker);
+        await DispatchSubscriberHandlers(ticker);
+    }
+
+    private void UpdateTicker(OptionChainTicker ticker)
+    {
+        lock (_cacheLock)
+        {
+            if (!_cachedTickers.TryGetValue(ticker.BaseAsset, out var tickers))
+            {
+                tickers = new List<OptionChainTicker>();
+                _cachedTickers[ticker.BaseAsset] = tickers;
+            }
+
+            var index = tickers.FindIndex(existing =>
+                string.Equals(existing.Symbol, ticker.Symbol, StringComparison.OrdinalIgnoreCase));
+            if (index >= 0)
+            {
+                tickers[index] = ticker;
+            }
+            else
+            {
+                tickers.Add(ticker);
+            }
+        }
     }
 
     private List<string> GetAllSymbolsToSubscribe()
@@ -877,162 +443,19 @@ public class OptionsChainService : IOptionsChainService
         return symbols.ToList();
     }
 
-    private OptionChainTicker? UpdateTickerFromPayload(JsonElement entry)
+    private OptionChainTicker? FindCachedTicker(string symbol)
     {
-        var ticker = ReadTickerFromPayload(entry);
-        if (ticker is null)
+        lock (_cacheLock)
         {
-            return null;
-        }
-
-        if (!_cachedTickers.TryGetValue(ticker.BaseAsset, out var tickers))
-        {
-            tickers = new List<OptionChainTicker>();
-            _cachedTickers.Add(ticker.BaseAsset, tickers);
-        }
-
-        var index = tickers.FindIndex(existing =>
-            string.Equals(existing.Symbol, ticker.Symbol, StringComparison.OrdinalIgnoreCase));
-        if (index >= 0)
-        {
-            tickers[index] = ticker;
-        }
-        else
-        {
-            tickers.Add(ticker);
-        }
-
-        return ticker;
-    }
-
-
-    private OptionChainTicker? ReadTickerFromPayload(JsonElement entry)
-    {
-        if (!TryReadString(entry, "symbol", out var symbol) || string.IsNullOrWhiteSpace(symbol))
-        {
-            return null;
-        }
-
-        if (!_exchangeService.TryParseSymbol(symbol, out var baseAsset, out var expirationDate, out var strike,
-                out var legType))
-        {
-            return null;
-        }
-
-
-        var underlyingPrice = ReadDecimal(entry, "underlyingPrice");
-        var markPrice = ReadDecimal(entry, "markPrice");
-        var lastPrice = ReadDecimal(entry, "lastPrice");
-        var markIv = ReadDecimal(entry, "markIv");
-        var bidPrice = ReadDecimal(entry, "bidPrice", "bid1Price");
-        var askPrice = ReadDecimal(entry, "askPrice", "ask1Price");
-        var bidIv = ReadDecimal(entry, "bidIv", "bid1Iv");
-        var askIv = ReadDecimal(entry, "askIv", "ask1Iv");
-        var delta = ReadNullableDecimal(entry, "delta");
-        var gamma = ReadNullableDecimal(entry, "gamma");
-        var vega = ReadNullableDecimal(entry, "vega");
-        var theta = ReadNullableDecimal(entry, "theta");
-        var openInterest = ReadNullableDecimal(entry, "openInterest");
-
-
-        var created = new OptionChainTicker(
-            symbol,
-            baseAsset,
-            expirationDate,
-            strike,
-            legType,
-            underlyingPrice,
-            markPrice,
-            lastPrice,
-            markIv,
-            bidPrice,
-            askPrice,
-            bidIv,
-            askIv,
-            delta,
-            gamma,
-            vega,
-            theta,
-            openInterest);
-
-
-        return created;
-
-    }
-
-    private async Task StopSocketAsync()
-    {
-        if (_socketCts is not null)
-        {
-            _socketCts.Cancel();
-            _socketCts.Dispose();
-            _socketCts = null;
-        }
-
-        if (_socket is not null)
-        {
-            try
+            foreach (var tickers in _cachedTickers.Values)
             {
-                if (_socket.State == WebSocketState.Open)
+                var cachedTicker = tickers.FirstOrDefault(t =>
+                    string.Equals(t.Symbol, symbol, StringComparison.OrdinalIgnoreCase));
+                if (cachedTicker is not null)
                 {
-                    await _socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
+                    return cachedTicker;
                 }
             }
-            catch
-            {
-                // ignore shutdown errors
-            }
-
-            _socket.Dispose();
-            _socket = null;
-        }
-
-        if (_heartbeatTask is not null)
-        {
-            try
-            {
-                await _heartbeatTask;
-            }
-            catch
-            {
-                // ignore heartbeat errors on shutdown
-            }
-            finally
-            {
-                _heartbeatTask = null;
-            }
-        }
-
-        if (_socketTask is not null)
-        {
-            try
-            {
-                await _socketTask;
-            }
-            catch
-            {
-                // ignore receive errors on shutdown
-            }
-            finally
-            {
-                _socketTask = null;
-            }
-        }
-
-        _subscribedSymbols.Clear();
-    }
-
-    private static decimal? ReadNullableDecimal(JsonElement element, string propertyName)
-    {
-        if (!element.TryGetProperty(propertyName, out var property))
-        {
-            return null;
-        }
-
-        var raw = property.ValueKind == JsonValueKind.String ? property.GetString() : property.GetRawText();
-        if (decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var value))
-        {
-            return value;
         }
 
         return null;
@@ -1040,7 +463,7 @@ public class OptionsChainService : IOptionsChainService
 
     private async Task DispatchSubscriberHandlers(OptionChainTicker ticker)
     {
-        List<Func<OptionChainTicker, Task>>? handlers;
+        List<Func<OptionChainTicker, Task>> handlers;
         lock (_subscriberLock)
         {
             if (!_subscriberHandlers.TryGetValue(ticker.Symbol, out var list) || list.Count == 0)
@@ -1059,7 +482,7 @@ public class OptionsChainService : IOptionsChainService
             }
             catch
             {
-                // ignore subscriber errors
+                // Subscriber failures are isolated so market updates continue.
             }
         }
     }
@@ -1080,47 +503,34 @@ public class OptionsChainService : IOptionsChainService
             }
         }
 
-        if (!shouldUnsubscribe)
+        if (!shouldUnsubscribe || IsSymbolTracked(symbol))
         {
             return;
         }
 
-        if (IsSymbolTracked(symbol))
+        if (_marketDataSubscriptions.Remove(symbol, out var registration))
         {
-            return;
+            registration.Dispose();
         }
 
-        await _socketLock.WaitAsync();
-        try
+        await Task.CompletedTask;
+    }
+
+    private void DisposeMarketDataSubscriptions()
+    {
+        foreach (var registration in _marketDataSubscriptions.Values)
         {
-            if (_socket is null || _socket.State != WebSocketState.Open)
-            {
-                _subscribedSymbols.Remove(symbol);
-                return;
-            }
-
-            if (!_subscribedSymbols.Contains(symbol))
-            {
-                return;
-            }
-
-            var unsubscribePayload = JsonSerializer.Serialize(new
-            {
-                op = "unsubscribe",
-                args = new[] { $"tickers.{symbol}" }
-            });
-
-            var unsubscribeBytes = Encoding.UTF8.GetBytes(unsubscribePayload);
-            await _socket.SendAsync(unsubscribeBytes, WebSocketMessageType.Text, true, _socketCts?.Token ?? CancellationToken.None);
-            _subscribedSymbols.Remove(symbol);
+            registration.Dispose();
         }
-        catch
+
+        _marketDataSubscriptions.Clear();
+    }
+
+    private bool IsSymbolTracked(string symbol)
+    {
+        lock (_cacheLock)
         {
-            // ignore websocket unsubscribe errors
-        }
-        finally
-        {
-            _socketLock.Release();
+            return _trackedSymbols.Contains(symbol);
         }
     }
 
@@ -1134,16 +544,4 @@ public class OptionsChainService : IOptionsChainService
         var parts = symbol.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         return parts.Length >= 5 ? parts[4] : null;
     }
-
-    private bool IsSymbolTracked(string symbol)
-    {
-        lock (_cacheLock)
-        {
-            return _trackedSymbols.Contains(symbol);
-        }
-    }
-
-
-  
-
 }
