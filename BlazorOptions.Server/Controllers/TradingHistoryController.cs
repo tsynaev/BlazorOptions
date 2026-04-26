@@ -20,7 +20,7 @@ public sealed class TradingHistoryController : ControllerBase, ITradingHistoryPo
     }
 
     [HttpPost("trades/bulk")]
-    public async Task<IActionResult> SaveTradesAsync([FromBody] TradingHistoryEntry[] entries)
+    public async Task<IActionResult> SaveTradesAsync([FromBody] TradingHistoryEntry[] entries, [FromQuery] string? exchangeConnectionId)
     {
         var userId = ResolveUserId();
         if (string.IsNullOrWhiteSpace(userId))
@@ -28,12 +28,12 @@ public sealed class TradingHistoryController : ControllerBase, ITradingHistoryPo
             return Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unauthorized");
         }
 
-        await _store.SaveTradesAsync(userId, entries);
+        await _store.SaveTradesAsync(userId, entries, exchangeConnectionId);
         return Ok(new { count = entries.Length });
     }
 
     [HttpGet("entries")]
-    public async Task<IActionResult> LoadEntriesAsync([FromQuery] string? baseAsset, [FromQuery] int startIndex, [FromQuery] int limit)
+    public async Task<IActionResult> LoadEntriesAsync([FromQuery] string? baseAsset, [FromQuery] int startIndex, [FromQuery] int limit, [FromQuery] string? exchangeConnectionId)
     {
         if (startIndex < 0 || limit <= 0)
         {
@@ -46,7 +46,7 @@ public sealed class TradingHistoryController : ControllerBase, ITradingHistoryPo
             return Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unauthorized");
         }
 
-        var result = await _store.LoadEntriesAsync(userId, baseAsset, startIndex, limit);
+        var result = await _store.LoadEntriesAsync(userId, baseAsset, startIndex, limit, exchangeConnectionId);
         var mapped = new TradingHistoryResult
         {
             Entries = result.Entries.Select(MapForGrid).ToList(),
@@ -56,7 +56,7 @@ public sealed class TradingHistoryController : ControllerBase, ITradingHistoryPo
     }
 
     [HttpGet("all")]
-    public async Task<IActionResult> LoadAllAscAsync()
+    public async Task<IActionResult> LoadAllAscAsync([FromQuery] string? exchangeConnectionId)
     {
         var userId = ResolveUserId();
         if (string.IsNullOrWhiteSpace(userId))
@@ -64,7 +64,7 @@ public sealed class TradingHistoryController : ControllerBase, ITradingHistoryPo
             return Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unauthorized");
         }
 
-        var entries = await _store.LoadAllAscAsync(userId);
+        var entries = await _store.LoadAllAscAsync(userId, exchangeConnectionId);
         return Ok(entries);
     }
 
@@ -72,7 +72,8 @@ public sealed class TradingHistoryController : ControllerBase, ITradingHistoryPo
     public async Task<IActionResult> LoadBySymbolAsync(
         [FromQuery] string symbol,
         [FromQuery] string? category,
-        [FromQuery] long? sinceTimestamp)
+        [FromQuery] long? sinceTimestamp,
+        [FromQuery] string? exchangeConnectionId)
     {
         if (string.IsNullOrWhiteSpace(symbol))
         {
@@ -85,12 +86,12 @@ public sealed class TradingHistoryController : ControllerBase, ITradingHistoryPo
             return Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unauthorized");
         }
 
-        var entries = await _store.LoadBySymbolAsync(userId, symbol, category, sinceTimestamp);
+        var entries = await _store.LoadBySymbolAsync(userId, symbol, category, sinceTimestamp, exchangeConnectionId);
         return Ok(entries);
     }
 
     [HttpGet("summary/by-symbol")]
-    public async Task<IActionResult> LoadSummaryBySymbolAsync()
+    public async Task<IActionResult> LoadSummaryBySymbolAsync([FromQuery] string? exchangeConnectionId)
     {
         var userId = ResolveUserId();
         if (string.IsNullOrWhiteSpace(userId))
@@ -98,12 +99,12 @@ public sealed class TradingHistoryController : ControllerBase, ITradingHistoryPo
             return Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unauthorized");
         }
 
-        var summary = await _store.LoadSummaryBySymbolAsync(userId);
+        var summary = await _store.LoadSummaryBySymbolAsync(userId, exchangeConnectionId);
         return Ok(summary);
     }
 
     [HttpGet("summary/by-settle-coin")]
-    public async Task<IActionResult> LoadPnlBySettleCoinAsync()
+    public async Task<IActionResult> LoadPnlBySettleCoinAsync([FromQuery] string? exchangeConnectionId)
     {
         var userId = ResolveUserId();
         if (string.IsNullOrWhiteSpace(userId))
@@ -111,14 +112,15 @@ public sealed class TradingHistoryController : ControllerBase, ITradingHistoryPo
             return Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unauthorized");
         }
 
-        var summary = await _store.LoadPnlBySettleCoinAsync(userId);
+        var summary = await _store.LoadPnlBySettleCoinAsync(userId, exchangeConnectionId);
         return Ok(summary);
     }
 
     [HttpGet("daily-pnl")]
     public async Task<IActionResult> LoadDailyPnlAsync(
         [FromQuery] long fromTimestamp,
-        [FromQuery] long toTimestamp)
+        [FromQuery] long toTimestamp,
+        [FromQuery] string? exchangeConnectionId)
     {
         if (fromTimestamp <= 0 || toTimestamp <= 0)
         {
@@ -131,14 +133,15 @@ public sealed class TradingHistoryController : ControllerBase, ITradingHistoryPo
             return Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unauthorized");
         }
 
-        var rows = await _store.LoadDailyPnlAsync(userId, fromTimestamp, toTimestamp);
+        var rows = await _store.LoadDailyPnlAsync(userId, fromTimestamp, toTimestamp, exchangeConnectionId);
         return Ok(rows);
     }
 
     [HttpGet("latest-meta")]
     public async Task<IActionResult> LoadLatestMetaAsync(
         [FromQuery] string symbol,
-        [FromQuery] string? category)
+        [FromQuery] string? category,
+        [FromQuery] string? exchangeConnectionId)
     {
         if (string.IsNullOrWhiteSpace(symbol))
         {
@@ -151,12 +154,12 @@ public sealed class TradingHistoryController : ControllerBase, ITradingHistoryPo
             return Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unauthorized");
         }
 
-        var meta = await _store.LoadLatestBySymbolMetaAsync(userId, symbol, category);
+        var meta = await _store.LoadLatestBySymbolMetaAsync(userId, symbol, category, exchangeConnectionId);
         return Ok(meta);
     }
 
     [HttpGet("meta")]
-    public async Task<IActionResult> LoadMetaAsync()
+    public async Task<IActionResult> LoadMetaAsync([FromQuery] string? exchangeConnectionId)
     {
         var userId = ResolveUserId();
         if (string.IsNullOrWhiteSpace(userId))
@@ -164,12 +167,12 @@ public sealed class TradingHistoryController : ControllerBase, ITradingHistoryPo
             return Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unauthorized");
         }
 
-        var meta = await _store.LoadMetaAsync(userId);
+        var meta = await _store.LoadMetaAsync(userId, exchangeConnectionId);
         return Ok(meta);
     }
 
     [HttpPost("meta")]
-    public async Task<IActionResult> SaveMetaAsync([FromBody] TradingHistoryMeta meta)
+    public async Task<IActionResult> SaveMetaAsync([FromBody] TradingHistoryMeta meta, [FromQuery] string? exchangeConnectionId)
     {
         var userId = ResolveUserId();
         if (string.IsNullOrWhiteSpace(userId))
@@ -177,12 +180,12 @@ public sealed class TradingHistoryController : ControllerBase, ITradingHistoryPo
             return Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unauthorized");
         }
 
-        await _store.SaveMetaAsync(userId, meta);
+        await _store.SaveMetaAsync(userId, meta, exchangeConnectionId);
         return Ok();
     }
 
     [HttpPost("recalculate")]
-    public async Task<IActionResult> RecalculateAsync([FromQuery] long? fromTimestamp)
+    public async Task<IActionResult> RecalculateAsync([FromQuery] long? fromTimestamp, [FromQuery] string? exchangeConnectionId)
     {
         var userId = ResolveUserId();
         if (string.IsNullOrWhiteSpace(userId))
@@ -190,20 +193,20 @@ public sealed class TradingHistoryController : ControllerBase, ITradingHistoryPo
             return Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unauthorized");
         }
 
-        await _store.RecalculateAsync(userId, fromTimestamp);
+        await _store.RecalculateAsync(userId, fromTimestamp, exchangeConnectionId);
         return Ok();
     }
 
-    async Task ITradingHistoryPort.SaveTradesAsync(IReadOnlyList<TradingHistoryEntry> entries)
+    async Task ITradingHistoryPort.SaveTradesAsync(IReadOnlyList<TradingHistoryEntry> entries, string? exchangeConnectionId)
     {
         var userId = ResolveUserIdOrThrow();
-        await _store.SaveTradesAsync(userId, entries);
+        await _store.SaveTradesAsync(userId, entries, exchangeConnectionId);
     }
 
-    async Task<TradingHistoryResult> ITradingHistoryPort.LoadEntriesAsync(string? baseAsset, int startIndex, int limit)
+    async Task<TradingHistoryResult> ITradingHistoryPort.LoadEntriesAsync(string? baseAsset, int startIndex, int limit, string? exchangeConnectionId)
     {
         var userId = ResolveUserIdOrThrow();
-        var result = await _store.LoadEntriesAsync(userId, baseAsset, startIndex, limit);
+        var result = await _store.LoadEntriesAsync(userId, baseAsset, startIndex, limit, exchangeConnectionId);
         return new TradingHistoryResult
         {
             Entries = result.Entries.Select(MapForGrid).ToList(),
@@ -212,52 +215,52 @@ public sealed class TradingHistoryController : ControllerBase, ITradingHistoryPo
     }
 
 
-    async Task<IReadOnlyList<TradingHistoryEntry>> ITradingHistoryPort.LoadBySymbolAsync(string symbol, string? category, long? sinceTimestamp)
+    async Task<IReadOnlyList<TradingHistoryEntry>> ITradingHistoryPort.LoadBySymbolAsync(string symbol, string? category, long? sinceTimestamp, string? exchangeConnectionId)
     {
         var userId = ResolveUserIdOrThrow();
-        return await _store.LoadBySymbolAsync(userId, symbol, category, sinceTimestamp);
+        return await _store.LoadBySymbolAsync(userId, symbol, category, sinceTimestamp, exchangeConnectionId);
     }
 
-    async Task<IReadOnlyList<TradingSummaryBySymbolRow>> ITradingHistoryPort.LoadSummaryBySymbolAsync()
+    async Task<IReadOnlyList<TradingSummaryBySymbolRow>> ITradingHistoryPort.LoadSummaryBySymbolAsync(string? exchangeConnectionId)
     {
         var userId = ResolveUserIdOrThrow();
-        return await _store.LoadSummaryBySymbolAsync(userId);
+        return await _store.LoadSummaryBySymbolAsync(userId, exchangeConnectionId);
     }
 
-    async Task<IReadOnlyList<TradingPnlByCoinRow>> ITradingHistoryPort.LoadPnlBySettleCoinAsync()
+    async Task<IReadOnlyList<TradingPnlByCoinRow>> ITradingHistoryPort.LoadPnlBySettleCoinAsync(string? exchangeConnectionId)
     {
         var userId = ResolveUserIdOrThrow();
-        return await _store.LoadPnlBySettleCoinAsync(userId);
+        return await _store.LoadPnlBySettleCoinAsync(userId, exchangeConnectionId);
     }
 
-    async Task<IReadOnlyList<TradingDailyPnlRow>> ITradingHistoryPort.LoadDailyPnlAsync(long fromTimestamp, long toTimestamp)
+    async Task<IReadOnlyList<TradingDailyPnlRow>> ITradingHistoryPort.LoadDailyPnlAsync(long fromTimestamp, long toTimestamp, string? exchangeConnectionId)
     {
         var userId = ResolveUserIdOrThrow();
-        return await _store.LoadDailyPnlAsync(userId, fromTimestamp, toTimestamp);
+        return await _store.LoadDailyPnlAsync(userId, fromTimestamp, toTimestamp, exchangeConnectionId);
     }
 
-    async Task<TradingHistoryLatestInfo> ITradingHistoryPort.LoadLatestBySymbolMetaAsync(string symbol, string? category)
+    async Task<TradingHistoryLatestInfo> ITradingHistoryPort.LoadLatestBySymbolMetaAsync(string symbol, string? category, string? exchangeConnectionId)
     {
         var userId = ResolveUserIdOrThrow();
-        return await _store.LoadLatestBySymbolMetaAsync(userId, symbol, category);
+        return await _store.LoadLatestBySymbolMetaAsync(userId, symbol, category, exchangeConnectionId);
     }
 
-    async Task<TradingHistoryMeta> ITradingHistoryPort.LoadMetaAsync()
+    async Task<TradingHistoryMeta> ITradingHistoryPort.LoadMetaAsync(string? exchangeConnectionId)
     {
         var userId = ResolveUserIdOrThrow();
-        return await _store.LoadMetaAsync(userId);
+        return await _store.LoadMetaAsync(userId, exchangeConnectionId);
     }
 
-    async Task ITradingHistoryPort.SaveMetaAsync(TradingHistoryMeta meta)
+    async Task ITradingHistoryPort.SaveMetaAsync(TradingHistoryMeta meta, string? exchangeConnectionId)
     {
         var userId = ResolveUserIdOrThrow();
-        await _store.SaveMetaAsync(userId, meta);
+        await _store.SaveMetaAsync(userId, meta, exchangeConnectionId);
     }
 
-    async Task ITradingHistoryPort.RecalculateAsync(long? fromTimestamp)
+    async Task ITradingHistoryPort.RecalculateAsync(long? fromTimestamp, string? exchangeConnectionId)
     {
         var userId = ResolveUserIdOrThrow();
-        await _store.RecalculateAsync(userId, fromTimestamp);
+        await _store.RecalculateAsync(userId, fromTimestamp, exchangeConnectionId);
     }
 
     private string? ResolveUserId()

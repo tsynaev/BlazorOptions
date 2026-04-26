@@ -319,7 +319,7 @@
         }
 
         await NavigationService.NavigateToAsync<TradingSymbolDialogViewModel>(
-            vm => vm.LoadAsync(symbol, null, null));
+            vm => vm.LoadAsync(symbol, null, null, ViewModel.ExchangeConnectionId));
     }
 
     private string BuildLinkedOrderText(LegLinkedOrderModel order)

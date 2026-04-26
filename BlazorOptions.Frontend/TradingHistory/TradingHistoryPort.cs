@@ -20,29 +20,33 @@ public sealed class TradingHistoryPort : ITradingHistoryPort
 
     // Removed availability probing to avoid extra auth checks.
 
-    public async Task<TradingHistoryMeta> LoadMetaAsync()
+    public async Task<TradingHistoryMeta> LoadMetaAsync(string? exchangeConnectionId = null)
     {
-        var response = await SendAsync(HttpMethod.Get, "api/trading-history/meta");
+        var response = await SendAsync(HttpMethod.Get, AppendExchangeConnectionId("api/trading-history/meta", exchangeConnectionId));
         return await response.Content.ReadFromJsonAsync<TradingHistoryMeta>(JsonOptions) ?? new TradingHistoryMeta();
     }
 
-    public async Task SaveMetaAsync(TradingHistoryMeta meta)
+    public async Task SaveMetaAsync(TradingHistoryMeta meta, string? exchangeConnectionId = null)
     {
-        await SendAsync(HttpMethod.Post, "api/trading-history/meta", meta);
+        await SendAsync(HttpMethod.Post, AppendExchangeConnectionId("api/trading-history/meta", exchangeConnectionId), meta);
     }
 
 
-    public async Task SaveTradesAsync(IReadOnlyList<TradingHistoryEntry> entries)
+    public async Task SaveTradesAsync(IReadOnlyList<TradingHistoryEntry> entries, string? exchangeConnectionId = null)
     {
-        await SendAsync(HttpMethod.Post, "api/trading-history/trades/bulk", entries);
+        await SendAsync(HttpMethod.Post, AppendExchangeConnectionId("api/trading-history/trades/bulk", exchangeConnectionId), entries);
     }
 
-    public async Task<TradingHistoryResult> LoadEntriesAsync(string? baseAsset, int startIndex, int limit)
+    public async Task<TradingHistoryResult> LoadEntriesAsync(string? baseAsset, int startIndex, int limit, string? exchangeConnectionId = null)
     {
         var query = new List<string> { $"startIndex={startIndex}", $"limit={limit}" };
         if (!string.IsNullOrWhiteSpace(baseAsset))
         {
             query.Add($"baseAsset={Uri.EscapeDataString(baseAsset)}");
+        }
+        if (!string.IsNullOrWhiteSpace(exchangeConnectionId))
+        {
+            query.Add($"exchangeConnectionId={Uri.EscapeDataString(exchangeConnectionId)}");
         }
 
         var response = await SendAsync(HttpMethod.Get, $"api/trading-history/entries?{string.Join("&", query)}");
@@ -51,7 +55,7 @@ public sealed class TradingHistoryPort : ITradingHistoryPort
 
 
 
-    public async Task<IReadOnlyList<TradingHistoryEntry>> LoadBySymbolAsync(string symbol, string? category, long? sinceTimestamp)
+    public async Task<IReadOnlyList<TradingHistoryEntry>> LoadBySymbolAsync(string symbol, string? category, long? sinceTimestamp, string? exchangeConnectionId = null)
     {
         var query = new List<string> { $"symbol={Uri.EscapeDataString(symbol)}" };
         if (!string.IsNullOrWhiteSpace(category))
@@ -62,40 +66,48 @@ public sealed class TradingHistoryPort : ITradingHistoryPort
         {
             query.Add($"sinceTimestamp={sinceTimestamp.Value}");
         }
+        if (!string.IsNullOrWhiteSpace(exchangeConnectionId))
+        {
+            query.Add($"exchangeConnectionId={Uri.EscapeDataString(exchangeConnectionId)}");
+        }
 
         var response = await SendAsync(HttpMethod.Get, $"api/trading-history/by-symbol?{string.Join("&", query)}");
         return await ReadListAsync(response);
     }
 
-    public async Task<IReadOnlyList<TradingSummaryBySymbolRow>> LoadSummaryBySymbolAsync()
+    public async Task<IReadOnlyList<TradingSummaryBySymbolRow>> LoadSummaryBySymbolAsync(string? exchangeConnectionId = null)
     {
-        var response = await SendAsync(HttpMethod.Get, "api/trading-history/summary/by-symbol");
+        var response = await SendAsync(HttpMethod.Get, AppendExchangeConnectionId("api/trading-history/summary/by-symbol", exchangeConnectionId));
         var items = await response.Content.ReadFromJsonAsync<TradingSummaryBySymbolRow[]>(JsonOptions);
         return items ?? Array.Empty<TradingSummaryBySymbolRow>();
     }
 
-    public async Task<IReadOnlyList<TradingPnlByCoinRow>> LoadPnlBySettleCoinAsync()
+    public async Task<IReadOnlyList<TradingPnlByCoinRow>> LoadPnlBySettleCoinAsync(string? exchangeConnectionId = null)
     {
-        var response = await SendAsync(HttpMethod.Get, "api/trading-history/summary/by-settle-coin");
+        var response = await SendAsync(HttpMethod.Get, AppendExchangeConnectionId("api/trading-history/summary/by-settle-coin", exchangeConnectionId));
         var items = await response.Content.ReadFromJsonAsync<TradingPnlByCoinRow[]>(JsonOptions);
         return items ?? Array.Empty<TradingPnlByCoinRow>();
     }
 
-    public async Task<IReadOnlyList<TradingDailyPnlRow>> LoadDailyPnlAsync(long fromTimestamp, long toTimestamp)
+    public async Task<IReadOnlyList<TradingDailyPnlRow>> LoadDailyPnlAsync(long fromTimestamp, long toTimestamp, string? exchangeConnectionId = null)
     {
         var response = await SendAsync(
             HttpMethod.Get,
-            $"api/trading-history/daily-pnl?fromTimestamp={fromTimestamp}&toTimestamp={toTimestamp}");
+            AppendExchangeConnectionId($"api/trading-history/daily-pnl?fromTimestamp={fromTimestamp}&toTimestamp={toTimestamp}", exchangeConnectionId));
         var items = await response.Content.ReadFromJsonAsync<TradingDailyPnlRow[]>(JsonOptions);
         return items ?? Array.Empty<TradingDailyPnlRow>();
     }
 
-    public async Task<TradingHistoryLatestInfo> LoadLatestBySymbolMetaAsync(string symbol, string? category)
+    public async Task<TradingHistoryLatestInfo> LoadLatestBySymbolMetaAsync(string symbol, string? category, string? exchangeConnectionId = null)
     {
         var query = new List<string> { $"symbol={Uri.EscapeDataString(symbol)}" };
         if (!string.IsNullOrWhiteSpace(category))
         {
             query.Add($"category={Uri.EscapeDataString(category)}");
+        }
+        if (!string.IsNullOrWhiteSpace(exchangeConnectionId))
+        {
+            query.Add($"exchangeConnectionId={Uri.EscapeDataString(exchangeConnectionId)}");
         }
 
         var response = await SendAsync(HttpMethod.Get, $"api/trading-history/latest-meta?{string.Join("&", query)}");
@@ -103,7 +115,7 @@ public sealed class TradingHistoryPort : ITradingHistoryPort
         return payload ?? new TradingHistoryLatestInfo();
     }
 
-    public async Task RecalculateAsync(long? fromTimestamp)
+    public async Task RecalculateAsync(long? fromTimestamp, string? exchangeConnectionId = null)
     {
         var uri = "api/trading-history/recalculate";
         if (fromTimestamp.HasValue)
@@ -111,7 +123,20 @@ public sealed class TradingHistoryPort : ITradingHistoryPort
             uri = $"{uri}?fromTimestamp={fromTimestamp.Value}";
         }
 
+        uri = AppendExchangeConnectionId(uri, exchangeConnectionId);
+
         await SendAsync(HttpMethod.Post, uri);
+    }
+
+    private static string AppendExchangeConnectionId(string uri, string? exchangeConnectionId)
+    {
+        if (string.IsNullOrWhiteSpace(exchangeConnectionId))
+        {
+            return uri;
+        }
+
+        var separator = uri.Contains('?', StringComparison.Ordinal) ? "&" : "?";
+        return $"{uri}{separator}exchangeConnectionId={Uri.EscapeDataString(exchangeConnectionId)}";
     }
 
     private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string uri, object? payload = null)

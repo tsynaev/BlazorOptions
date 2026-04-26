@@ -18,6 +18,7 @@ public sealed class TradingHistorySelectionDialogViewModel
     private int _virtualStartIndex;
     private long _lastSourceTotal;
     private bool _isSourceExhausted;
+    private string? _exchangeConnectionId;
     private const int FetchBatchSize = 200;
 
     public TradingHistorySelectionDialogViewModel(ITradingHistoryPort tradingHistoryPort)
@@ -35,7 +36,7 @@ public sealed class TradingHistorySelectionDialogViewModel
 
     public IReadOnlyCollection<string> SelectedSymbols => _selectedSymbols;
 
-    public Task InitializeAsync(IEnumerable<string> closedSymbols, string? baseAsset)
+    public Task InitializeAsync(IEnumerable<string> closedSymbols, string? baseAsset, string? exchangeConnectionId = null)
     {
         _closedSymbols.Clear();
         _selectedSymbols.Clear();
@@ -44,6 +45,7 @@ public sealed class TradingHistorySelectionDialogViewModel
         _virtualStartIndex = 0;
         _lastSourceTotal = 0;
         _isSourceExhausted = false;
+        _exchangeConnectionId = string.IsNullOrWhiteSpace(exchangeConnectionId) ? null : exchangeConnectionId.Trim();
 
         if (closedSymbols is not null)
         {
@@ -185,7 +187,7 @@ public sealed class TradingHistorySelectionDialogViewModel
             while (!_isSourceExhausted && (toSkip > 0 || collected.Count < limit))
             {
                 var pageSize = Math.Max(FetchBatchSize, limit);
-                var page = await _tradingHistoryPort.LoadEntriesAsync(_baseAssetFilter, _sourceStartIndex, pageSize);
+                var page = await _tradingHistoryPort.LoadEntriesAsync(_baseAssetFilter, _sourceStartIndex, pageSize, _exchangeConnectionId);
                 _lastSourceTotal = page.TotalEntries;
 
                 if (page.Entries.Count == 0)

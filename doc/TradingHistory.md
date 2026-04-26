@@ -27,6 +27,7 @@ The main table combines all tracked symbols into one timeline and adds a `Symbol
 The `Tracked Symbols` section is used only to manage which symbols belong to the position and from which date/time their trades should be included. By default, the date comes from the position creation time, and it can be left empty for a symbol.
 
 The Trading History feature pulls and analyzes exchange transaction logs through the selected exchange service, with paging for fast initial load.
+Each exchange connection has its own stored history, sync cursor, and summaries.
 
 ## Core capabilities
 - Load latest transactions from the exchange adapter by category (linear, inverse, spot, option).

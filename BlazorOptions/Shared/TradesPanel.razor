@@ -162,7 +162,7 @@
         }
 
         await NavigationService.NavigateToAsync<TradingSymbolDialogViewModel>(viewModel =>
-            viewModel.LoadAsync(symbol, string.Empty, sinceDate));
+            viewModel.LoadAsync(symbol, string.Empty, sinceDate, ViewModel.ExchangeConnectionId));
     }
 
     private async Task OpenTradesDialogAsync()
@@ -174,7 +174,7 @@
 
         var baseAsset = ViewModel.BaseAsset;
         var dialogViewModel = await NavigationService.NavigateToAsync<TradingHistorySelectionDialogViewModel>(
-            viewModel => viewModel.InitializeAsync(existingSymbols, baseAsset));
+            viewModel => viewModel.InitializeAsync(existingSymbols, baseAsset, ViewModel.ExchangeConnectionId));
 
         var selectedSymbols = await dialogViewModel.WaitForSelectionAsync();
         if (selectedSymbols is null || selectedSymbols.Count == 0)

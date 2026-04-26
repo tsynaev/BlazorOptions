@@ -11,6 +11,7 @@ public sealed class TradingHistoryStore
 {
     private const string MetaKey = "state";
     private readonly string _userRoot;
+    private readonly TradingHistoryMigration _migration;
     private readonly SemaphoreSlim _readLock = new(1, 1);
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private int _activeReaders;
@@ -20,9 +21,10 @@ public sealed class TradingHistoryStore
         var dataRoot = ResolveDataRoot(environment.ContentRootPath, dataOptions.Value.Path);
         _userRoot = Path.Combine(dataRoot, "Users");
         Directory.CreateDirectory(_userRoot);
+        _migration = new TradingHistoryMigration(_userRoot);
     }
 
-    public async Task SaveTradesAsync(string userId, IReadOnlyList<TradingHistoryEntry> entries)
+    public async Task SaveTradesAsync(string userId, IReadOnlyList<TradingHistoryEntry> entries, string? exchangeConnectionId = null)
     {
         if (entries.Count == 0)
         {
@@ -32,7 +34,7 @@ public sealed class TradingHistoryStore
         await AcquireWriteAsync();
         try
         {
-            await using var connection = await OpenConnectionAsync(userId);
+            await using var connection = await OpenConnectionAsync(userId, exchangeConnectionId);
             await using var transaction = connection.BeginTransaction();
             var meta = await LoadMetaInternalAsync(connection, transaction);
             var state = new TradingHistoryCalculator.CalculationState(meta);
@@ -178,7 +180,7 @@ public sealed class TradingHistoryStore
         }
     }
 
-    public async Task<TradingHistoryResult> LoadEntriesAsync(string userId, string? baseAsset, int startIndex, int limit)
+    public async Task<TradingHistoryResult> LoadEntriesAsync(string userId, string? baseAsset, int startIndex, int limit, string? exchangeConnectionId = null)
     {
         if (startIndex < 0 || limit <= 0)
         {
@@ -190,7 +192,7 @@ public sealed class TradingHistoryStore
         await AcquireReadAsync();
         try
         {
-            await using var connection = await OpenConnectionAsync(userId);
+            await using var connection = await OpenConnectionAsync(userId, exchangeConnectionId);
             var meta = await LoadMetaInternalAsync(connection, null);
 
             var command = connection.CreateCommand();
@@ -281,14 +283,14 @@ public sealed class TradingHistoryStore
         }
     }
 
-    public async Task<IReadOnlyList<TradingHistoryEntry>> LoadLatestAsync(string userId, int limit)
+    public async Task<IReadOnlyList<TradingHistoryEntry>> LoadLatestAsync(string userId, int limit, string? exchangeConnectionId = null)
     {
-        return await LoadRangeAsync(userId, null, null, null, null, null, "DESC", limit);
+        return await LoadRangeAsync(userId, null, null, null, null, null, "DESC", limit, exchangeConnectionId);
     }
 
-    public async Task<IReadOnlyList<TradingHistoryEntry>> LoadAllAscAsync(string userId)
+    public async Task<IReadOnlyList<TradingHistoryEntry>> LoadAllAscAsync(string userId, string? exchangeConnectionId = null)
     {
-        return await LoadRangeAsync(userId, null, null, null, null, null, "ASC", null);
+        return await LoadRangeAsync(userId, null, null, null, null, null, "ASC", null, exchangeConnectionId);
     }
 
     //public async Task<IReadOnlyList<TradingHistoryEntry>> LoadBeforeAsync(string userId, long? beforeTimestamp, string? beforeId, int limit)
@@ -296,17 +298,17 @@ public sealed class TradingHistoryStore
     //    return await LoadRangeAsync(userId, null, null, null, beforeTimestamp, beforeId, "DESC", limit);
     //}
 
-    public async Task<IReadOnlyList<TradingHistoryEntry>> LoadBySymbolAsync(string userId, string symbol, string? category, long? sinceTimestamp)
+    public async Task<IReadOnlyList<TradingHistoryEntry>> LoadBySymbolAsync(string userId, string symbol, string? category, long? sinceTimestamp, string? exchangeConnectionId = null)
     {
-        return await LoadRangeAsync(userId, symbol, category, sinceTimestamp, null, null, "DESC", null);
+        return await LoadRangeAsync(userId, symbol, category, sinceTimestamp, null, null, "DESC", null, exchangeConnectionId);
     }
 
-    public async Task<IReadOnlyList<TradingSummaryBySymbolRow>> LoadSummaryBySymbolAsync(string userId)
+    public async Task<IReadOnlyList<TradingSummaryBySymbolRow>> LoadSummaryBySymbolAsync(string userId, string? exchangeConnectionId = null)
     {
         await AcquireReadAsync();
         try
         {
-            await using var connection = await OpenConnectionAsync(userId);
+            await using var connection = await OpenConnectionAsync(userId, exchangeConnectionId);
             var command = connection.CreateCommand();
             command.CommandText = """
                 SELECT
@@ -359,12 +361,12 @@ public sealed class TradingHistoryStore
         }
     }
 
-    public async Task<IReadOnlyList<TradingPnlByCoinRow>> LoadPnlBySettleCoinAsync(string userId)
+    public async Task<IReadOnlyList<TradingPnlByCoinRow>> LoadPnlBySettleCoinAsync(string userId, string? exchangeConnectionId = null)
     {
         await AcquireReadAsync();
         try
         {
-            await using var connection = await OpenConnectionAsync(userId);
+            await using var connection = await OpenConnectionAsync(userId, exchangeConnectionId);
             var command = connection.CreateCommand();
             command.CommandText = """
                 SELECT
@@ -406,7 +408,8 @@ public sealed class TradingHistoryStore
     public async Task<IReadOnlyList<TradingDailyPnlRow>> LoadDailyPnlAsync(
         string userId,
         long fromTimestamp,
-        long toTimestamp)
+        long toTimestamp,
+        string? exchangeConnectionId = null)
     {
         if (toTimestamp < fromTimestamp)
         {
@@ -416,7 +419,7 @@ public sealed class TradingHistoryStore
         await AcquireReadAsync();
         try
         {
-            await using var connection = await OpenConnectionAsync(userId);
+            await using var connection = await OpenConnectionAsync(userId, exchangeConnectionId);
             var command = connection.CreateCommand();
             command.CommandText = """
                 SELECT
@@ -469,12 +472,12 @@ public sealed class TradingHistoryStore
         }
     }
 
-    public async Task<TradingHistoryLatestInfo> LoadLatestBySymbolMetaAsync(string userId, string symbol, string? category)
+    public async Task<TradingHistoryLatestInfo> LoadLatestBySymbolMetaAsync(string userId, string symbol, string? category, string? exchangeConnectionId = null)
     {
         await AcquireReadAsync();
         try
         {
-            await using var connection = await OpenConnectionAsync(userId);
+            await using var connection = await OpenConnectionAsync(userId, exchangeConnectionId);
             var maxCommand = connection.CreateCommand();
             if (string.IsNullOrWhiteSpace(category))
             {
@@ -534,12 +537,12 @@ public sealed class TradingHistoryStore
         }
     }
 
-    public async Task<TradingHistoryMeta> LoadMetaAsync(string userId)
+    public async Task<TradingHistoryMeta> LoadMetaAsync(string userId, string? exchangeConnectionId = null)
     {
         await AcquireReadAsync();
         try
         {
-            await using var connection = await OpenConnectionAsync(userId);
+            await using var connection = await OpenConnectionAsync(userId, exchangeConnectionId);
             return await LoadMetaInternalAsync(connection, null);
         }
         finally
@@ -548,12 +551,12 @@ public sealed class TradingHistoryStore
         }
     }
 
-    public async Task SaveMetaAsync(string userId, TradingHistoryMeta meta)
+    public async Task SaveMetaAsync(string userId, TradingHistoryMeta meta, string? exchangeConnectionId = null)
     {
         await AcquireWriteAsync();
         try
         {
-            await using var connection = await OpenConnectionAsync(userId);
+            await using var connection = await OpenConnectionAsync(userId, exchangeConnectionId);
             await SaveMetaInternalAsync(connection, null, meta);
         }
         finally
@@ -562,12 +565,12 @@ public sealed class TradingHistoryStore
         }
     }
 
-    public async Task RecalculateAsync(string userId, long? fromTimestamp)
+    public async Task RecalculateAsync(string userId, long? fromTimestamp, string? exchangeConnectionId = null)
     {
         await AcquireWriteAsync();
         try
         {
-            await using var connection = await OpenConnectionAsync(userId);
+            await using var connection = await OpenConnectionAsync(userId, exchangeConnectionId);
             await using var transaction = connection.BeginTransaction();
             var meta = await LoadMetaInternalAsync(connection, transaction);
             var entries = await LoadAllAscInternalAsync(connection, transaction);
@@ -689,12 +692,13 @@ public sealed class TradingHistoryStore
         long? beforeTimestamp,
         string? beforeId,
         string direction,
-        int? limit)
+        int? limit,
+        string? exchangeConnectionId = null)
     {
         await AcquireReadAsync();
         try
         {
-            await using var connection = await OpenConnectionAsync(userId);
+            await using var connection = await OpenConnectionAsync(userId, exchangeConnectionId);
             var command = connection.CreateCommand();
             var filters = new List<string>();
 
@@ -869,13 +873,44 @@ public sealed class TradingHistoryStore
         }
     }
 
-    private async Task<SqliteConnection> OpenConnectionAsync(string userId)
+    private Task<SqliteConnection> OpenConnectionAsync(string userId)
     {
-        var dbPath = Path.Combine(_userRoot, $"{userId}.db");
+        return OpenConnectionAsync(userId, null);
+    }
+
+    private async Task<SqliteConnection> OpenConnectionAsync(string userId, string? exchangeConnectionId)
+    {
+        var dbPath = ResolveDatabasePath(userId, exchangeConnectionId);
         var connection = new SqliteConnection($"Data Source={dbPath}");
         await connection.OpenAsync();
         await EnsureDatabaseAsync(connection);
+        await _migration.MigrateLegacyTradingTablesAsync(connection, userId, exchangeConnectionId, dbPath);
         return connection;
+    }
+
+    private string ResolveDatabasePath(string userId, string? exchangeConnectionId)
+    {
+        var normalizedConnectionId = NormalizeExchangeConnectionId(exchangeConnectionId);
+        return Path.Combine(_userRoot, $"{userId}.{SanitizeFileNameSegment(normalizedConnectionId)}.db");
+    }
+
+    private static string NormalizeExchangeConnectionId(string? exchangeConnectionId)
+    {
+        return string.IsNullOrWhiteSpace(exchangeConnectionId)
+            ? "bybit-main"
+            : exchangeConnectionId.Trim();
+    }
+
+    private static string SanitizeFileNameSegment(string value)
+    {
+        var invalidCharacters = Path.GetInvalidFileNameChars();
+        var builder = new System.Text.StringBuilder(value.Length);
+        foreach (var ch in value)
+        {
+            builder.Append(invalidCharacters.Contains(ch) ? '_' : ch);
+        }
+
+        return builder.Length == 0 ? "bybit-main" : builder.ToString();
     }
 
     private static async Task EnsureDatabaseAsync(SqliteConnection connection)

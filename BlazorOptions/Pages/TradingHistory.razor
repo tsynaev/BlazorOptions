@@ -12,6 +12,18 @@
     <MudText Typo="Typo.body2">
         Pull the latest transaction log entries and review recent activity.
     </MudText>
+    <MudSelect T="string"
+               Value="@ViewModel.SelectedExchangeConnectionId"
+               ValueChanged="OnSelectedExchangeChanged"
+               Label="Exchange"
+               Variant="Variant.Outlined"
+               Margin="Margin.Dense"
+               Disabled="ViewModel.IsLoading || ViewModel.IsLoadingOlder">
+        @foreach (var connection in ViewModel.ExchangeConnections)
+        {
+            <MudSelectItem T="string" Value="@connection.Id">@connection.Name</MudSelectItem>
+        }
+    </MudSelect>
 
     <MudTabs Rounded="true">
         <MudTabPanel Text="History">
@@ -61,12 +73,6 @@
                                 </MudText>
                             }
                         </MudStack>
-                        <MudText Typo="Typo.caption">
-                            Loads new entries since the last sync. If registration date is set, backfills from that date for: linear, inverse, spot, option.
-                        </MudText>
-                        <MudText Typo="Typo.caption" Class="th-endpoint-note">
-                            Endpoint: https://bybit-exchange.github.io/docs/v5/account/transaction-log
-                        </MudText>
                         @if (!string.IsNullOrWhiteSpace(ViewModel.ErrorMessage))
                         {
                             <MudAlert Severity="Severity.Error">@ViewModel.ErrorMessage</MudAlert>
@@ -344,7 +350,7 @@
         }
 
         await NavigationService.NavigateToAsync<TradingSymbolDialogViewModel>(viewModel =>
-            viewModel.LoadAsync(symbol, category, null));
+            viewModel.LoadAsync(symbol, category, null, ViewModel.SelectedExchangeConnectionId));
     }
 
     private void HandleViewModelChanged()
@@ -362,6 +368,13 @@
     private async Task RecalculateAsync()
     {
         await ViewModel.RecalculateAsync(_recalculateFromDate);
+        _gridVersion++;
+        await RefreshMobileRecentEntriesAsync();
+    }
+
+    private async Task OnSelectedExchangeChanged(string? exchangeConnectionId)
+    {
+        await ViewModel.SetSelectedExchangeConnectionAsync(exchangeConnectionId);
         _gridVersion++;
         await RefreshMobileRecentEntriesAsync();
     }

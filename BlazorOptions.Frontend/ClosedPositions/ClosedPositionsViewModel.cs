@@ -55,6 +55,8 @@ public sealed class ClosedPositionsViewModel: Bindable
         set => _positionCreationTimeUtc = value;
     }
 
+    public string ExchangeConnectionId => _positionViewModel.Position?.ExchangeConnectionId ?? string.Empty;
+
     public event Func<Task>? UpdatedCompleted;
 
 

@@ -6,12 +6,16 @@ namespace BlazorOptions.ViewModels;
 
 public class TradingHistoryViewModel
 {
+    private const string SelectedExchangeStorageKey = "tradingHistory:selectedExchangeConnectionId";
     private const int PageLimit = 100;
-    private const int PageSize = 100;
     private static readonly TimeSpan WindowSize = TimeSpan.FromDays(7);
     private const string UnauthorizedMessage = "Sign in to view trading history.";
-    private readonly IExchangeService _exchangeService;
+    private readonly IExchangeServiceFactory _exchangeServiceFactory;
     private readonly ITradingHistoryPort _tradingHistoryPort;
+    private readonly ExchangeConnectionsService _exchangeConnectionsService;
+    private readonly ILocalStorageService _localStorageService;
+    private IExchangeService? _exchangeServiceHandle;
+    private string? _exchangeServiceConnectionId;
     private TradingHistoryMeta _meta = new();
     private IReadOnlyList<TradingSummaryRow>? _summaryBySymbolCache;
     private IReadOnlyList<TradingPnlByCoinRow>? _pnlByCoinCache;
@@ -21,13 +25,18 @@ public class TradingHistoryViewModel
     private bool _isLoadingSummary;
     private bool _isLoadingDailyChart;
     private int _totalCount;
+    private string? _selectedExchangeConnectionId;
 
     public TradingHistoryViewModel(
-        IExchangeService exchangeService,
-        ITradingHistoryPort tradingHistoryPort)
+        IExchangeServiceFactory exchangeServiceFactory,
+        ITradingHistoryPort tradingHistoryPort,
+        ExchangeConnectionsService exchangeConnectionsService,
+        ILocalStorageService localStorageService)
     {
-        _exchangeService = exchangeService;
+        _exchangeServiceFactory = exchangeServiceFactory;
         _tradingHistoryPort = tradingHistoryPort;
+        _exchangeConnectionsService = exchangeConnectionsService;
+        _localStorageService = localStorageService;
     }
 
     public event Action? OnChange;
@@ -35,6 +44,10 @@ public class TradingHistoryViewModel
     public int TotalTransactionsCount => _totalCount;
 
     public IReadOnlyList<string> Categories { get; } = new[] { "linear", "inverse", "spot", "option" };
+
+    public IReadOnlyList<ExchangeConnectionModel> ExchangeConnections { get; private set; } = Array.Empty<ExchangeConnectionModel>();
+
+    public string SelectedExchangeConnectionId => _selectedExchangeConnectionId ?? "bybit-main";
 
     public DateTime? RegistrationDate { get; private set; }
 
@@ -58,12 +71,8 @@ public class TradingHistoryViewModel
         _isInitialized = true;
         try
         {
-            _meta = await _tradingHistoryPort.LoadMetaAsync();
-
-            UpdateRegistrationDate();
-
-            InvalidateSummaryCache();
-            _ = EnsureSummaryCacheAsync();
+            await InitializeExchangeSelectionAsync();
+            await LoadExchangeStateAsync();
             OnChange?.Invoke();
         }
         catch (Exception ex)
@@ -83,9 +92,8 @@ public class TradingHistoryViewModel
         _isBackgroundInitialized = true;
         try
         {
-            _meta = await _tradingHistoryPort.LoadMetaAsync();
-            UpdateRegistrationDate();
-
+            await InitializeExchangeSelectionAsync();
+            await LoadExchangeStateAsync();
             _ = StartBackgroundLoadIfPossibleAsync();
         }
         catch
@@ -146,7 +154,7 @@ public class TradingHistoryViewModel
                             EndTime = endTime
                         };
 
-                        var page = await _exchangeService.TransactionHistory.GetTransactionsPageAsync(query, CancellationToken.None);
+                        var page = await ExchangeService.TransactionHistory.GetTransactionsPageAsync(query, CancellationToken.None);
                         if (page.Items.Count > 0)
                         {
                             categoryHadTrades = true;
@@ -164,7 +172,7 @@ public class TradingHistoryViewModel
 
                             if (orderedAsc.Count > 0)
                             {
-                                await _tradingHistoryPort.SaveTradesAsync(orderedAsc);
+                                await _tradingHistoryPort.SaveTradesAsync(orderedAsc, SelectedExchangeConnectionId);
                             }
                         }
 
@@ -186,8 +194,8 @@ public class TradingHistoryViewModel
                 }
             }
 
-            await _tradingHistoryPort.SaveMetaAsync(_meta);
-            _meta = await _tradingHistoryPort.LoadMetaAsync();
+            await _tradingHistoryPort.SaveMetaAsync(_meta, SelectedExchangeConnectionId);
+            _meta = await _tradingHistoryPort.LoadMetaAsync(SelectedExchangeConnectionId);
 
             InvalidateSummaryCache();
             _ = EnsureSummaryCacheAsync();
@@ -211,7 +219,24 @@ public class TradingHistoryViewModel
             ? new DateTimeOffset(DateTime.SpecifyKind(date.Value.Date, DateTimeKind.Local)).ToUnixTimeMilliseconds()
             : null;
 
-        await _tradingHistoryPort.SaveMetaAsync(_meta);
+        await _tradingHistoryPort.SaveMetaAsync(_meta, SelectedExchangeConnectionId);
+        OnChange?.Invoke();
+    }
+
+    public async Task SetSelectedExchangeConnectionAsync(string? exchangeConnectionId)
+    {
+        var normalizedConnectionId = _exchangeConnectionsService.GetConnectionOrDefault(exchangeConnectionId).Id;
+        if (string.Equals(SelectedExchangeConnectionId, normalizedConnectionId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _selectedExchangeConnectionId = normalizedConnectionId;
+        await _localStorageService.SetItemAsync(SelectedExchangeStorageKey, normalizedConnectionId);
+        ErrorMessage = null;
+        LastLoadedAt = null;
+        _totalCount = 0;
+        await LoadExchangeStateAsync();
         OnChange?.Invoke();
     }
 
@@ -234,8 +259,8 @@ public class TradingHistoryViewModel
                 ? GetStartTimestamp(fromDate.Value)
                 : (long?)null;
 
-            await _tradingHistoryPort.RecalculateAsync(startTimestamp);
-            _meta = await _tradingHistoryPort.LoadMetaAsync();
+            await _tradingHistoryPort.RecalculateAsync(startTimestamp, SelectedExchangeConnectionId);
+            _meta = await _tradingHistoryPort.LoadMetaAsync(SelectedExchangeConnectionId);
 
             UpdateRegistrationDate();
             InvalidateSummaryCache();
@@ -257,7 +282,7 @@ public class TradingHistoryViewModel
     {
         try
         {
-            var result = await _tradingHistoryPort.LoadEntriesAsync(baseAsset, startIndex, count);
+            var result = await _tradingHistoryPort.LoadEntriesAsync(baseAsset, startIndex, count, SelectedExchangeConnectionId);
             _totalCount = result.TotalEntries;
             return result;
         }
@@ -313,8 +338,8 @@ public class TradingHistoryViewModel
         _isLoadingSummary = true;
         try
         {
-            var summaryTask = _tradingHistoryPort.LoadSummaryBySymbolAsync();
-            var pnlTask = _tradingHistoryPort.LoadPnlBySettleCoinAsync();
+            var summaryTask = _tradingHistoryPort.LoadSummaryBySymbolAsync(SelectedExchangeConnectionId);
+            var pnlTask = _tradingHistoryPort.LoadPnlBySettleCoinAsync(SelectedExchangeConnectionId);
             await Task.WhenAll(summaryTask, pnlTask);
 
             _summaryBySymbolCache = MapSummaryRows(summaryTask.Result);
@@ -347,7 +372,7 @@ public class TradingHistoryViewModel
             var fromTimestamp = startDate.ToUnixTimeMilliseconds();
             var toTimestamp = utcNow.ToUnixTimeMilliseconds();
 
-            var rows = await _tradingHistoryPort.LoadDailyPnlAsync(fromTimestamp, toTimestamp);
+            var rows = await _tradingHistoryPort.LoadDailyPnlAsync(fromTimestamp, toTimestamp, SelectedExchangeConnectionId);
             _dailyPnlChartCache = BuildDailyPnlChart(rows, startDate, 30);
             OnChange?.Invoke();
         }
@@ -386,6 +411,39 @@ public class TradingHistoryViewModel
         catch
         {
         }
+    }
+
+    private IExchangeService ExchangeService => SwitchExchangeService(SelectedExchangeConnectionId);
+
+    private async Task InitializeExchangeSelectionAsync()
+    {
+        ExchangeConnections = _exchangeConnectionsService.GetConnections();
+        var storedConnectionId = _localStorageService.GetItem(SelectedExchangeStorageKey);
+        _selectedExchangeConnectionId = _exchangeConnectionsService.GetConnectionOrDefault(storedConnectionId).Id;
+        await Task.CompletedTask;
+    }
+
+    private async Task LoadExchangeStateAsync()
+    {
+        _meta = await _tradingHistoryPort.LoadMetaAsync(SelectedExchangeConnectionId);
+        UpdateRegistrationDate();
+        InvalidateSummaryCache();
+        _ = EnsureSummaryCacheAsync();
+    }
+
+    private IExchangeService SwitchExchangeService(string? exchangeConnectionId)
+    {
+        if (_exchangeServiceHandle is not null
+            && string.Equals(_exchangeServiceConnectionId, exchangeConnectionId, StringComparison.OrdinalIgnoreCase))
+        {
+            return _exchangeServiceHandle;
+        }
+
+        var previousService = _exchangeServiceHandle;
+        _exchangeServiceHandle = _exchangeServiceFactory.Create(exchangeConnectionId);
+        _exchangeServiceConnectionId = exchangeConnectionId;
+        previousService?.Dispose();
+        return _exchangeServiceHandle;
     }
 
     private static bool IsRangeLoaded(int startIndex, int count, int loadedStartIndex, int loadedCount)

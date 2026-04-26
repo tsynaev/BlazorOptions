@@ -86,6 +86,8 @@ public sealed class LegViewModel : IDisposable
 
     public IEnumerable<LegType> LegTypes => Enum.GetValues<LegType>();
 
+    public string ExchangeConnectionId => _collectionViewModel.Position?.Position?.ExchangeConnectionId ?? string.Empty;
+
     public event Action<LegsCollectionUpdateKind>? Changed;
     public event Func<Task>? Removed;
 

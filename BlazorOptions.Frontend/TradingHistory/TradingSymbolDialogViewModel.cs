@@ -18,6 +18,7 @@ public sealed class TradingSymbolDialogViewModel : Bindable
     private string? _errorMessage;
     private string _symbol = string.Empty;
     private string _category = string.Empty;
+    private string? _exchangeConnectionId;
     private DateTime? _sinceDate;
 
     public TradingSymbolDialogViewModel(ITradingHistoryPort tradingHistoryPort)
@@ -79,10 +80,11 @@ public sealed class TradingSymbolDialogViewModel : Bindable
         private set => SetField(ref _errorMessage, value);
     }
 
-    public async Task LoadAsync(string symbol, string? category, DateTime? sinceDate)
+    public async Task LoadAsync(string symbol, string? category, DateTime? sinceDate, string? exchangeConnectionId = null)
     {
         Symbol = symbol?.Trim() ?? string.Empty;
         Category = category?.Trim() ?? string.Empty;
+        _exchangeConnectionId = string.IsNullOrWhiteSpace(exchangeConnectionId) ? null : exchangeConnectionId.Trim();
         SinceDate = sinceDate;
         ErrorMessage = null;
         Trades = Array.Empty<TradingHistoryEntry>();
@@ -101,7 +103,7 @@ public sealed class TradingSymbolDialogViewModel : Bindable
             // Load server-calculated trades for this symbol and build the raw JSON view from the payloads we receive.
             var sinceTimestamp = GetSinceTimestamp(sinceDate);
             var categoryValue = string.IsNullOrWhiteSpace(Category) ? null : Category;
-            var entries = await _tradingHistoryPort.LoadBySymbolAsync(Symbol, categoryValue, sinceTimestamp);
+            var entries = await _tradingHistoryPort.LoadBySymbolAsync(Symbol, categoryValue, sinceTimestamp, _exchangeConnectionId);
             var ordered = BuildSymbolView(entries);
             Trades = ordered;
             TradeRows = TradingHistoryTradeRowProjection.BuildTradeRows(ordered);
