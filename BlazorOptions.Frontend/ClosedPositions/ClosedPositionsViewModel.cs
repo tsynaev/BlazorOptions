@@ -200,6 +200,48 @@ public sealed class ClosedPositionsViewModel: Bindable
         await RaiseUpdateCompleted();
     }
 
+    public bool HasSymbol(string? symbol)
+    {
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return false;
+        }
+
+        var normalized = symbol.Trim();
+        return ClosedPositions.Any(item =>
+            string.Equals(item.Model.Symbol, normalized, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public async Task<int> RemoveSymbolAsync(string? symbol)
+    {
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return 0;
+        }
+
+        var normalized = symbol.Trim();
+        var matches = ClosedPositions
+            .Where(item => string.Equals(item.Model.Symbol, normalized, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (matches.Count == 0)
+        {
+            return 0;
+        }
+
+        foreach (var viewModel in matches)
+        {
+            viewModel.UpdateCompleted -= OnPositionUpdated;
+            viewModel.Removed -= OnPositionRemoved;
+            ClosedPositions.Remove(viewModel);
+            Model.Positions.Remove(viewModel.Model);
+        }
+
+        UpdateTotal();
+        await RefreshTradeSummariesAsync();
+        await RaiseUpdateCompleted();
+        return matches.Count;
+    }
+
     public async Task SetIncludeAsync(bool include)
     {
         if (Model.Include == include)

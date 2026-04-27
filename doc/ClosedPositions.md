@@ -11,6 +11,10 @@ Closed positions now show cached calculation results immediately when a position
 ## Selecting from trading history
 Use **Select trades** to open the trading history picker. The dialog filters out symbols already in closed positions and lets you add new symbols from the grid.
 
+## Position leg sync
+- When you add an existing exchange-backed leg to a position, its symbol is added to closed positions automatically.
+- When you remove a leg whose symbol is already tracked in closed positions, the app asks whether to remove that symbol from closed positions too.
+
 ## Incremental recalculation
 Each closed position tracks:
 - `LastProcessedTimestamp`

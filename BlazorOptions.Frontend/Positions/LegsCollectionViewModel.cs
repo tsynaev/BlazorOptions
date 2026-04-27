@@ -398,6 +398,7 @@ public sealed class LegsCollectionViewModel : IDisposable
         }
 
         Collection.Legs.Add(leg);
+        await AddLegSymbolToClosedPositionsIfNeededAsync(leg);
         RemoveAvailableCandidate(candidate);
         if (candidate.Kind == AvailableLegSourceKind.Position && !string.IsNullOrWhiteSpace(leg.Symbol))
         {
@@ -408,6 +409,11 @@ public sealed class LegsCollectionViewModel : IDisposable
         _ = UpdateLinkedOrdersForLegs();
         await RaiseUpdatedAsync(LegsCollectionUpdateKind.CollectionChanged);
         await RaiseUpdatedAsync(LegsCollectionUpdateKind.ViewModelDataUpdated);
+    }
+
+    public bool HasClosedPositionSymbol(string? symbol)
+    {
+        return Position?.ClosedPositions?.HasSymbol(symbol) == true;
     }
 
     public string FormatAvailableCandidate(AvailableLegCandidate candidate)
@@ -1043,11 +1049,16 @@ public sealed class LegsCollectionViewModel : IDisposable
         await RaiseUpdatedAsync(LegsCollectionUpdateKind.LegModelChanged);
     }
 
-    public async Task RemoveLegAsync(LegModel leg)
+    public async Task RemoveLegAsync(LegModel leg, bool removeFromClosedPositions = false)
     {
         if (!Collection.Legs.Contains(leg))
         {
             return;
+        }
+
+        if (removeFromClosedPositions)
+        {
+            await RemoveLegSymbolFromClosedPositionsIfNeededAsync(leg);
         }
 
         await AddMissingLegToClosedPositionsIfNeededAsync(leg);
@@ -1058,6 +1069,29 @@ public sealed class LegsCollectionViewModel : IDisposable
         await RaiseUpdatedAsync(LegsCollectionUpdateKind.CollectionChanged);
         await RaiseLegRemovedAsync(leg);
         await RaiseUpdatedAsync(LegsCollectionUpdateKind.ViewModelDataUpdated);
+    }
+
+    public Task RemoveClosedPositionSymbolAsync(string? symbol)
+    {
+        return Position?.ClosedPositions?.RemoveSymbolAsync(symbol) ?? Task.CompletedTask;
+    }
+
+    private async Task AddLegSymbolToClosedPositionsIfNeededAsync(LegModel leg)
+    {
+        if (Position?.ClosedPositions is null || string.IsNullOrWhiteSpace(leg.Symbol))
+        {
+            return;
+        }
+
+        var symbol = leg.Symbol.Trim();
+        if (Position.ClosedPositions.HasSymbol(symbol))
+        {
+            return;
+        }
+
+        // Exchange-backed legs should immediately expose their symbol in closed positions.
+        Position.ClosedPositions.SetAddSymbolInput(new[] { symbol });
+        await Position.ClosedPositions.AddSymbolAsync();
     }
 
     private async Task AddMissingLegToClosedPositionsIfNeededAsync(LegModel leg)
@@ -1083,6 +1117,17 @@ public sealed class LegsCollectionViewModel : IDisposable
         _notifyUserService.NotifyUser(
             $"Added {symbol.ToUpperInvariant()} to closed positions because the removed leg was missing on exchange.",
             visibleMilliseconds: 3000);
+    }
+
+    private Task RemoveLegSymbolFromClosedPositionsIfNeededAsync(LegModel leg)
+    {
+        if (Position?.ClosedPositions is null || string.IsNullOrWhiteSpace(leg.Symbol))
+        {
+            return Task.CompletedTask;
+        }
+
+        // Keep the symbol list aligned only when the user explicitly confirms removal.
+        return Position.ClosedPositions.RemoveSymbolAsync(leg.Symbol);
     }
 
 

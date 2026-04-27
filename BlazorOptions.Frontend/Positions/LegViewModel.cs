@@ -306,16 +306,20 @@ public sealed class LegViewModel : IDisposable
         });
     }
 
-    public async Task RemoveLegAsync()
+    public async Task RemoveLegAsync(bool removeFromClosedPositions = false)
     {
         using var activity = ActivitySources.Telemetry.StartActivity("LegViewModel.RemoveLeg");
-        await _collectionViewModel.RemoveLegAsync(Leg);
+        await _collectionViewModel.RemoveLegAsync(Leg, removeFromClosedPositions);
         if (Removed is not null)
         {
             await Removed.Invoke();
         }
     }
 
+    public bool HasClosedPositionSymbol()
+    {
+        return _collectionViewModel.HasClosedPositionSymbol(Leg.Symbol);
+    }
 
     public bool SetLegStatus(LegStatus status, string? message)
     {

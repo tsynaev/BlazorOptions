@@ -216,10 +216,32 @@ public sealed class PositionCreateViewModel : Bindable, IDisposable
                 leg.Symbol = exchangePosition.Symbol;
                 leg.ImpliedVolatility = null;
                 position.Legs.Add(leg);
+                AddClosedPositionSymbolIfNeeded(position, leg.Symbol);
             }
         }
 
         return position;
+    }
+
+    private static void AddClosedPositionSymbolIfNeeded(PositionModel position, string? symbol)
+    {
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return;
+        }
+
+        var normalized = symbol.Trim().ToUpperInvariant();
+        if (position.Closed.Positions.Any(item =>
+                string.Equals(item.Symbol, normalized, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        // Creation from exchange positions should persist the same closed-symbol context as manual add flow.
+        position.Closed.Positions.Add(new ClosedPositionModel
+        {
+            Symbol = normalized
+        });
     }
 
     private string? ResolveLegSymbolForPosition(LegModel leg, PositionModel position)

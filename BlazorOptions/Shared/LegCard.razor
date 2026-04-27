@@ -133,7 +133,7 @@
                            Color="Color.Error"
                            Size="Size.Small"
                            Class="leg-card-icon"
-                           OnClick="async () => await ViewModel.RemoveLegAsync()" />
+                           OnClick="RemoveLegAsync" />
         </MudStack>
     </MudStack>
 </MudPaper>
@@ -191,6 +191,31 @@
         };
 
         await DialogService.ShowAsync<LegEditDialog>("Edit leg", parameters, options);
+    }
+
+    private async Task RemoveLegAsync()
+    {
+        var removeFromClosedPositions = false;
+        var symbol = ViewModel.Leg.Symbol?.Trim();
+
+        if (!string.IsNullOrWhiteSpace(symbol) && ViewModel.HasClosedPositionSymbol())
+        {
+            var result = await DialogService.ShowMessageBox(
+                "Remove leg?",
+                $"Also remove {symbol.ToUpperInvariant()} from closed positions?",
+                yesText: "Remove both",
+                noText: "Remove leg only",
+                cancelText: "Cancel");
+
+            if (!result.HasValue)
+            {
+                return;
+            }
+
+            removeFromClosedPositions = result.Value;
+        }
+
+        await ViewModel.RemoveLegAsync(removeFromClosedPositions);
     }
 
     private string BuildLegSummary()
