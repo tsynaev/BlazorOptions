@@ -25,6 +25,8 @@
 - Shared `JsonElement` parsing helpers must live in `JsonElementExtensions`; do not keep duplicated local `TryReadString`, `ReadDecimal`, `ReadNullableDecimal`, `TryReadInt`, or `TryReadLong` helpers in exchange services.
 - Position aggregate and persistence models (`PositionModel`, `LegsCollectionModel`, `LegModel`, `ClosedModel`, `ClosedPositionModel`) live in `BlazorOptions.API` and are reused by Frontend/Server.
 - Position persistence uses API models directly; DTO types and mappers are removed.
+- `ClosedPositionsViewModel` must only manage `ClosedPositionModel` selection state for `PositionModel` (`Symbol`, optional `SinceDate`, `Include`). Trade loading, trade summaries, and closed P/L calculation must live outside that view model.
+- Position trade summaries shown in the UI should be projected by a separate view model/service layer (for example `TradesViewModel`) from trading-history entries, using the symbol/date selection stored in `ClosedPositionsViewModel`.
 - Position completion must keep the stored record. Use a dedicated completion flow that marks the position completed in persisted state; keep legacy delete available only for true row removal, and exclude completed positions from active-position loads.
 - API project namespaces must use `BlazorOptions.API.*` (do not place API classes under `BlazorOptions.ViewModels`).
 - `PositionModel` may contain pure persisted-state selectors such as effective-leg filtering, but must not depend on pricing services, exchange services, chart sampling, or UI runtime state.

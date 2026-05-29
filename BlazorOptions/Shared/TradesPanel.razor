@@ -4,125 +4,131 @@
 @using System.Collections.ObjectModel
 @using System.Linq
 
-@if (ViewModel is not null)
+@if (ClosedPositionsViewModel is not null)
 {
     <MudCard Class="closed-positions-card">
         <MudCardHeader>
             <MudStack Spacing="1" Class="flex-grow-1">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="closed-positions-header-row">
                     <MudCheckBox T="bool"
-                                 Value="@ViewModel.Model.Include"
-                                 ValueChanged="async value => await ViewModel.SetIncludeAsync(value)"
+                                 Value="@ClosedPositionsViewModel.Model.Include"
+                                 ValueChanged="async value => await ClosedPositionsViewModel.SetIncludeAsync(value)"
                                  />
                     <MudText Typo="Typo.h6">Trades</MudText>
                     <MudText Typo="Typo.caption" Class="closed-positions-summary">
-                        Net: @ViewModel.Model.TotalNet.ToString("0.##")
+                        Net: @TradesViewModel.TotalNet.ToString("0.##")
                     </MudText>
                     <MudText Typo="Typo.caption" Class="closed-positions-summary">
-                        PnL: @ViewModel.Model.TotalClosePnl.ToString("0.##") | Fee: @ViewModel.Model.TotalFee.ToString("0.##")
+                        PnL: @TradesViewModel.TotalClosePnl.ToString("0.##") | Fee: @TradesViewModel.TotalFee.ToString("0.##")
                     </MudText>
                     <MudSpacer />
                 </MudStack>
             </MudStack>
         </MudCardHeader>
         <MudCardContent>
-            @if (ViewModel.TradeSummaries.Count == 0)
+            @if (TradesViewModel is not null)
             {
-                <MudText Typo="Typo.body2">No trades found for the tracked symbols.</MudText>
-            }
-            else
-            {
-                <MudTable Items="ViewModel.TradeSummaries"
-                          Dense="true"
-                          Hover="true"
-                          Class="closed-positions-table">
-                    <HeaderContent>
-                        <MudTh>Symbol</MudTh>
-                        <MudTh>Size</MudTh>
-                        <MudTh>PnL</MudTh>
-                        <MudTh>Open</MudTh>
-                        <MudTh>Close</MudTh>
-                        <MudTh>Fee</MudTh>
-                    </HeaderContent>
-                    <RowTemplate>
-                        <MudTd DataLabel="Symbol">
-                            <MudStack Spacing="0">
-                                <MudLink OnClick="() => OpenSymbolDialogAsync(context.Symbol, context.SinceDate)">@context.Symbol</MudLink>
-                                <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Summary.Direction</MudText>
-                            </MudStack>
-                        </MudTd>
-                        <MudTd DataLabel="Size">@FormatNumber(context.Summary.Size)</MudTd>
-                        <MudTd DataLabel="PnL">
-                            <MudText Typo="Typo.body2" Color="@ResolvePnlColor(context.Summary.Pnl)">
-                                @FormatMoney(context.Summary.Pnl)
-                            </MudText>
-                        </MudTd>
-                        <MudTd DataLabel="Open">
-                            <MudStack Spacing="0">
-                                <MudText Typo="Typo.body2">@FormatMoney(context.Summary.EntryPrice)</MudText>
-                                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="closed-positions-time-caption">
-                                    @FormatTimeRange(context.Summary.EntryStartTimestamp, context.Summary.EntryEndTimestamp)
-                                </MudText>
-                            </MudStack>
-                        </MudTd>
-                        <MudTd DataLabel="Close">
-                            <MudStack Spacing="0">
-                                <MudText Typo="Typo.body2">@FormatMoney(context.Summary.ClosePrice)</MudText>
-                                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="closed-positions-time-caption">
-                                    @FormatTimeRange(context.Summary.CloseStartTimestamp, context.Summary.CloseEndTimestamp)
-                                </MudText>
-                            </MudStack>
-                        </MudTd>
-                        <MudTd DataLabel="Fee">@FormatMoney(context.Summary.Fee)</MudTd>
-                    </RowTemplate>
-                </MudTable>
-            }
+                @if (TradesViewModel.IsLoading)
+                {
+                    <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mb-2" />
+                }
 
-            <MudExpansionPanels Class="mt-4">
-                <MudExpansionPanel Text="Tracked Symbols">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="closed-positions-input-row mb-4">
-                        <MudTextField T="string"
-                                      @bind-Value="ViewModel.AddSymbolInput"
-                                      Label="Add symbols"
-                                      Placeholder="Paste symbols, one per line"
-                                      Variant="Variant.Outlined"
-                                      Margin="Margin.Dense"
-                                      Immediate="true"
-                                      OnKeyDown="HandleAddSymbolKeyDown"
-                                      Lines="4"
-                                      Class="closed-positions-symbol-input" />
-                        <MudButton Variant="Variant.Filled"
-                                   Color="Color.Primary"
-                                   OnClick="async () => await ViewModel.AddSymbolAsync()">
-                            Add
-                        </MudButton>
-                        <MudButton Variant="Variant.Outlined"
-                                   Color="Color.Default"
-                                   OnClick="OpenTradesDialogAsync">
-                            Select trades
-                        </MudButton>
-                    </MudStack>
-                    <MudTable Items="ViewModel.ClosedPositions"
+                if (TradesViewModel.Trades.Count == 0)
+                {
+                    <MudText Typo="Typo.body2">
+                        @(TradesViewModel.IsLoading ? "Loading trades..." : "No trades found for the tracked symbols.")
+                    </MudText>
+                }
+                else
+                {
+                    <MudTable Items="TradesViewModel.Trades"
                               Dense="true"
                               Hover="true"
-                              Class="closed-positions-table">
+                              Class="closed-positions-table mb-4">
                         <HeaderContent>
-                            <MudTh>Since</MudTh>
                             <MudTh>Symbol</MudTh>
-                            <MudTh></MudTh>
+                            <MudTh>Size</MudTh>
+                            <MudTh>PnL</MudTh>
+                            <MudTh>Open</MudTh>
+                            <MudTh>Close</MudTh>
+                            <MudTh>Fee</MudTh>
                         </HeaderContent>
                         <RowTemplate>
-                            <ClosedPositionRow ViewModel="context" OnOpenSymbolDialog="OpenSymbolDialogAsync" @key="context.Model.Id" />
+                            <MudTd DataLabel="Symbol">
+                                <MudStack Spacing="0">
+                                    <MudLink OnClick="() => OpenSymbolDialogAsync(context.Symbol, context.SinceDate)">@context.Symbol</MudLink>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Summary.Direction</MudText>
+                                </MudStack>
+                            </MudTd>
+                            <MudTd DataLabel="Size">@FormatNumber(context.Summary.Size)</MudTd>
+                            <MudTd DataLabel="PnL">
+                                <MudText Typo="Typo.body2" Color="@ResolvePnlColor(context.Summary.Pnl)">
+                                    @FormatMoney(context.Summary.Pnl)
+                                </MudText>
+                            </MudTd>
+                            <MudTd DataLabel="Open">
+                                <MudStack Spacing="0">
+                                    <MudText Typo="Typo.body2">@FormatMoney(context.Summary.EntryPrice)</MudText>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="closed-positions-time-caption">
+                                        @FormatTimeRange(context.Summary.EntryStartTimestamp, context.Summary.EntryEndTimestamp)
+                                    </MudText>
+                                </MudStack>
+                            </MudTd>
+                            <MudTd DataLabel="Close">
+                                <MudStack Spacing="0">
+                                    <MudText Typo="Typo.body2">@FormatMoney(context.Summary.ClosePrice)</MudText>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="closed-positions-time-caption">
+                                        @FormatTimeRange(context.Summary.CloseStartTimestamp, context.Summary.CloseEndTimestamp)
+                                    </MudText>
+                                </MudStack>
+                            </MudTd>
+                            <MudTd DataLabel="Fee">@FormatMoney(context.Summary.Fee)</MudTd>
                         </RowTemplate>
                     </MudTable>
-                </MudExpansionPanel>
-            </MudExpansionPanels>
+                }
+            }
+
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="closed-positions-input-row mb-4">
+                <MudTextField T="string"
+                              @bind-Value="ClosedPositionsViewModel.AddSymbolInput"
+                              Label="Add symbols"
+                              Placeholder="Paste symbols, one per line"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              Immediate="true"
+                              OnKeyDown="HandleAddSymbolKeyDown"
+                              Lines="4"
+                              Class="closed-positions-symbol-input" />
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           OnClick="async () => await ClosedPositionsViewModel.AddSymbolAsync()">
+                    Add
+                </MudButton>
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Default"
+                           OnClick="OpenTradesDialogAsync">
+                    Select trades
+                </MudButton>
+            </MudStack>
+            <MudTable Items="ClosedPositionsViewModel.ClosedPositions"
+                      Dense="true"
+                      Hover="true"
+                      Class="closed-positions-table">
+                <HeaderContent>
+                    <MudTh>Symbol</MudTh>
+                    <MudTh></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <ClosedPositionRow ViewModel="context" OwnerViewModel="ClosedPositionsViewModel" OnOpenSymbolDialog="OpenSymbolDialogAsync" @key="context.Model.Id" />
+                </RowTemplate>
+            </MudTable>
         </MudCardContent>
     </MudCard>
 }
 
 @code {
-    [Parameter, EditorRequired] public ClosedPositionsViewModel ViewModel { get; set; } = default!;
+    [Parameter, EditorRequired] public ClosedPositionsViewModel ClosedPositionsViewModel { get; set; } = default!;
+    [Parameter, EditorRequired] public TradesViewModel TradesViewModel { get; set; } = default!;
 
     [Inject] private INavigationService NavigationService { get; set; } = default!;
 
@@ -130,27 +136,28 @@
 
     protected override void OnParametersSet()
     {
-        if (ViewModel is null)
+        if (ClosedPositionsViewModel is null)
         {
             return;
         }
 
-        if (!ReferenceEquals(_lastViewModel, ViewModel))
+        if (!ReferenceEquals(_lastViewModel, ClosedPositionsViewModel))
         {
-            _lastViewModel = ViewModel;
-            _ = ViewModel.InitializeAsync();
+            _lastViewModel = ClosedPositionsViewModel;
+            _ = ClosedPositionsViewModel.InitializeAsync();
         }
     }
 
     protected override void OnInitialized()
     {
-        ViewModel.PropertyChanged += (_, _) => InvokeAsync(StateHasChanged);
-        ViewModel.ClosedPositions.CollectionChanged += (_, _) => InvokeAsync(StateHasChanged);
+        ClosedPositionsViewModel.PropertyChanged += (_, _) => InvokeAsync(StateHasChanged);
+        ClosedPositionsViewModel.ClosedPositions.CollectionChanged += (_, _) => InvokeAsync(StateHasChanged);
+        TradesViewModel.PropertyChanged += (_, _) => InvokeAsync(StateHasChanged);
     }
 
     private Task HandleAddSymbolKeyDown(KeyboardEventArgs args)
     {
-        return ViewModel.OnAddSymbolKeyDown(args.Key, args.CtrlKey, args.MetaKey);
+        return ClosedPositionsViewModel.OnAddSymbolKeyDown(args.Key, args.CtrlKey, args.MetaKey);
     }
 
 
@@ -162,19 +169,23 @@
         }
 
         await NavigationService.NavigateToAsync<TradingSymbolDialogViewModel>(viewModel =>
-            viewModel.LoadAsync(symbol, string.Empty, sinceDate, ViewModel.ExchangeConnectionId));
+            viewModel.LoadAsync(
+                symbol,
+                string.Empty,
+                ClosedPositionsViewModel.ResolveEffectiveSinceDateLocal(sinceDate),
+                ClosedPositionsViewModel.ExchangeConnectionId));
     }
 
     private async Task OpenTradesDialogAsync()
     {
-        var existingSymbols = ViewModel.ClosedPositions
+        var existingSymbols = ClosedPositionsViewModel.ClosedPositions
             .Select(item => item.Model.Symbol)
             .Where(symbol => !string.IsNullOrWhiteSpace(symbol))
             .ToList();
 
-        var baseAsset = ViewModel.BaseAsset;
+        var baseAsset = ClosedPositionsViewModel.BaseAsset;
         var dialogViewModel = await NavigationService.NavigateToAsync<TradingHistorySelectionDialogViewModel>(
-            viewModel => viewModel.InitializeAsync(existingSymbols, baseAsset, ViewModel.ExchangeConnectionId));
+            viewModel => viewModel.InitializeAsync(existingSymbols, baseAsset, ClosedPositionsViewModel.ExchangeConnectionId));
 
         var selectedSymbols = await dialogViewModel.WaitForSelectionAsync();
         if (selectedSymbols is null || selectedSymbols.Count == 0)
@@ -182,8 +193,8 @@
             return;
         }
 
-        ViewModel.SetAddSymbolInput(selectedSymbols);
-        await ViewModel.AddSymbolAsync();
+        ClosedPositionsViewModel.SetAddSymbolInput(selectedSymbols);
+        await ClosedPositionsViewModel.AddSymbolAsync();
     }
 
     private static string FormatNumber(decimal value)
@@ -198,13 +209,6 @@
             ? "0.##"
             : "0.##########";
         return value.ToString(format, System.Globalization.CultureInfo.InvariantCulture);
-    }
-
-    private static string FormatNumber(decimal? value)
-    {
-        return value.HasValue
-            ? value.Value.ToString("0.##########", System.Globalization.CultureInfo.InvariantCulture)
-            : string.Empty;
     }
 
     private static string FormatMoney(decimal? value)

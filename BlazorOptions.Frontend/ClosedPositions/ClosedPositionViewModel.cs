@@ -1,34 +1,17 @@
 using System.ComponentModel;
-using System.Globalization;
-using System.Text.Json;
-using BlazorOptions.API.TradingHistory;
-using BlazorOptions.Diagnostics;
-using BlazorOptions.Services;
 
 namespace BlazorOptions.ViewModels;
 
 public sealed class ClosedPositionViewModel : Bindable
 {
-    private readonly ITradingHistoryPort _tradingHistoryPort;
-    private readonly IExchangeService _exchangeService;
-    private readonly int _defaultLookbackDays = 180;
-    private bool _isCalculating;
-
     public Func<ClosedPositionViewModel, Task>? Removed;
     public Func<Task>? UpdateCompleted;
 
     private ClosedPositionModel _model;
-    private DateTime? _defaultSinceDateUtc;
 
-    public ClosedPositionViewModel(
-        ITradingHistoryPort tradingHistoryPort,
-        IExchangeService exchangeService
-       )
+    public ClosedPositionViewModel()
     {
-        _tradingHistoryPort = tradingHistoryPort;
-        _exchangeService = exchangeService;
         _model = new ClosedPositionModel();
-       
     }
 
     public ClosedPositionModel Model
@@ -42,7 +25,6 @@ public sealed class ClosedPositionViewModel : Bindable
             }
 
             value.PropertyChanged += ModelPropertyChanged;
-
             _model = value;
             OnPropertyChanged();
         }
@@ -53,77 +35,17 @@ public sealed class ClosedPositionViewModel : Bindable
         OnPropertyChanged(nameof(Model));
     }
 
-    public bool IsCalculating
+    public async Task SetSymbolAsync(string? symbol)
     {
-        get => _isCalculating;
-        set => SetField(ref _isCalculating, value);
-    }
-
-    public DateTime? DefaultSinceDateUtc
-    {
-        get => _defaultSinceDateUtc;
-        init => _defaultSinceDateUtc = value;
-    }
-
-    public async Task RecalculateAsync(bool forceFull)
-    {
-        if (_isCalculating)
+        var normalized = symbol?.Trim().ToUpperInvariant() ?? string.Empty;
+        if (string.Equals(Model.Symbol, normalized, StringComparison.Ordinal))
         {
             return;
         }
 
-        IsCalculating = true;
-        bool changed = false;
-
-        void OnChanged(object? sender, PropertyChangedEventArgs args) => changed = true;
-
-        Model.PropertyChanged += OnChanged;
-        try
-        {
-            using var activity = ActivitySources.Telemetry.StartActivity($"{nameof(ClosedPositionViewModel)}.{nameof(RecalculateAsync)}");
-            activity?.AddTag("Symbol", Model.Symbol);
-
-            if (forceFull)
-            {
-                Model.ResetCalculationCache();
-            }
-
-            if (!forceFull && Model.LastProcessedTimestamp.HasValue)
-            {
-                var latestMeta = await _tradingHistoryPort.LoadLatestBySymbolMetaAsync(Model.Symbol, null);
-                if (latestMeta.Timestamp.HasValue && latestMeta.Timestamp.Value <= Model.LastProcessedTimestamp.Value)
-                {
-                    if (latestMeta.Timestamp.Value < Model.LastProcessedTimestamp.Value)
-                    {
-                        return;
-                    }
-
-                    var lastIds = Model.LastProcessedIdsAtTimestamp ?? new List<string>();
-                    if (latestMeta.Ids.Count == 0 || latestMeta.Ids.All(lastIds.Contains))
-                    {
-                        return;
-                    }
-                }
-            }
-
-            var sinceTimestamp = ResolveSinceTimestamp(forceFull);
-            IReadOnlyList<TradingHistoryEntry> entries = await _tradingHistoryPort.LoadBySymbolAsync(
-                Model.Symbol,
-                null,
-                sinceTimestamp);
-
-            ApplyEntries(entries, forceFull);
-            
-        }
-        finally
-        {
-            Model.PropertyChanged -= OnChanged;
-            IsCalculating = false;
-            if (changed)
-            {
-                await RaiseUpdateCompleted();
-            }
-        }
+        Model.Symbol = normalized;
+        Model.ResetCalculationCache();
+        await RaiseUpdateCompleted();
     }
 
     public async Task SetSinceDateAsync(DateTime? sinceDate)
@@ -134,9 +56,7 @@ public sealed class ClosedPositionViewModel : Bindable
         }
 
         Model.SinceDate = sinceDate;
-        Model.ResetCalculationCache();
-
-        _ = RecalculateAsync(forceFull: true);
+        await RaiseUpdateCompleted();
     }
 
     public Task SetSinceTimeAsync(TimeSpan? timePart)
@@ -151,297 +71,31 @@ public sealed class ClosedPositionViewModel : Bindable
         return SetSinceDateAsync(combined);
     }
 
-    public async Task<IReadOnlyList<TradeCycleSummary>> LoadTradeCycleSummariesAsync()
+    public async Task SetSinceDateTimeAsync(DateTime? sinceDate, TimeSpan? timePart)
     {
-        if (string.IsNullOrWhiteSpace(Model.Symbol))
+        var datePart = sinceDate?.Date;
+        if (!datePart.HasValue && timePart.HasValue)
         {
-            return Array.Empty<TradeCycleSummary>();
+            datePart = DateTime.Today;
         }
 
-        var entries = await _tradingHistoryPort.LoadBySymbolAsync(Model.Symbol, null, ResolveSinceTimestamp(forceFull: true));
-        var tradeRows = TradingHistoryTradeRowProjection.BuildTradeRows(entries);
-        return TradeCycleSummaryBuilder.BuildTradeCycleSummaries(tradeRows);
-    }
-
-    private async Task RaiseUpdateCompleted()
-    {
-        if (UpdateCompleted != null)
-        {
-            await UpdateCompleted.Invoke();
-        }
-    }
-
-    private void ApplyEntries(IReadOnlyList<TradingHistoryEntry> entries, bool forceFull)
-    {
-        if (entries.Count == 0)
-        {
-            return;
-        }
-
-        var positionSize = Model.PositionSize;
-        var avgPrice = Model.AvgPrice;
-        var entryQty = Model.EntryQty;
-        var entryValue = Model.EntryValue;
-        var closeQty = Model.CloseQty;
-        var closeValue = Model.CloseValue;
-        var realized = Model.Realized;
-        var feeTotal = Model.FeeTotal;
-
-        var firstTimestamp = Model.FirstTradeTimestamp ?? long.MaxValue;
-        var lastProcessedTimestamp = forceFull ? null : Model.LastProcessedTimestamp;
-        var lastProcessedIds = forceFull ? new List<string>() : Model.LastProcessedIdsAtTimestamp;
-        var processedAny = false;
-
-        long? maxTimestamp = lastProcessedTimestamp;
-        var maxTimestampIds = new List<string>();
-
-        foreach (var entry in TradingHistoryEntryOrdering.OrderAscending(entries))
-        {
-            if (lastProcessedTimestamp.HasValue && entry.Timestamp.HasValue)
-            {
-                if (entry.Timestamp.Value < lastProcessedTimestamp.Value)
-                {
-                    continue;
-                }
-
-                if (entry.Timestamp.Value == lastProcessedTimestamp.Value
-                    && lastProcessedIds.Count > 0
-                    && lastProcessedIds.Contains(entry.Id))
-                {
-                    continue;
-                }
-            }
-
-            if (entry.Timestamp.HasValue)
-            {
-                var entryTimestamp = entry.Timestamp.Value;
-                if (entryTimestamp < firstTimestamp)
-                {
-                    firstTimestamp = entryTimestamp;
-                }
-
-                if (!maxTimestamp.HasValue || entryTimestamp > maxTimestamp.Value)
-                {
-                    maxTimestamp = entryTimestamp;
-                    maxTimestampIds.Clear();
-                    maxTimestampIds.Add(entry.Id);
-                }
-                else if (entryTimestamp == maxTimestamp.Value)
-                {
-                    maxTimestampIds.Add(entry.Id);
-                }
-            }
-
-            var qty = entry.Size;
-            var price = entry.Price;
-            var fee = entry.Fee;
-            var side = (entry.Side ?? string.Empty).Trim();
-            var type = (entry.TransactionType ?? string.Empty).Trim();
-
-            if (string.Equals(type, "SETTLEMENT", StringComparison.OrdinalIgnoreCase))
-            {
-                qty = 0m;
-                price = 0m;
-            }
-            else if (string.Equals(type, "DELIVERY", StringComparison.OrdinalIgnoreCase))
-            {
-                if (_exchangeService.TryParseSymbol(entry.Symbol, out _, out _, out var strike, out var legType))
-                {
-                    var intrinsicCall = Math.Max(entry.Price - strike, 0m);
-                    var intrinsicPut = Math.Max(strike - entry.Price, 0m);
-
-                    if (legType == LegType.Call)
-                    {
-                        price = intrinsicCall;
-                    }
-                    else if (legType == LegType.Put)
-                    {
-                        price = intrinsicPut;
-                    }
-                }
-            }
-            else if (!string.Equals(type, "TRADE", StringComparison.OrdinalIgnoreCase))
-            {
-                qty = 0m;
-            }
-
-            var qtySigned = Round10(string.Equals(side, "SELL", StringComparison.OrdinalIgnoreCase) ? -qty : qty);
-            var rawSizeAfter = TryGetDerivativePositionSizeAfter(entry);
-            var positionAfter = rawSizeAfter.HasValue
-                ? Round10(rawSizeAfter.Value)
-                : Round10(positionSize + qtySigned);
-            // The closed-position panel must follow the same quantity split as the server-side calculator.
-            var change = TradingPositionChange.Resolve(positionSize, positionAfter);
-            var effectiveQtySigned = Round10(change.SignedChange);
-            var closeTradeQty = Round10(change.CloseQuantity);
-            var openTradeQty = Round10(change.OpenQuantitySigned);
-
-            var cashBefore = -avgPrice * positionSize;
-            var cashAfter = cashBefore + (-avgPrice * closeTradeQty * Math.Sign(effectiveQtySigned)) + (-price * openTradeQty);
-            var avgAfter = Math.Abs(positionAfter) < 0.000000001m ? 0m : -cashAfter / positionAfter;
-
-            if (closeTradeQty != 0m)
-            {
-                realized += positionSize > 0m
-                    ? (price - avgPrice) * closeTradeQty
-                    : (avgPrice - price) * closeTradeQty;
-            }
-
-            if (openTradeQty != 0m)
-            {
-                var openQtyAbs = Math.Abs(openTradeQty);
-                entryQty += openQtyAbs;
-                entryValue += price * openQtyAbs;
-            }
-
-            if (closeTradeQty != 0m)
-            {
-                closeQty += closeTradeQty;
-                closeValue += price * closeTradeQty;
-            }
-
-            feeTotal += fee;
-            positionSize = positionAfter;
-            avgPrice = avgAfter;
-            processedAny = true;
-        }
-
-        if (!processedAny)
-        {
-            return;
-        }
-
-        Model.PositionSize = positionSize;
-        Model.AvgPrice = avgPrice;
-        Model.EntryQty = entryQty;
-        Model.EntryValue = entryValue;
-        Model.CloseQty = closeQty;
-        Model.CloseValue = closeValue;
-        Model.Realized = realized;
-        Model.FeeTotal = feeTotal;
-
-        if (firstTimestamp != long.MaxValue)
-        {
-            Model.FirstTradeTimestamp = firstTimestamp;
-        }
-
-        if (maxTimestamp.HasValue)
-        {
-            Model.LastProcessedTimestamp = maxTimestamp;
-            Model.LastProcessedIdsAtTimestamp = maxTimestampIds;
-        }
-    }
-
-    private long? ResolveSinceTimestamp(bool forceFull)
-    {
-        DateTime? sinceDate = Model.SinceDate;
-
-        if (!sinceDate.HasValue && DefaultSinceDateUtc.HasValue)
-        {
-            sinceDate = DefaultSinceDateUtc.Value.ToLocalTime();
-        }
-
-        if (!sinceDate.HasValue && _defaultLookbackDays > 0)
-        {
-            sinceDate = DateTime.Now.Date.AddDays(-_defaultLookbackDays);
-        }
-
-        if (!forceFull && Model.LastProcessedTimestamp.HasValue)
-        {
-            var processedDate = DateTimeOffset.FromUnixTimeMilliseconds(Model.LastProcessedTimestamp.Value).LocalDateTime;
-            if (!sinceDate.HasValue || processedDate > sinceDate.Value)
-            {
-                return Model.LastProcessedTimestamp.Value;
-            }
-        }
-
-        if (sinceDate.HasValue)
-        {
-            return new DateTimeOffset(DateTime.SpecifyKind(sinceDate.Value, DateTimeKind.Local))
-                .ToUnixTimeMilliseconds();
-        }
-
-        return null;
-    }
-
-    private DateTime? ResolveFirstTradeDate()
-    {
-        if (!Model.FirstTradeTimestamp.HasValue)
-        {
-            return null;
-        }
-
-        try
-        {
-            return DateTimeOffset.FromUnixTimeMilliseconds(Model.FirstTradeTimestamp.Value).ToLocalTime().DateTime;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static decimal Round10(decimal value)
-    {
-        return Math.Round(value, 10, MidpointRounding.AwayFromZero);
-    }
-
-    private static decimal? TryGetDerivativePositionSizeAfter(TradingHistoryEntry entry)
-    {
-        if (!string.Equals(entry.TransactionType, "TRADE", StringComparison.OrdinalIgnoreCase)
-            || !IsDerivativeCategory(entry.Category)
-            || string.IsNullOrWhiteSpace(entry.RawJson))
-        {
-            return null;
-        }
-
-        try
-        {
-            using var doc = JsonDocument.Parse(entry.RawJson);
-            var primary = doc.RootElement;
-            if (primary.ValueKind == JsonValueKind.Array)
-            {
-                primary = primary.EnumerateArray().FirstOrDefault();
-            }
-
-            if (primary.ValueKind != JsonValueKind.Object)
-            {
-                return null;
-            }
-
-            if (primary.TryGetProperty("size", out var value))
-            {
-                if (value.ValueKind == JsonValueKind.Number && value.TryGetDecimal(out var number))
-                {
-                    return Round10(number);
-                }
-
-                if (value.ValueKind == JsonValueKind.String
-                    && decimal.TryParse(value.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
-                {
-                    return Round10(parsed);
-                }
-            }
-
-            return null;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static bool IsDerivativeCategory(string? category)
-    {
-        return string.Equals(category, "linear", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(category, "inverse", StringComparison.OrdinalIgnoreCase);
+        var combined = datePart.HasValue ? datePart.Value + (timePart ?? TimeSpan.Zero) : (DateTime?)null;
+        await SetSinceDateAsync(combined);
     }
 
     public async Task RemoveClosedPositionAsync()
     {
-        if (Removed != null)
+        if (Removed is not null)
         {
             await Removed.Invoke(this);
+        }
+    }
+
+    private async Task RaiseUpdateCompleted()
+    {
+        if (UpdateCompleted is not null)
+        {
+            await UpdateCompleted.Invoke();
         }
     }
 }

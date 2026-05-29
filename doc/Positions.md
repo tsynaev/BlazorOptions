@@ -13,6 +13,7 @@ The Positions page is where you manage one position at a time and review its pay
 - Manage a single portfolio inside one position.
 - Add legs manually, with quick add, from active exchange positions, or from open orders.
 - When a new position is created from selected exchange positions, those symbols are prefilled into closed positions.
+- Seeded closed-position rows keep `Since` empty by default, so trade lookup uses the position creation time.
 - Position creation requires selecting an exchange connection.
 - The selected exchange connection is saved with the position and cannot be changed later.
 - The position header shows the exchange connection name used by that position.

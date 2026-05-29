@@ -1,6 +1,6 @@
 namespace BlazorOptions.ViewModels;
 
-public sealed record PositionTradeCycleSummaryRow
+public sealed record PositionTradeSummaryRow
 {
     public string Key { get; init; } = Guid.NewGuid().ToString("N");
 
@@ -8,5 +8,5 @@ public sealed record PositionTradeCycleSummaryRow
 
     public DateTime? SinceDate { get; init; }
 
-    public TradeCycleSummary Summary { get; init; } = new();
+    public TradeSummary Summary { get; init; } = new();
 }

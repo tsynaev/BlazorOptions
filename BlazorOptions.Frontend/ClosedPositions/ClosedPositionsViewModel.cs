@@ -1,46 +1,25 @@
 using System.Collections.ObjectModel;
-using BlazorOptions.API.TradingHistory;
-using BlazorOptions.Services;
 
 namespace BlazorOptions.ViewModels;
 
-public sealed class ClosedPositionsViewModel: Bindable
+public sealed class ClosedPositionsViewModel : Bindable
 {
-
     private readonly PositionViewModel _positionViewModel;
-    private readonly ITradingHistoryPort _tradingHistoryPort;
-    private readonly IExchangeService _exchangeService;
-    private bool _isInitialized;
-    private bool _isBatchUpdating;
     private ObservableCollection<ClosedPositionViewModel> _closedPositions;
-    private IReadOnlyList<PositionTradeCycleSummaryRow> _tradeSummaries;
     private ClosedModel _model;
     private string? _baseAsset;
-    private DateTime? _positionCreationTimeUtc;
 
-    public ClosedPositionsViewModel(
-        PositionViewModel positionViewModel,
-        ITradingHistoryPort tradingHistoryPort,
-        IExchangeService exchangeService)
+    public ClosedPositionsViewModel(PositionViewModel positionViewModel)
     {
         _positionViewModel = positionViewModel;
-        _tradingHistoryPort = tradingHistoryPort;
-        _exchangeService = exchangeService;
         _closedPositions = new ObservableCollection<ClosedPositionViewModel>();
-        _tradeSummaries = Array.Empty<PositionTradeCycleSummaryRow>();
         _model = new ClosedModel();
     }
 
     public ObservableCollection<ClosedPositionViewModel> ClosedPositions
     {
         get => _closedPositions;
-        set => _closedPositions = value;
-    }
-
-    public IReadOnlyList<PositionTradeCycleSummaryRow> TradeSummaries
-    {
-        get => _tradeSummaries;
-        private set => SetField(ref _tradeSummaries, value);
+        private set => _closedPositions = value;
     }
 
     public string? BaseAsset
@@ -49,16 +28,9 @@ public sealed class ClosedPositionsViewModel: Bindable
         set => _baseAsset = value;
     }
 
-    public DateTime? PositionCreationTimeUtc
-    {
-        get => _positionCreationTimeUtc;
-        set => _positionCreationTimeUtc = value;
-    }
-
     public string ExchangeConnectionId => _positionViewModel.Position?.ExchangeConnectionId ?? string.Empty;
 
     public event Func<Task>? UpdatedCompleted;
-
 
     public string AddSymbolInput { get; set; } = string.Empty;
 
@@ -105,36 +77,28 @@ public sealed class ClosedPositionsViewModel: Bindable
         _positionViewModel.NotifyStateChanged();
     }
 
- 
     public ClosedModel Model
     {
         get => _model;
         set
         {
-            if (SetField(ref _model, value))
+            if (!SetField(ref _model, value))
             {
-                ObservableCollection<ClosedPositionViewModel> positions = new();
-
-                foreach (ClosedPositionModel model in _model.Positions)
-                {
-                    positions.Add(CreatePositionViewModel(model));
-                }
-
-                ClosedPositions = positions;
+                return;
             }
+
+            ObservableCollection<ClosedPositionViewModel> positions = new();
+            foreach (ClosedPositionModel model in _model.Positions)
+            {
+                positions.Add(CreatePositionViewModel(model));
+            }
+
+            ClosedPositions = positions;
         }
     }
 
-
     public Task InitializeAsync()
     {
-        if (_isInitialized)
-        {
-            return Task.CompletedTask;
-        }
-
-        _isInitialized = true;
-        _ = RecalculateAllAsync(forceFull: false);
         return Task.CompletedTask;
     }
 
@@ -148,7 +112,6 @@ public sealed class ClosedPositionsViewModel: Bindable
 
     public async Task AddSymbolAsync()
     {
-
         var input = AddSymbolInput ?? string.Empty;
         var symbols = SplitSymbols(input);
         if (symbols.Count == 0)
@@ -160,7 +123,7 @@ public sealed class ClosedPositionsViewModel: Bindable
             ClosedPositions.Select(item => item.Model.Symbol),
             StringComparer.OrdinalIgnoreCase);
 
-        var added = 0;
+        var added = false;
         foreach (var symbol in symbols)
         {
             if (existing.Contains(symbol))
@@ -170,34 +133,16 @@ public sealed class ClosedPositionsViewModel: Bindable
 
             var model = new ClosedPositionModel { Symbol = symbol.ToUpperInvariant() };
             Model.Positions.Add(model);
-
-            ClosedPositionViewModel closedPosition = CreatePositionViewModel(model);
-            
-
-            ClosedPositions.Add(closedPosition);
-        
+            ClosedPositions.Add(CreatePositionViewModel(model));
             existing.Add(symbol);
-            added++;
+            added = true;
         }
 
         AddSymbolInput = string.Empty;
-        if (added > 0)
+        if (added)
         {
-            _isBatchUpdating = true;
-            foreach (var symbol in symbols)
-            {
-                var viewModel = ClosedPositions.FirstOrDefault(item =>
-                    string.Equals(item.Model.Symbol, symbol, StringComparison.OrdinalIgnoreCase));
-                if (viewModel is not null)
-                {
-                    await viewModel.RecalculateAsync(forceFull: false);
-                }
-            }
-            _isBatchUpdating = false;
-            await RefreshTradeSummariesAsync();
+            await RaiseUpdateCompleted();
         }
-
-        await RaiseUpdateCompleted();
     }
 
     public bool HasSymbol(string? symbol)
@@ -236,10 +181,27 @@ public sealed class ClosedPositionsViewModel: Bindable
             Model.Positions.Remove(viewModel.Model);
         }
 
-        UpdateTotal();
-        await RefreshTradeSummariesAsync();
         await RaiseUpdateCompleted();
         return matches.Count;
+    }
+
+    public async Task<bool> UpdateSymbolAsync(ClosedPositionViewModel viewModel, string? symbol)
+    {
+        var normalized = symbol?.Trim().ToUpperInvariant() ?? string.Empty;
+        if (normalized.Length == 0)
+        {
+            return false;
+        }
+
+        if (ClosedPositions.Any(item =>
+                !ReferenceEquals(item, viewModel) &&
+                string.Equals(item.Model.Symbol, normalized, StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        await viewModel.SetSymbolAsync(normalized);
+        return true;
     }
 
     public async Task SetIncludeAsync(bool include)
@@ -250,23 +212,36 @@ public sealed class ClosedPositionsViewModel: Bindable
         }
 
         Model.Include = include;
-        // Force immediate payoff refresh so chart offset follows closed net PnL toggle.
+        await _positionViewModel.QueuePersistPositionsAsync(_positionViewModel.Position);
         _positionViewModel.QueueChartUpdate();
-        await RaiseUpdateCompleted();
+    }
+
+    public DateTime? ResolveEffectiveSinceDateLocal(DateTime? sinceDate)
+    {
+        if (sinceDate.HasValue)
+        {
+            return sinceDate.Value;
+        }
+
+        var creationTimeUtc = _positionViewModel.Position?.CreationTimeUtc;
+        if (!creationTimeUtc.HasValue)
+        {
+            return null;
+        }
+
+        // Dialogs and date pickers work with local values; persisted creation time stays UTC on the model.
+        return creationTimeUtc.Value.ToLocalTime();
     }
 
     internal ClosedPositionViewModel CreatePositionViewModel(ClosedPositionModel model)
     {
-        var closedPosition =
-            new ClosedPositionViewModel(_tradingHistoryPort, _exchangeService)
-            {
-                Model = model,
-                DefaultSinceDateUtc = PositionCreationTimeUtc
-            };
+        var closedPosition = new ClosedPositionViewModel
+        {
+            Model = model
+        };
 
         closedPosition.UpdateCompleted += OnPositionUpdated;
         closedPosition.Removed += OnPositionRemoved;
-
         return closedPosition;
     }
 
@@ -274,105 +249,31 @@ public sealed class ClosedPositionsViewModel: Bindable
     {
         viewModel.UpdateCompleted -= OnPositionUpdated;
         viewModel.Removed -= OnPositionRemoved;
-
         ClosedPositions.Remove(viewModel);
         Model.Positions.Remove(viewModel.Model);
-
-        UpdateTotal();
-        await RefreshTradeSummariesAsync();
-
         await RaiseUpdateCompleted();
     }
 
+    private Task OnPositionUpdated()
+    {
+        return RaiseUpdateCompleted();
+    }
 
     private async Task RaiseUpdateCompleted()
     {
-        if (UpdatedCompleted != null)
+        if (UpdatedCompleted is not null)
         {
             await UpdatedCompleted.Invoke();
-        } 
-    }
-   
-
-    private async Task OnPositionUpdated()
-    {
-        UpdateTotal();
-
-        if (_isBatchUpdating)
-        {
-            return;
         }
-
-        await RefreshTradeSummariesAsync();
-        await RaiseUpdateCompleted();
     }
-
-    private void UpdateTotal()
-    {
-        Model.TotalClosePnl = ClosedPositions.Sum(item => item.Model.Realized);
-        Model.TotalFee = ClosedPositions.Sum(item => item.Model.FeeTotal); 
-    }
-
-    private async Task RecalculateAllAsync(bool forceFull)
-    {
-        _isBatchUpdating = true;
-        foreach (var model in ClosedPositions)
-        {
-            await model.RecalculateAsync(forceFull);
-            await Task.Yield();
-        }
-        _isBatchUpdating = false;
-        await RefreshTradeSummariesAsync();
-    }
-
-    private async Task RefreshTradeSummariesAsync()
-    {
-        if (ClosedPositions.Count == 0)
-        {
-            TradeSummaries = Array.Empty<PositionTradeCycleSummaryRow>();
-            return;
-        }
-
-        var rows = new List<PositionTradeCycleSummaryRow>();
-        foreach (var viewModel in ClosedPositions)
-        {
-            var symbol = viewModel.Model.Symbol?.Trim();
-            if (string.IsNullOrWhiteSpace(symbol))
-            {
-                continue;
-            }
-
-            var summaries = await viewModel.LoadTradeCycleSummariesAsync();
-            foreach (var summary in summaries)
-            {
-                rows.Add(new PositionTradeCycleSummaryRow
-                {
-                    Key = $"{symbol}|{summary.EntryStartTimestamp}|{summary.EntryEndTimestamp}|{summary.CloseStartTimestamp}|{summary.CloseEndTimestamp}|{summary.Direction}",
-                    Symbol = symbol,
-                    SinceDate = viewModel.Model.SinceDate,
-                    Summary = summary
-                });
-            }
-        }
-
-        TradeSummaries = rows
-            .OrderByDescending(item => item.Summary.EntryStartTimestamp)
-            .ThenBy(item => item.Symbol, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
 
     private static IReadOnlyList<string> SplitSymbols(string input)
     {
-        var tokens = input
+        return input
             .Split(new[] { '\r', '\n', '\t', ' ', ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
             .Select(item => item.Trim())
             .Where(item => !string.IsNullOrWhiteSpace(item))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-
-        return tokens;
     }
 }
-
-

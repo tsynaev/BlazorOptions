@@ -72,7 +72,7 @@ public sealed class TradingHistoryController : ControllerBase, ITradingHistoryPo
     public async Task<IActionResult> LoadBySymbolAsync(
         [FromQuery] string symbol,
         [FromQuery] string? category,
-        [FromQuery] long? sinceTimestamp,
+        [FromQuery] DateTime? sinceDateUtc,
         [FromQuery] string? exchangeConnectionId)
     {
         if (string.IsNullOrWhiteSpace(symbol))
@@ -86,7 +86,27 @@ public sealed class TradingHistoryController : ControllerBase, ITradingHistoryPo
             return Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unauthorized");
         }
 
-        var entries = await _store.LoadBySymbolAsync(userId, symbol, category, sinceTimestamp, exchangeConnectionId);
+        var entries = await _store.LoadBySymbolAsync(userId, symbol, category, sinceDateUtc, exchangeConnectionId);
+        return Ok(entries);
+    }
+
+    [HttpPost("by-symbols")]
+    public async Task<IActionResult> LoadBySymbolsAsync(
+        [FromBody] TradingHistoryRequest[] requests,
+        [FromQuery] string? exchangeConnectionId)
+    {
+        if (requests is null || requests.Length == 0)
+        {
+            return Ok(Array.Empty<TradingHistoryEntry>());
+        }
+
+        var userId = ResolveUserId();
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unauthorized");
+        }
+
+        var entries = await _store.LoadBySymbolsAsync(userId, requests, exchangeConnectionId);
         return Ok(entries);
     }
 
@@ -215,10 +235,16 @@ public sealed class TradingHistoryController : ControllerBase, ITradingHistoryPo
     }
 
 
-    async Task<IReadOnlyList<TradingHistoryEntry>> ITradingHistoryPort.LoadBySymbolAsync(string symbol, string? category, long? sinceTimestamp, string? exchangeConnectionId)
+    async Task<IReadOnlyList<TradingHistoryEntry>> ITradingHistoryPort.LoadBySymbolAsync(string symbol, string? category, DateTime? sinceDateUtc, string? exchangeConnectionId)
     {
         var userId = ResolveUserIdOrThrow();
-        return await _store.LoadBySymbolAsync(userId, symbol, category, sinceTimestamp, exchangeConnectionId);
+        return await _store.LoadBySymbolAsync(userId, symbol, category, sinceDateUtc, exchangeConnectionId);
+    }
+
+    async Task<IReadOnlyList<TradingHistoryEntry>> ITradingHistoryPort.LoadBySymbolsAsync(TradingHistoryRequest[] requests, string? exchangeConnectionId)
+    {
+        var userId = ResolveUserIdOrThrow();
+        return await _store.LoadBySymbolsAsync(userId, requests, exchangeConnectionId);
     }
 
     async Task<IReadOnlyList<TradingSummaryBySymbolRow>> ITradingHistoryPort.LoadSummaryBySymbolAsync(string? exchangeConnectionId)

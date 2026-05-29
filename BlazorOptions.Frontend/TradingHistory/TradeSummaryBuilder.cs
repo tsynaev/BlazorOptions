@@ -1,31 +1,66 @@
 using System.Globalization;
+using System.Text.Json;
 using BlazorOptions.API.TradingHistory;
 
 namespace BlazorOptions.ViewModels;
 
-public static class TradeCycleSummaryBuilder
+public static class TradeSummaryBuilder
 {
-    public static IReadOnlyList<TradeCycleSummary> BuildTradeCycleSummaries(IEnumerable<TradeRow> trades)
+    public static IReadOnlyList<TradeSummary> BuildTradeSummaries(IEnumerable<TradingHistoryEntry> entries)
     {
-        ArgumentNullException.ThrowIfNull(trades);
+        ArgumentNullException.ThrowIfNull(entries);
 
-        var orderedTrades = trades
-            .Where(row => row is not null)
-            .OrderBy(row => row.Timestamp ?? 0)
-            .ThenBy(row => row.Sequence)
+        var orderedEntries = entries
+            .Where(entry => entry is not null)
+            .Where(entry =>
+                string.Equals(entry.TransactionType, "TRADE", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(entry.TransactionType, "DELIVERY", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(entry => entry.Timestamp ?? 0)
             .ToList();
-        if (orderedTrades.Count == 0)
+        if (orderedEntries.Count == 0)
         {
-            return Array.Empty<TradeCycleSummary>();
+            return Array.Empty<TradeSummary>();
         }
 
-        var summaries = new List<TradeCycleSummary>();
+        foreach (var entry in orderedEntries)
+        {
+            NormalizeDeliveryPrice(entry);
+        }
+
+        var summaries = new List<TradeSummary>();
+        foreach (var group in orderedEntries.GroupBy(CreateGroupKey, StringComparer.OrdinalIgnoreCase))
+        {
+            var groupedEntries = group.ToList();
+            if (groupedEntries.Count == 0)
+            {
+                continue;
+            }
+
+            var symbol = groupedEntries[0].Symbol?.Trim() ?? string.Empty;
+            var category = groupedEntries[0].Category?.Trim() ?? string.Empty;
+            var groupedSummaries = BuildTradeSummariesForSingleSymbol(groupedEntries);
+            summaries.AddRange(groupedSummaries.Select(summary => summary with
+            {
+                Symbol = symbol,
+                Category = category
+            }));
+        }
+
+        return summaries
+            .OrderBy(summary => summary.EntryStartTimestamp)
+            .ThenBy(summary => summary.Symbol, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static IReadOnlyList<TradeSummary> BuildTradeSummariesForSingleSymbol(IReadOnlyList<TradingHistoryEntry> orderedEntries)
+    {
+        var summaries = new List<TradeSummary>();
         PositionAccumulator? openPosition = null;
         CloseAccumulator? pendingClose = null;
 
-        foreach (var row in orderedTrades)
+        foreach (var entry in orderedEntries)
         {
-            if (!TryParseTrade(row.Trade, out _, out var quantity))
+            if (!TryGetSignedQuantity(entry, out var signedQuantity, out var quantity))
             {
                 if (pendingClose is not null)
                 {
@@ -36,8 +71,8 @@ public static class TradeCycleSummaryBuilder
                 continue;
             }
 
-            var sizeAfter = row.SizeAfter;
-            var sizeBefore = sizeAfter - GetSignedQuantity(row.Trade, quantity);
+            var sizeAfter = entry.Calculated?.SizeAfter ?? 0m;
+            var sizeBefore = sizeAfter - signedQuantity;
             var change = TradingPositionChange.Resolve(sizeBefore, sizeAfter);
             var beforeSign = Math.Sign(sizeBefore);
             var afterSign = Math.Sign(sizeAfter);
@@ -52,9 +87,9 @@ public static class TradeCycleSummaryBuilder
 
             if (closeQuantity > 0m && openPosition is not null && beforeSign == openPosition.DirectionSign)
             {
-                var closeFee = AllocateFee(row.Fee, closeQuantity, quantity);
-                pendingClose ??= CloseAccumulator.StartFrom(openPosition, row.Timestamp ?? 0);
-                pendingClose.AddCloseFill(row.Timestamp ?? 0, row.Price, closeQuantity, closeFee);
+                var closeFee = AllocateFee(entry.Fee, closeQuantity, quantity);
+                pendingClose ??= CloseAccumulator.StartFrom(openPosition, entry.Timestamp ?? 0);
+                pendingClose.AddCloseFill(entry.Timestamp ?? 0, entry.Price, closeQuantity, closeFee);
 
                 openPosition.AllocateClose(closeQuantity, out var openingFeeShare);
                 pendingClose.AddOpeningFee(openingFeeShare);
@@ -73,17 +108,17 @@ public static class TradeCycleSummaryBuilder
                     pendingClose = null;
                 }
 
-                var openFee = AllocateFee(row.Fee, openQuantity, quantity);
+                var openFee = AllocateFee(entry.Fee, openQuantity, quantity);
                 if (openPosition is null || openPosition.DirectionSign != afterSign)
                 {
                     if (afterSign != 0)
                     {
-                        openPosition = PositionAccumulator.Start(afterSign, row.Timestamp ?? 0, row.Price, openQuantity, openFee);
+                        openPosition = PositionAccumulator.Start(afterSign, entry.Timestamp ?? 0, entry.Price, openQuantity, openFee);
                     }
                 }
                 else
                 {
-                    openPosition.AddOpenFill(row.Timestamp ?? 0, row.Price, openQuantity, openFee);
+                    openPosition.AddOpenFill(entry.Timestamp ?? 0, entry.Price, openQuantity, openFee);
                 }
             }
         }
@@ -101,46 +136,35 @@ public static class TradeCycleSummaryBuilder
         return summaries;
     }
 
-    private static bool TryParseTrade(string? trade, out int sideSign, out decimal quantity)
+    private static string CreateGroupKey(TradingHistoryEntry entry)
     {
-        sideSign = 0;
-        quantity = 0m;
-
-        if (string.IsNullOrWhiteSpace(trade))
-        {
-            return false;
-        }
-
-        var parts = trade.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (parts.Length < 2)
-        {
-            return false;
-        }
-
-        sideSign = parts[0].Equals("BUY", StringComparison.OrdinalIgnoreCase)
-            ? 1
-            : parts[0].Equals("SELL", StringComparison.OrdinalIgnoreCase)
-                ? -1
-                : 0;
-        if (sideSign == 0)
-        {
-            return false;
-        }
-
-        if (!decimal.TryParse(parts[1], NumberStyles.Number, CultureInfo.InvariantCulture, out quantity))
-        {
-            return false;
-        }
-
-        quantity = Math.Abs(quantity);
-        return quantity > 0m;
+        var symbol = entry.Symbol?.Trim().ToUpperInvariant() ?? string.Empty;
+        var category = entry.Category?.Trim().ToUpperInvariant() ?? string.Empty;
+        return $"{symbol}|{category}";
     }
 
-    private static decimal GetSignedQuantity(string trade, decimal quantity)
+    private static bool TryGetSignedQuantity(TradingHistoryEntry entry, out decimal signedQuantity, out decimal quantity)
     {
-        return trade.StartsWith("SELL", StringComparison.OrdinalIgnoreCase)
+        signedQuantity = 0m;
+        quantity = 0m;
+
+        if (string.IsNullOrWhiteSpace(entry.Side))
+        {
+            return false;
+        }
+
+        quantity = Math.Abs(entry.Size);
+        if (quantity <= 0m)
+        {
+            return false;
+        }
+
+        signedQuantity = string.Equals(entry.Side, "SELL", StringComparison.OrdinalIgnoreCase)
             ? -quantity
-            : quantity;
+            : string.Equals(entry.Side, "BUY", StringComparison.OrdinalIgnoreCase)
+                ? quantity
+                : 0m;
+        return signedQuantity != 0m;
     }
 
     private static decimal AllocateFee(decimal totalFee, decimal partialQuantity, decimal totalQuantity)
@@ -151,6 +175,116 @@ public static class TradeCycleSummaryBuilder
         }
 
         return totalFee * (partialQuantity / totalQuantity);
+    }
+
+    private static void NormalizeDeliveryPrice(TradingHistoryEntry entry)
+    {
+        if (!string.Equals(entry.TransactionType, "DELIVERY", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(entry.RawJson))
+        {
+            return;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(entry.RawJson);
+            var primary = doc.RootElement;
+            if (primary.ValueKind == JsonValueKind.Array)
+            {
+                primary = primary.EnumerateArray().FirstOrDefault();
+            }
+
+            if (primary.ValueKind != JsonValueKind.Object)
+            {
+                return;
+            }
+
+            var delivery = ReadDecimal(primary, "deliveryPrice", "tradePrice", "price", "execPrice");
+            var strike = ReadDecimal(primary, "strike");
+            var optType = '\0';
+
+            if (TryGetOptionDetails(entry.Symbol, out var symbolOptType, out var symbolStrike))
+            {
+                optType = symbolOptType;
+                if (strike == 0m)
+                {
+                    strike = symbolStrike;
+                }
+            }
+
+            if (optType == 'C')
+            {
+                entry.Price = Math.Max(delivery - strike, 0m);
+            }
+            else if (optType == 'P')
+            {
+                entry.Price = Math.Max(strike - delivery, 0m);
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    private static decimal ReadDecimal(JsonElement element, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (!element.TryGetProperty(name, out var value))
+            {
+                continue;
+            }
+
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetDecimal(out var number))
+            {
+                return number;
+            }
+
+            if (value.ValueKind == JsonValueKind.String)
+            {
+                var raw = value.GetString();
+                if (decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
+                {
+                    return parsed;
+                }
+            }
+        }
+
+        return 0m;
+    }
+
+    private static bool TryGetOptionDetails(string? symbol, out char optType, out decimal strike)
+    {
+        optType = '\0';
+        strike = 0m;
+
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return false;
+        }
+
+        var parts = symbol.Trim().ToUpperInvariant()
+            .Split('-', StringSplitOptions.RemoveEmptyEntries);
+
+        for (var i = 0; i < parts.Length; i++)
+        {
+            if (parts[i] == "C" || parts[i] == "P")
+            {
+                optType = parts[i][0];
+                if (i > 0)
+                {
+                    decimal.TryParse(parts[i - 1], NumberStyles.Any, CultureInfo.InvariantCulture, out strike);
+                }
+
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private sealed class PositionAccumulator
@@ -211,9 +345,9 @@ public static class TradeCycleSummaryBuilder
             Quantity -= closeQuantity;
         }
 
-        public TradeCycleSummary BuildOpenSummary()
+        public TradeSummary BuildOpenSummary()
         {
-            return new TradeCycleSummary
+            return new TradeSummary
             {
                 EntryStartTimestamp = EntryStartTimestamp,
                 EntryEndTimestamp = EntryEndTimestamp,
@@ -284,7 +418,7 @@ public static class TradeCycleSummaryBuilder
             _openingFee += openingFeeShare;
         }
 
-        public TradeCycleSummary Build()
+        public TradeSummary Build()
         {
             var closePrice = ClosedQuantity > 0m ? _closeNotional / ClosedQuantity : 0m;
             var grossPnl = DirectionSign > 0
@@ -292,7 +426,7 @@ public static class TradeCycleSummaryBuilder
                 : (EntryPrice - closePrice) * ClosedQuantity;
             var totalFee = _openingFee + _closingFee;
 
-            return new TradeCycleSummary
+            return new TradeSummary
             {
                 EntryStartTimestamp = EntryStartTimestamp,
                 EntryEndTimestamp = EntryEndTimestamp,

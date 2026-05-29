@@ -12,7 +12,7 @@ public sealed class TradingSymbolDialogViewModel : Bindable
     private readonly ITradingHistoryPort _tradingHistoryPort;
     private IReadOnlyList<TradingHistoryEntry> _trades = Array.Empty<TradingHistoryEntry>();
     private IReadOnlyList<TradeRow> _tradeRows = Array.Empty<TradeRow>();
-    private IReadOnlyList<TradeCycleSummary> _tradeCycleSummaries = Array.Empty<TradeCycleSummary>();
+    private IReadOnlyList<TradeSummary> _tradeSummaries = Array.Empty<TradeSummary>();
     private string _rawJson = string.Empty;
     private bool _isLoading;
     private string? _errorMessage;
@@ -56,10 +56,10 @@ public sealed class TradingSymbolDialogViewModel : Bindable
         private set => SetField(ref _tradeRows, value);
     }
 
-    public IReadOnlyList<TradeCycleSummary> TradeCycleSummaries
+    public IReadOnlyList<TradeSummary> TradeSummaries
     {
-        get => _tradeCycleSummaries;
-        private set => SetField(ref _tradeCycleSummaries, value);
+        get => _tradeSummaries;
+        private set => SetField(ref _tradeSummaries, value);
     }
 
     public string RawJson
@@ -89,7 +89,7 @@ public sealed class TradingSymbolDialogViewModel : Bindable
         ErrorMessage = null;
         Trades = Array.Empty<TradingHistoryEntry>();
         TradeRows = Array.Empty<TradeRow>();
-        TradeCycleSummaries = Array.Empty<TradeCycleSummary>();
+        TradeSummaries = Array.Empty<TradeSummary>();
         RawJson = string.Empty;
 
         if (string.IsNullOrWhiteSpace(Symbol))
@@ -101,13 +101,13 @@ public sealed class TradingSymbolDialogViewModel : Bindable
         try
         {
             // Load server-calculated trades for this symbol and build the raw JSON view from the payloads we receive.
-            var sinceTimestamp = GetSinceTimestamp(sinceDate);
+            var sinceDateUtc = GetSinceDateUtc(sinceDate);
             var categoryValue = string.IsNullOrWhiteSpace(Category) ? null : Category;
-            var entries = await _tradingHistoryPort.LoadBySymbolAsync(Symbol, categoryValue, sinceTimestamp, _exchangeConnectionId);
+            var entries = await _tradingHistoryPort.LoadBySymbolAsync(Symbol, categoryValue, sinceDateUtc, _exchangeConnectionId);
             var ordered = BuildSymbolView(entries);
             Trades = ordered;
             TradeRows = TradingHistoryTradeRowProjection.BuildTradeRows(ordered);
-            TradeCycleSummaries = TradeCycleSummaryBuilder.BuildTradeCycleSummaries(TradeRows);
+            TradeSummaries = TradeSummaryBuilder.BuildTradeSummaries(ordered);
             RawJson = BuildRawJson(ordered);
         }
         catch (Exception ex)
@@ -159,9 +159,9 @@ public sealed class TradingSymbolDialogViewModel : Bindable
         return builder.ToString();
     }
 
-    public string BuildTradeCycleSummaryMarkdownTable()
+    public string BuildTradeSummaryMarkdownTable()
     {
-        if (TradeCycleSummaries.Count == 0)
+        if (TradeSummaries.Count == 0)
         {
             return string.Empty;
         }
@@ -170,7 +170,7 @@ public sealed class TradingSymbolDialogViewModel : Bindable
         builder.AppendLine("| Direction | Entry Time Range | Close Time Range | Entry Price | Size | Close Price | Fee | PnL |");
         builder.AppendLine("|---|---|---|---:|---:|---:|---:|---:|");
 
-        foreach (var summary in TradeCycleSummaries)
+        foreach (var summary in TradeSummaries)
         {
             builder.Append("| ")
                 .Append(EscapeMarkdown(summary.Direction)).Append(" | ")
@@ -186,15 +186,14 @@ public sealed class TradingSymbolDialogViewModel : Bindable
         return builder.ToString();
     }
 
-    private static long? GetSinceTimestamp(DateTime? sinceDate)
+    private static DateTime? GetSinceDateUtc(DateTime? sinceDate)
     {
         if (!sinceDate.HasValue)
         {
             return null;
         }
 
-        var local = DateTime.SpecifyKind(sinceDate.Value, DateTimeKind.Local);
-        return new DateTimeOffset(local).ToUnixTimeMilliseconds();
+        return DateTime.SpecifyKind(sinceDate.Value, DateTimeKind.Local).ToUniversalTime();
     }
 
     private static string BuildRawJson(IReadOnlyList<TradingHistoryEntry> entries)

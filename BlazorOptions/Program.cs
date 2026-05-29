@@ -80,6 +80,7 @@ builder.Services.AddScoped<INotifyUserService, NotifyUserService>();
 builder.Services.AddScoped<LegsCollectionViewModelFactory>();
 builder.Services.AddTransient<LegViewModelFactory>();
 builder.Services.AddScoped<ClosedPositionsViewModelFactory>();
+builder.Services.AddScoped<TradesViewModelFactory>();
 builder.Services.AddTransient<ActivePositionsPanelViewModel>();
 builder.Services.AddScoped<TradingHistoryViewModel>();
 builder.Services.AddScoped<VolumeHeatmapViewModel>();

@@ -17,6 +17,7 @@ public sealed class PositionViewModel : IDisposable
     private readonly IPositionsPort _positionsPort;
     private readonly LegsCollectionViewModelFactory _collectionFactory;
     private readonly ClosedPositionsViewModelFactory _closedPositionsFactory;
+    private readonly TradesViewModelFactory _tradesViewModelFactory;
     private readonly INotifyUserService _notifyUserService;
     private readonly IExchangeServiceFactory _exchangeServiceFactory;
     private readonly BlackScholes _blackScholes;
@@ -72,6 +73,7 @@ public sealed class PositionViewModel : IDisposable
         IPositionsPort positionsPort,
         LegsCollectionViewModelFactory collectionFactory,
         ClosedPositionsViewModelFactory closedPositionsFactory,
+        TradesViewModelFactory tradesViewModelFactory,
         INotifyUserService notifyUserService,
         IExchangeServiceFactory exchangeServiceFactory,
         BlackScholes blackScholes,
@@ -81,6 +83,7 @@ public sealed class PositionViewModel : IDisposable
         _positionsPort = positionsPort;
         _collectionFactory = collectionFactory;
         _closedPositionsFactory = closedPositionsFactory;
+        _tradesViewModelFactory = tradesViewModelFactory;
         _notifyUserService = notifyUserService;
         _exchangeServiceFactory = exchangeServiceFactory;
         _blackScholes = blackScholes;
@@ -106,7 +109,8 @@ public sealed class PositionViewModel : IDisposable
             }
             LegsCollection = CreateCollectionViewModel(CreateWorkingCollection(_position));
 
-            ClosedPositions = _closedPositionsFactory.Create(this, _position, _exchangeService);
+            ClosedPositions = _closedPositionsFactory.Create(this, _position);
+            Trades = _tradesViewModelFactory.Create(ClosedPositions);
 
             ClosedPositions.Model.PropertyChanged += OnClosedPositionsChanged;
             ClosedPositions.UpdatedCompleted += OnClosedPositionsUpdated;
@@ -117,6 +121,10 @@ public sealed class PositionViewModel : IDisposable
 
     private async Task OnClosedPositionsUpdated()
     {
+        if (Trades is not null)
+        {
+            await Trades.ReloadAsync();
+        }
         await QueuePersistPositionsAsync(Position);
         QueueChartUpdate();
     }
@@ -126,7 +134,6 @@ public sealed class PositionViewModel : IDisposable
     {
         switch (e.PropertyName)
         {
-            case nameof(ClosedModel.TotalNet):
             case nameof(ClosedModel.Include):
                 QueueChartUpdate();
                 break;
@@ -136,6 +143,7 @@ public sealed class PositionViewModel : IDisposable
     public LegsCollectionViewModel LegsCollection { get; private set; } = null!;
 
     public ClosedPositionsViewModel ClosedPositions { get; private set; } = null!;
+    public TradesViewModel Trades { get; private set; } = null!;
 
     public decimal? SelectedPrice => _selectedPrice;
 
@@ -317,6 +325,7 @@ public sealed class PositionViewModel : IDisposable
         try
         {
             await ClosedPositions.InitializeAsync();
+            await Trades.InitializeAsync();
         }
         catch
         {
@@ -1157,7 +1166,7 @@ public sealed class PositionViewModel : IDisposable
 
         var allLegs = collection.Legs.ToList();
         var rangeLegs = collection.Legs.ToList();
-        var closedPositionsTotal = Position.Closed.Include ? Position.Closed.TotalNet : 0m;
+        var closedPositionsTotal = Position.Closed.Include && Trades is not null ? Trades.TotalNet : 0m;
 
         if (rangeLegs.Count == 0)
         {

@@ -1,7 +1,11 @@
 namespace BlazorOptions.ViewModels;
 
-public sealed record TradeCycleSummary
+public sealed record TradeSummary
 {
+    public string Symbol { get; init; } = string.Empty;
+
+    public string Category { get; init; } = string.Empty;
+
     public long EntryStartTimestamp { get; init; }
 
     public long EntryEndTimestamp { get; init; }

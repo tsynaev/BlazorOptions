@@ -24,7 +24,10 @@ Route: `/position/{positionId}`
 - `LegViewModel`
 - Owns leg-level state (mark/bid/ask/IV/Greeks/PnL/status/linked orders).
 - `ClosedPositionsViewModel`
-- Owns closed symbols list, totals, recalculation state, and include-in-chart behavior.
+- Owns only the closed-symbol selection state for the current position: symbol list, optional per-symbol `SinceDate`, and the `Include` flag.
+- `TradesViewModel`
+- Builds trade summary rows for the position from trading-history entries using the symbol/date selection stored in `ClosedPositionsViewModel`.
+- Loads tracked-symbol history in one batched `LoadBySymbolsAsync(...)` request and then builds per-symbol summaries from the combined entry set.
 
 ## Data Sources
 
@@ -48,6 +51,7 @@ Route: `/position/{positionId}`
 - `ActivePositionsPanelViewModel` consumes an existing `IExchangeService`. The owner screen or dialog creates the service for the selected connection and owns its lifetime.
 - Position creation owns the selected exchange service in `PositionCreateViewModel`. The `/positions/new` page owns the base/quote asset inputs and binds the active-positions panel as a child list/selection surface through `PositionCreateViewModel.ActivePositions`.
 - When position creation imports selected exchange positions, `PositionCreateViewModel` also seeds `PositionModel.Closed.Positions` with the same distinct symbols so the saved model matches the in-page exchange-leg add behavior.
+- Seeded closed-position rows keep `ClosedPositionModel.SinceDate` null. `ClosedPositionsViewModel` resolves the effective start date through `PositionModel.CreationTimeUtc` only for selection/navigation purposes and does not calculate trades or P/L.
 - `BybitSettings` is the shared base settings type. Main and demo defaults live in `MainBybitSettings` and `DemoBybitSettings`; exchange connections convert to the appropriate derived settings type before runtime creation.
 - Exchange-service instances are single-connection objects. They must not retarget themselves at runtime; demo/main concurrency is handled by creating separate runtimes.
 - In non-live mode, the position page should bootstrap one static exchange snapshot for positions/orders and one market snapshot for legs, then stop. Continuous private-stream subscriptions are enabled only after live mode is turned on.

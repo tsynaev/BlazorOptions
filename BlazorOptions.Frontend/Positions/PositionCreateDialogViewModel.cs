@@ -579,7 +579,8 @@ public sealed class PositionCreateViewModel : Bindable, IDisposable
             .OrderBy(value => value)
             .FirstOrDefault();
 
-        return minCreated != default ? minCreated : DateTime.UtcNow;
+        // If the exchange snapshot does not expose open time, do not default to "now" because that hides all prior trades.
+        return minCreated != default ? minCreated : null;
     }
 
     private sealed class PositionCreateDefaults

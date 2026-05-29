@@ -89,13 +89,12 @@ public sealed class PositionChartSettingsPanelViewModel : Bindable
 
     private decimal? ResolveClosedNetPnl()
     {
-        var closed = _positionViewModel.Position.Closed;
-        if (closed is null || !closed.Include)
+        if (_positionViewModel.Position.Closed is null || !_positionViewModel.Position.Closed.Include)
         {
             return null;
         }
 
-        return closed.TotalNet;
+        return _positionViewModel.Trades?.TotalNet;
     }
 
     private decimal? ResolveTotalCombinedPnl()

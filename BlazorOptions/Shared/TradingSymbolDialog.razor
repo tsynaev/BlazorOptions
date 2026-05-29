@@ -68,14 +68,14 @@
                         </MudDataGrid>
                     </MudTabPanel>
                     <MudTabPanel Text="Summary">
-                        @if (ViewModel.TradeCycleSummaries.Count == 0)
+                        @if (ViewModel.TradeSummaries.Count == 0)
                         {
                             <MudText Typo="Typo.body2">No fully closed trade cycles found.</MudText>
                         }
                         else
                         {
-                            <MudTable T="TradeCycleSummary"
-                                      Items="ViewModel.TradeCycleSummaries"
+                            <MudTable T="TradeSummary"
+                                      Items="ViewModel.TradeSummaries"
                                       Dense="true"
                                       Hover="true"
                                       FixedHeader="true"
@@ -256,7 +256,7 @@
     private async Task CopyTableAsMarkdownAsync()
     {
         var markdown = _activeTabIndex == 1
-            ? ViewModel.BuildTradeCycleSummaryMarkdownTable()
+            ? ViewModel.BuildTradeSummaryMarkdownTable()
             : ViewModel.BuildTradesMarkdownTable();
         if (string.IsNullOrWhiteSpace(markdown))
         {

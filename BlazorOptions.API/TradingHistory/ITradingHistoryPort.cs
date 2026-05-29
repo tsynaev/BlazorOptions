@@ -4,7 +4,8 @@ public interface ITradingHistoryPort
 {
     Task SaveTradesAsync(IReadOnlyList<TradingHistoryEntry> entries, string? exchangeConnectionId = null);
     Task<TradingHistoryResult> LoadEntriesAsync(string? baseAsset, int startIndex, int limit, string? exchangeConnectionId = null);
-    Task<IReadOnlyList<TradingHistoryEntry>> LoadBySymbolAsync(string symbol, string? category, long? sinceTimestamp, string? exchangeConnectionId = null);
+    Task<IReadOnlyList<TradingHistoryEntry>> LoadBySymbolAsync(string symbol, string? category, DateTime? sinceDateUtc, string? exchangeConnectionId = null);
+    Task<IReadOnlyList<TradingHistoryEntry>> LoadBySymbolsAsync(TradingHistoryRequest[] requests, string? exchangeConnectionId = null);
     Task<IReadOnlyList<TradingSummaryBySymbolRow>> LoadSummaryBySymbolAsync(string? exchangeConnectionId = null);
     Task<IReadOnlyList<TradingPnlByCoinRow>> LoadPnlBySettleCoinAsync(string? exchangeConnectionId = null);
     Task<IReadOnlyList<TradingDailyPnlRow>> LoadDailyPnlAsync(long fromTimestamp, long toTimestamp, string? exchangeConnectionId = null);

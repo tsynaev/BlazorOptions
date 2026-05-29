@@ -55,16 +55,16 @@ public sealed class TradingHistoryPort : ITradingHistoryPort
 
 
 
-    public async Task<IReadOnlyList<TradingHistoryEntry>> LoadBySymbolAsync(string symbol, string? category, long? sinceTimestamp, string? exchangeConnectionId = null)
+    public async Task<IReadOnlyList<TradingHistoryEntry>> LoadBySymbolAsync(string symbol, string? category, DateTime? sinceDateUtc, string? exchangeConnectionId = null)
     {
         var query = new List<string> { $"symbol={Uri.EscapeDataString(symbol)}" };
         if (!string.IsNullOrWhiteSpace(category))
         {
             query.Add($"category={Uri.EscapeDataString(category)}");
         }
-        if (sinceTimestamp.HasValue)
+        if (sinceDateUtc.HasValue)
         {
-            query.Add($"sinceTimestamp={sinceTimestamp.Value}");
+            query.Add($"sinceDateUtc={Uri.EscapeDataString(FormatUtcQueryValue(sinceDateUtc.Value))}");
         }
         if (!string.IsNullOrWhiteSpace(exchangeConnectionId))
         {
@@ -73,6 +73,26 @@ public sealed class TradingHistoryPort : ITradingHistoryPort
 
         var response = await SendAsync(HttpMethod.Get, $"api/trading-history/by-symbol?{string.Join("&", query)}");
         return await ReadListAsync(response);
+    }
+
+    public async Task<IReadOnlyList<TradingHistoryEntry>> LoadBySymbolsAsync(TradingHistoryRequest[] requests, string? exchangeConnectionId = null)
+    {
+        var payload = requests ?? Array.Empty<TradingHistoryRequest>();
+        var response = await SendAsync(
+            HttpMethod.Post,
+            AppendExchangeConnectionId("api/trading-history/by-symbols", exchangeConnectionId),
+            payload);
+        return await ReadListAsync(response);
+    }
+
+    private static string FormatUtcQueryValue(DateTime value)
+    {
+        var utc = value.Kind == DateTimeKind.Utc
+            ? value
+            : value.Kind == DateTimeKind.Local
+                ? value.ToUniversalTime()
+                : DateTime.SpecifyKind(value, DateTimeKind.Utc);
+        return utc.ToString("O");
     }
 
     public async Task<IReadOnlyList<TradingSummaryBySymbolRow>> LoadSummaryBySymbolAsync(string? exchangeConnectionId = null)

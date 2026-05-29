@@ -1,9 +1,15 @@
 @using BlazorOptions.ViewModels
 @using MudBlazor
+@using System.Globalization
 
 @code {
     [Parameter, EditorRequired] public ClosedPositionViewModel ViewModel { get; set; } = default!;
+    [Parameter, EditorRequired] public ClosedPositionsViewModel OwnerViewModel { get; set; } = default!;
     [Parameter] public Func<string, DateTime?, Task>? OnOpenSymbolDialog { get; set; }
+    private bool _isEditing;
+    private string _editedSymbol = string.Empty;
+    private DateTime? _editedSinceDate;
+    private TimeSpan? _editedSinceTime;
 
     protected override void OnInitialized()
     {
@@ -17,47 +23,113 @@
             return;
         }
 
-        await OnOpenSymbolDialog(ViewModel.Model.Symbol, ViewModel.Model.SinceDate);
+        await OnOpenSymbolDialog(ViewModel.Model.Symbol, OwnerViewModel.ResolveEffectiveSinceDateLocal(ViewModel.Model.SinceDate));
+    }
+
+    private void ToggleEdit()
+    {
+        _editedSymbol = ViewModel.Model.Symbol;
+        _editedSinceDate = ViewModel.Model.SinceDate;
+        _editedSinceTime = ViewModel.Model.SinceDate?.TimeOfDay;
+        _isEditing = !_isEditing;
+    }
+
+    private Task SetSinceDateAsync(DateTime? value)
+    {
+        _editedSinceDate = value?.Date;
+        return Task.CompletedTask;
+    }
+
+    private Task SetSinceTimeAsync(TimeSpan? value)
+    {
+        _editedSinceTime = value;
+        return Task.CompletedTask;
+    }
+
+    private async Task ConfirmEdit()
+    {
+        var updated = await OwnerViewModel.UpdateSymbolAsync(ViewModel, _editedSymbol);
+        if (!updated)
+        {
+            return;
+        }
+
+        await ViewModel.SetSinceDateTimeAsync(_editedSinceDate, _editedSinceTime);
+        _isEditing = false;
+    }
+
+    private Task HandleEditClick()
+    {
+        if (_isEditing)
+        {
+            return ConfirmEdit();
+        }
+
+        ToggleEdit();
+        return Task.CompletedTask;
+    }
+
+    private string FormatSince()
+    {
+        var effectiveSince = OwnerViewModel.ResolveEffectiveSinceDateLocal(ViewModel.Model.SinceDate);
+        if (!effectiveSince.HasValue)
+        {
+            return "Since position creation";
+        }
+
+        return effectiveSince.Value.ToString("dd MMM HH:mm", CultureInfo.InvariantCulture);
     }
 }
 
-<MudTd DataLabel="Since">
-    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
-        <MudDatePicker Date="@ViewModel.Model.SinceDate"
-                       DateChanged="async value => await ViewModel.SetSinceDateAsync(value)"
-                       DateFormat="yyyy-MM-dd"
-                       Clearable="true"
-                       Variant="Variant.Outlined"
-                       Margin="Margin.Dense"
-                       Class="closed-positions-since-date" />
-        <MudTimePicker Time="@ViewModel.Model.SinceDate?.TimeOfDay"
-                       TimeChanged="async value => await ViewModel.SetSinceTimeAsync(value)"
-                       Clearable="true"
-                       Variant="Variant.Outlined"
-                       Margin="Margin.Dense"
-                       Class="closed-positions-since-time" />
-    </MudStack>
-</MudTd>
 <MudTd DataLabel="Symbol">
     <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
-        @if (ViewModel.IsCalculating)
-        {
-            <MudProgressCircular Indeterminate="true" Size="Size.Small" Color="Color.Primary" />
-        }
-        else
-        {
-            <MudIconButton Icon="@Icons.Material.Filled.Autorenew"
-                           Size="Size.Small"
-                           Color="Color.Default"
-                           OnClick="async () => await ViewModel.RecalculateAsync(true)" />
-        }
-        <MudLink OnClick="OpenSymbolAsync">
-            @ViewModel.Model.Symbol
-        </MudLink>
+        <MudStack Spacing="0">
+            @if (_isEditing)
+            {
+                <MudTextField T="string"
+                              Value="@_editedSymbol"
+                              ValueChanged="value => _editedSymbol = value ?? string.Empty"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              Immediate="true"
+                              Class="closed-positions-symbol-edit" />
+            }
+            else
+            {
+                <MudLink OnClick="OpenSymbolAsync">
+                    @ViewModel.Model.Symbol
+                </MudLink>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    @($"since {FormatSince()}")
+                </MudText>
+            }
+        </MudStack>
     </MudStack>
 </MudTd>
 <MudTd DataLabel="Actions" Style="text-align:right;">
-    <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                   Color="Color.Error"
-                   OnClick="async () => await ViewModel.RemoveClosedPositionAsync()" />
+    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd">
+        @if (_isEditing)
+        {
+            <MudDatePicker Date="@ViewModel.Model.SinceDate"
+                           DateChanged="SetSinceDateAsync"
+                           DateFormat="yyyy-MM-dd"
+                           Clearable="true"
+                           Variant="Variant.Outlined"
+                           Margin="Margin.Dense"
+                           Class="closed-positions-since-date" />
+            <MudTimePicker Time="@ViewModel.Model.SinceDate?.TimeOfDay"
+                           TimeChanged="SetSinceTimeAsync"
+                           Clearable="true"
+                           Variant="Variant.Outlined"
+                           Margin="Margin.Dense"
+                           Class="closed-positions-since-time" />
+        }
+
+        <MudIconButton Icon="@(_isEditing ? Icons.Material.Filled.Check : Icons.Material.Filled.Edit)"
+                       Color="Color.Default"
+                       OnClick="HandleEditClick" />
+        <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                       Color="Color.Error"
+                       OnClick="async () => await ViewModel.RemoveClosedPositionAsync()" />
+    </MudStack>
 </MudTd>

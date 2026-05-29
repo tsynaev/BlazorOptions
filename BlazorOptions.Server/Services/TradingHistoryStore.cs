@@ -298,9 +298,91 @@ public sealed class TradingHistoryStore
     //    return await LoadRangeAsync(userId, null, null, null, beforeTimestamp, beforeId, "DESC", limit);
     //}
 
-    public async Task<IReadOnlyList<TradingHistoryEntry>> LoadBySymbolAsync(string userId, string symbol, string? category, long? sinceTimestamp, string? exchangeConnectionId = null)
+    public async Task<IReadOnlyList<TradingHistoryEntry>> LoadBySymbolAsync(string userId, string symbol, string? category, DateTime? sinceDateUtc, string? exchangeConnectionId = null)
     {
-        return await LoadRangeAsync(userId, symbol, category, sinceTimestamp, null, null, "DESC", null, exchangeConnectionId);
+        return await LoadRangeAsync(userId, symbol, category, sinceDateUtc, null, null, "DESC", null, exchangeConnectionId);
+    }
+
+    public async Task<IReadOnlyList<TradingHistoryEntry>> LoadBySymbolsAsync(
+        string userId,
+        IReadOnlyList<TradingHistoryRequest> requests,
+        string? exchangeConnectionId = null)
+    {
+        var normalizedRequests = NormalizeRequests(requests);
+        if (normalizedRequests.Count == 0)
+        {
+            return Array.Empty<TradingHistoryEntry>();
+        }
+
+        await AcquireReadAsync();
+        try
+        {
+            await using var connection = await OpenConnectionAsync(userId, exchangeConnectionId);
+            var command = connection.CreateCommand();
+            var clauses = new List<string>(normalizedRequests.Count);
+
+            for (var i = 0; i < normalizedRequests.Count; i++)
+            {
+                var request = normalizedRequests[i];
+                var filters = new List<string> { $"Symbol = $symbol{i}" };
+                command.Parameters.AddWithValue($"$symbol{i}", request.Symbol);
+
+                if (!string.IsNullOrWhiteSpace(request.Category))
+                {
+                    filters.Add($"Category = $category{i}");
+                    command.Parameters.AddWithValue($"$category{i}", request.Category);
+                }
+
+                if (request.SinceDateUtc.HasValue)
+                {
+                    filters.Add($"Timestamp >= $sinceTimestamp{i}");
+                    command.Parameters.AddWithValue($"$sinceTimestamp{i}", ToUnixTimeMillisecondsUtc(request.SinceDateUtc.Value));
+                }
+
+                clauses.Add($"({string.Join(" AND ", filters)})");
+            }
+
+            command.CommandText = $"""
+                SELECT
+                    Id,
+                    Timestamp,
+                    Symbol,
+                    Category,
+                    TransactionType,
+                    Side,
+                    Size,
+                    Price,
+                    Fee,
+                    Currency,
+                    Change,
+                    CashFlow,
+                    OrderId,
+                    OrderLinkId,
+                    TradeId,
+                    RawJson,
+                    ChangedAt,
+                    CalculatedSizeAfter,
+                    CalculatedAvgPriceAfter,
+                    CalculatedRealizedPnl,
+                    CalculatedCumulativePnl
+                FROM TradingHistoryEntries
+                WHERE {string.Join(" OR ", clauses)}
+                ORDER BY Timestamp ASC, Id ASC
+                """;
+
+            var entries = new List<TradingHistoryEntry>();
+            await using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                entries.Add(ReadEntry(reader));
+            }
+
+            return TradingHistoryEntryOrdering.OrderAscending(entries).ToList();
+        }
+        finally
+        {
+            ReleaseRead();
+        }
     }
 
     public async Task<IReadOnlyList<TradingSummaryBySymbolRow>> LoadSummaryBySymbolAsync(string userId, string? exchangeConnectionId = null)
@@ -688,7 +770,7 @@ public sealed class TradingHistoryStore
         string userId,
         string? symbol,
         string? category,
-        long? sinceTimestamp,
+        DateTime? sinceDateUtc,
         long? beforeTimestamp,
         string? beforeId,
         string direction,
@@ -714,10 +796,10 @@ public sealed class TradingHistoryStore
                 command.Parameters.AddWithValue("$category", category);
             }
 
-            if (sinceTimestamp.HasValue)
+            if (sinceDateUtc.HasValue)
             {
                 filters.Add("Timestamp >= $sinceTimestamp");
-                command.Parameters.AddWithValue("$sinceTimestamp", sinceTimestamp.Value);
+                command.Parameters.AddWithValue("$sinceTimestamp", ToUnixTimeMillisecondsUtc(sinceDateUtc.Value));
             }
 
             if (beforeTimestamp.HasValue)
@@ -786,6 +868,75 @@ public sealed class TradingHistoryStore
         {
             ReleaseRead();
         }
+    }
+
+    private static long ToUnixTimeMillisecondsUtc(DateTime value)
+    {
+        var utc = value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+        };
+
+        return new DateTimeOffset(utc).ToUnixTimeMilliseconds();
+    }
+
+    private static IReadOnlyList<TradingHistoryRequest> NormalizeRequests(IReadOnlyList<TradingHistoryRequest> requests)
+    {
+        if (requests.Count == 0)
+        {
+            return Array.Empty<TradingHistoryRequest>();
+        }
+
+        var normalized = new Dictionary<string, TradingHistoryRequest>(StringComparer.OrdinalIgnoreCase);
+        foreach (var request in requests)
+        {
+            if (request is null || string.IsNullOrWhiteSpace(request.Symbol))
+            {
+                continue;
+            }
+
+            var symbol = request.Symbol.Trim().ToUpperInvariant();
+            var category = string.IsNullOrWhiteSpace(request.Category) ? null : request.Category.Trim();
+            DateTime? sinceDateUtc = null;
+            if (request.SinceDateUtc.HasValue)
+            {
+                var sinceDate = request.SinceDateUtc.Value;
+                sinceDateUtc = sinceDate.Kind switch
+                {
+                    DateTimeKind.Utc => sinceDate,
+                    DateTimeKind.Local => sinceDate.ToUniversalTime(),
+                    _ => DateTime.SpecifyKind(sinceDate, DateTimeKind.Utc)
+                };
+            }
+
+            var key = $"{symbol}|{category ?? string.Empty}";
+            if (!normalized.TryGetValue(key, out var existing))
+            {
+                normalized[key] = new TradingHistoryRequest
+                {
+                    Symbol = symbol,
+                    Category = category,
+                    SinceDateUtc = sinceDateUtc
+                };
+                continue;
+            }
+
+            existing.SinceDateUtc = ResolveBroaderSinceDate(existing.SinceDateUtc, sinceDateUtc);
+        }
+
+        return normalized.Values.ToList();
+    }
+
+    private static DateTime? ResolveBroaderSinceDate(DateTime? left, DateTime? right)
+    {
+        if (!left.HasValue || !right.HasValue)
+        {
+            return null;
+        }
+
+        return left.Value <= right.Value ? left : right;
     }
 
     private static async Task<List<TradingHistoryEntry>> LoadAllAscInternalAsync(
