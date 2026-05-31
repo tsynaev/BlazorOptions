@@ -28,8 +28,6 @@ public sealed class ClosedPositionsViewModel : Bindable
         set => _baseAsset = value;
     }
 
-    public string ExchangeConnectionId => _positionViewModel.Position?.ExchangeConnectionId ?? string.Empty;
-
     public event Func<Task>? UpdatedCompleted;
 
     public string AddSymbolInput { get; set; } = string.Empty;

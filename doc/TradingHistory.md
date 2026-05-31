@@ -28,6 +28,7 @@ The `Tracked Symbols` section is used only to manage which symbols belong to the
 
 The Trading History feature pulls and analyzes exchange transaction logs through the selected exchange service, with paging for fast initial load.
 Each exchange connection has its own stored history, sync cursor, and summaries.
+After sign-in, the browser also keeps every saved exchange connection subscribed to execution updates in the background and pushes newly fetched trades to the server automatically.
 
 ## Core capabilities
 - Load latest transactions from the exchange adapter by category (linear, inverse, spot, option).
@@ -43,6 +44,7 @@ Each exchange connection has its own stored history, sync cursor, and summaries.
 - As you scroll, the next 100 records are loaded incrementally.
 - Calculated fields are stored so reloading is fast.
 - The client streams transaction pages to the server as they are fetched through the exchange adapter, and the server computes calculated fields and deduplicates entries. The client does not calculate PnL.
+- When a new execution arrives over websocket, the browser fetches the newest transaction-log pages for that exchange connection and sends only new server inserts forward to open position screens.
 - Daily summaries are generated and stored on the server during recalculation. The UI requests daily PnL by date range from the server, along with symbol/coin summaries.
 - The trade detail dialog shows symbol trades in ascending timestamp order so position changes can be read from open to close.
 
@@ -53,9 +55,9 @@ Each exchange connection has its own stored history, sync cursor, and summaries.
 ## Persistence and sync
 - Trading history is available only for authenticated users.
 - The app uses the server Web API with SQLite storage for trading history.
-- When authenticated, new trades are published as events to the server.
-- The server deduplicates trades by unique key to avoid duplicates from multiple devices.
-- Updates from other devices are delivered in real time via SignalR.
+- The browser uploads new exchange trades to the server store in the background.
+- The server ignores duplicate executions, even if the same batch is sent from two or more open browsers at the same time.
+- Position `Trades` panels refresh only for tracked symbols that actually received a new stored execution.
 
 ## Typical workflow
 1) Set your registration date (first-time load).

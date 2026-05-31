@@ -28,8 +28,8 @@ public sealed class TradingHistoryController : ControllerBase, ITradingHistoryPo
             return Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unauthorized");
         }
 
-        await _store.SaveTradesAsync(userId, entries, exchangeConnectionId);
-        return Ok(new { count = entries.Length });
+        var result = await _store.SaveTradesAsync(userId, entries, exchangeConnectionId);
+        return Ok(result);
     }
 
     [HttpGet("entries")]
@@ -217,10 +217,10 @@ public sealed class TradingHistoryController : ControllerBase, ITradingHistoryPo
         return Ok();
     }
 
-    async Task ITradingHistoryPort.SaveTradesAsync(IReadOnlyList<TradingHistoryEntry> entries, string? exchangeConnectionId)
+    async Task<TradingHistorySaveResult> ITradingHistoryPort.SaveTradesAsync(IReadOnlyList<TradingHistoryEntry> entries, string? exchangeConnectionId)
     {
         var userId = ResolveUserIdOrThrow();
-        await _store.SaveTradesAsync(userId, entries, exchangeConnectionId);
+        return await _store.SaveTradesAsync(userId, entries, exchangeConnectionId);
     }
 
     async Task<TradingHistoryResult> ITradingHistoryPort.LoadEntriesAsync(string? baseAsset, int startIndex, int limit, string? exchangeConnectionId)

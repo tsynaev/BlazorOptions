@@ -32,9 +32,10 @@ public sealed class TradingHistoryPort : ITradingHistoryPort
     }
 
 
-    public async Task SaveTradesAsync(IReadOnlyList<TradingHistoryEntry> entries, string? exchangeConnectionId = null)
+    public async Task<TradingHistorySaveResult> SaveTradesAsync(IReadOnlyList<TradingHistoryEntry> entries, string? exchangeConnectionId = null)
     {
-        await SendAsync(HttpMethod.Post, AppendExchangeConnectionId("api/trading-history/trades/bulk", exchangeConnectionId), entries);
+        var response = await SendAsync(HttpMethod.Post, AppendExchangeConnectionId("api/trading-history/trades/bulk", exchangeConnectionId), entries);
+        return await response.Content.ReadFromJsonAsync<TradingHistorySaveResult>(JsonOptions) ?? new TradingHistorySaveResult();
     }
 
     public async Task<TradingHistoryResult> LoadEntriesAsync(string? baseAsset, int startIndex, int limit, string? exchangeConnectionId = null)

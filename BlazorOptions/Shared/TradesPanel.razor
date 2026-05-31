@@ -129,6 +129,7 @@
 @code {
     [Parameter, EditorRequired] public ClosedPositionsViewModel ClosedPositionsViewModel { get; set; } = default!;
     [Parameter, EditorRequired] public TradesViewModel TradesViewModel { get; set; } = default!;
+    [Parameter, EditorRequired] public string ExchangeConnectionId { get; set; } = string.Empty;
 
     [Inject] private INavigationService NavigationService { get; set; } = default!;
 
@@ -173,7 +174,7 @@
                 symbol,
                 string.Empty,
                 ClosedPositionsViewModel.ResolveEffectiveSinceDateLocal(sinceDate),
-                ClosedPositionsViewModel.ExchangeConnectionId));
+                ExchangeConnectionId));
     }
 
     private async Task OpenTradesDialogAsync()
@@ -185,7 +186,7 @@
 
         var baseAsset = ClosedPositionsViewModel.BaseAsset;
         var dialogViewModel = await NavigationService.NavigateToAsync<TradingHistorySelectionDialogViewModel>(
-            viewModel => viewModel.InitializeAsync(existingSymbols, baseAsset, ClosedPositionsViewModel.ExchangeConnectionId));
+            viewModel => viewModel.InitializeAsync(existingSymbols, baseAsset, ExchangeConnectionId));
 
         var selectedSymbols = await dialogViewModel.WaitForSelectionAsync();
         if (selectedSymbols is null || selectedSymbols.Count == 0)

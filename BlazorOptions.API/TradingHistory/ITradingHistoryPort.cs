@@ -2,7 +2,7 @@ namespace BlazorOptions.API.TradingHistory;
 
 public interface ITradingHistoryPort
 {
-    Task SaveTradesAsync(IReadOnlyList<TradingHistoryEntry> entries, string? exchangeConnectionId = null);
+    Task<TradingHistorySaveResult> SaveTradesAsync(IReadOnlyList<TradingHistoryEntry> entries, string? exchangeConnectionId = null);
     Task<TradingHistoryResult> LoadEntriesAsync(string? baseAsset, int startIndex, int limit, string? exchangeConnectionId = null);
     Task<IReadOnlyList<TradingHistoryEntry>> LoadBySymbolAsync(string symbol, string? category, DateTime? sinceDateUtc, string? exchangeConnectionId = null);
     Task<IReadOnlyList<TradingHistoryEntry>> LoadBySymbolsAsync(TradingHistoryRequest[] requests, string? exchangeConnectionId = null);

@@ -1,3 +1,4 @@
+using BlazorOptions.API.TradingHistory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using BlazorOptions.ViewModels;
@@ -12,7 +13,9 @@ public sealed class BybitExchangeService : IExchangeService
     public BybitExchangeService(
         HttpClient httpClient,
         IOptions<BybitSettings> bybitSettingsOptions,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        ITradingHistoryPort tradingHistoryPort,
+        string exchangeConnectionId)
     {
         var privateStreamLogger = loggerFactory.CreateLogger<BybitPrivateStreamService>();
         var activeWalletLogger = loggerFactory.CreateLogger<ActiveWalletService>();
@@ -24,7 +27,12 @@ public sealed class BybitExchangeService : IExchangeService
         var activePositionsService = new ActivePositionsService(bybitPositionService, bybitPrivateStreamService, bybitSettingsOptions);
         var activeWalletService = new ActiveWalletService(bybitWalletService, bybitPrivateStreamService, bybitSettingsOptions, activeWalletLogger);
         var bybitTickerService = new BybitTickerService(bybitSettingsOptions, httpClient);
-        var transactionHistoryService = new BybitTransactionService(httpClient, bybitSettingsOptions);
+        var transactionHistoryService = new BybitTransactionService(
+            httpClient,
+            bybitSettingsOptions,
+            bybitPrivateStreamService,
+            tradingHistoryPort,
+            exchangeConnectionId);
         var optionMarketDataService = new BybitOptionMarketDataService(httpClient, bybitSettingsOptions);
         var optionsChainService = new OptionsChainService(optionMarketDataService);
         var futuresInstrumentsService = new FuturesInstrumentsService(httpClient, bybitSettingsOptions);

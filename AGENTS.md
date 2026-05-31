@@ -70,6 +70,21 @@
 - Keep comments short, consistent in style, and avoid redundancy.
 - Use SOLID principles in code.
 
+## DDD Rule
+
+Prefer Domain-Driven Design patterns when changing domain logic.
+
+### Rules
+
+- Put domain behavior on the domain object that owns the invariant.
+- Prefer explicit domain methods over procedural mutation from the caller.
+- Keep aggregates consistent inside the owning module or class.
+- Model domain terms directly in code when they affect behavior.
+- Use services only for logic that does not belong to a single entity or value object.
+- Do not spread one domain workflow across UI, tests, mappers, and infrastructure.
+- Do not keep duplicate sources of truth for the same domain concept.
+
+
 
 ## Task completion
 - Run `dotnet build --no-restore` before completing the task.

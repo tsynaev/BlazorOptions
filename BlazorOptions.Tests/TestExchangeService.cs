@@ -1,4 +1,5 @@
 using BlazorOptions.Services;
+using BlazorOptions.API.TradingHistory;
 using BlazorOptions.ViewModels;
 using BlazorChart.Models;
 
@@ -84,11 +85,36 @@ internal sealed class TestExchangeService : IExchangeService
 
     private sealed class TestTransactionHistoryService : ITransactionHistoryService
     {
+        public Task InitializeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
         public Task<ExchangeTransactionPage> GetTransactionsPageAsync(
             ExchangeTransactionQuery query,
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult(new ExchangeTransactionPage(Array.Empty<TradingTransactionRaw>(), null));
+        }
+
+        public Task<IReadOnlyList<TradingHistoryEntry>> LoadBySymbolAsync(
+            string symbol,
+            string? category,
+            DateTime? sinceDateUtc,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<TradingHistoryEntry>>(Array.Empty<TradingHistoryEntry>());
+        }
+
+        public Task<IReadOnlyList<TradingHistoryEntry>> LoadBySymbolsAsync(
+            TradingHistoryRequest[] requests,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<TradingHistoryEntry>>(Array.Empty<TradingHistoryEntry>());
+        }
+
+        public ValueTask<IDisposable> SubscribeExecutionsAsync(
+            Func<IReadOnlyList<TradingHistoryEntry>, Task> handler,
+            CancellationToken cancellationToken = default)
+        {
+            return new ValueTask<IDisposable>(new SubscriptionRegistration(() => { }));
         }
     }
 

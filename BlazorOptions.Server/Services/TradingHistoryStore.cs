@@ -24,11 +24,11 @@ public sealed class TradingHistoryStore
         _migration = new TradingHistoryMigration(_userRoot);
     }
 
-    public async Task SaveTradesAsync(string userId, IReadOnlyList<TradingHistoryEntry> entries, string? exchangeConnectionId = null)
+    public async Task<TradingHistorySaveResult> SaveTradesAsync(string userId, IReadOnlyList<TradingHistoryEntry> entries, string? exchangeConnectionId = null)
     {
         if (entries.Count == 0)
         {
-            return;
+            return new TradingHistorySaveResult();
         }
 
         await AcquireWriteAsync();
@@ -38,7 +38,21 @@ public sealed class TradingHistoryStore
             await using var transaction = connection.BeginTransaction();
             var meta = await LoadMetaInternalAsync(connection, transaction);
             var state = new TradingHistoryCalculator.CalculationState(meta);
-            var ordered = TradingHistoryEntryOrdering.OrderAscending(entries).ToList();
+            var ordered = TradingHistoryEntryOrdering.OrderAscending(entries)
+                .Select(PrepareEntry)
+                .ToList();
+            var existingIds = await LoadExistingIdsAsync(connection, transaction, ordered.Select(entry => entry.Id));
+            ordered = ordered.Where(entry => !existingIds.Contains(entry.Id)).ToList();
+
+            if (ordered.Count == 0)
+            {
+                await transaction.CommitAsync();
+                return new TradingHistorySaveResult
+                {
+                    RequestedCount = entries.Count,
+                    InsertedCount = 0
+                };
+            }
 
             TradingHistoryCalculator.ApplyCalculatedFields(ordered, state);
             state.ApplyToMeta(meta);
@@ -99,27 +113,7 @@ public sealed class TradingHistoryStore
                     $calculatedRealizedPnl,
                     $calculatedCumulativePnl
                 )
-                ON CONFLICT(Id) DO UPDATE SET
-                    Timestamp = $timestamp,
-                    Symbol = $symbol,
-                    Category = $category,
-                    TransactionType = $transactionType,
-                    Side = $side,
-                    Size = $size,
-                    Price = $price,
-                    Fee = $fee,
-                    Currency = $currency,
-                    Change = $change,
-                    CashFlow = $cashFlow,
-                    OrderId = $orderId,
-                    OrderLinkId = $orderLinkId,
-                    TradeId = $tradeId,
-                    RawJson = $rawJson,
-                    ChangedAt = $changedAt,
-                    CalculatedSizeAfter = $calculatedSizeAfter,
-                    CalculatedAvgPriceAfter = $calculatedAvgPriceAfter,
-                    CalculatedRealizedPnl = $calculatedRealizedPnl,
-                    CalculatedCumulativePnl = $calculatedCumulativePnl
+                ON CONFLICT(Id) DO NOTHING
                 """;
 
             var idParam = command.Parameters.Add("$id", SqliteType.Text);
@@ -146,33 +140,48 @@ public sealed class TradingHistoryStore
 
             foreach (var entry in ordered)
             {
-                var prepared = PrepareEntry(entry);
-                idParam.Value = prepared.Id;
-                timestampParam.Value = prepared.Timestamp ?? 0;
-                symbolParam.Value = prepared.Symbol ?? string.Empty;
-                categoryParam.Value = prepared.Category ?? string.Empty;
-                transactionTypeParam.Value = prepared.TransactionType ?? string.Empty;
-                sideParam.Value = prepared.Side ?? string.Empty;
-                sizeParam.Value = ToDbDecimal(prepared.Size);
-                priceParam.Value = ToDbDecimal(prepared.Price);
-                feeParam.Value = ToDbDecimal(prepared.Fee);
-                currencyParam.Value = prepared.Currency ?? string.Empty;
-                changeParam.Value = ToDbDecimal(prepared.Change);
-                cashFlowParam.Value = ToDbDecimal(prepared.CashFlow);
-                orderIdParam.Value = prepared.OrderId ?? string.Empty;
-                orderLinkIdParam.Value = prepared.OrderLinkId ?? string.Empty;
-                tradeIdParam.Value = prepared.TradeId ?? string.Empty;
-                rawJsonParam.Value = prepared.RawJson ?? string.Empty;
-                changedAtParam.Value = prepared.ChangedAt;
-                calculatedSizeAfterParam.Value = ToDbDecimal(prepared.Calculated?.SizeAfter ?? 0m);
-                calculatedAvgPriceAfterParam.Value = ToDbDecimal(prepared.Calculated?.AvgPriceAfter ?? 0m);
-                calculatedRealizedPnlParam.Value = ToDbDecimal(prepared.Calculated?.RealizedPnl ?? 0m);
-                calculatedCumulativePnlParam.Value = ToDbDecimal(prepared.Calculated?.CumulativePnl ?? 0m);
+                idParam.Value = entry.Id;
+                timestampParam.Value = entry.Timestamp ?? 0;
+                symbolParam.Value = entry.Symbol ?? string.Empty;
+                categoryParam.Value = entry.Category ?? string.Empty;
+                transactionTypeParam.Value = entry.TransactionType ?? string.Empty;
+                sideParam.Value = entry.Side ?? string.Empty;
+                sizeParam.Value = ToDbDecimal(entry.Size);
+                priceParam.Value = ToDbDecimal(entry.Price);
+                feeParam.Value = ToDbDecimal(entry.Fee);
+                currencyParam.Value = entry.Currency ?? string.Empty;
+                changeParam.Value = ToDbDecimal(entry.Change);
+                cashFlowParam.Value = ToDbDecimal(entry.CashFlow);
+                orderIdParam.Value = entry.OrderId ?? string.Empty;
+                orderLinkIdParam.Value = entry.OrderLinkId ?? string.Empty;
+                tradeIdParam.Value = entry.TradeId ?? string.Empty;
+                rawJsonParam.Value = entry.RawJson ?? string.Empty;
+                changedAtParam.Value = entry.ChangedAt;
+                calculatedSizeAfterParam.Value = ToDbDecimal(entry.Calculated?.SizeAfter ?? 0m);
+                calculatedAvgPriceAfterParam.Value = ToDbDecimal(entry.Calculated?.AvgPriceAfter ?? 0m);
+                calculatedRealizedPnlParam.Value = ToDbDecimal(entry.Calculated?.RealizedPnl ?? 0m);
+                calculatedCumulativePnlParam.Value = ToDbDecimal(entry.Calculated?.CumulativePnl ?? 0m);
                 await command.ExecuteNonQueryAsync();
             }
 
             await SaveMetaInternalAsync(connection, transaction, meta);
             await transaction.CommitAsync();
+            return new TradingHistorySaveResult
+            {
+                RequestedCount = entries.Count,
+                InsertedCount = ordered.Count,
+                InsertedIds = ordered
+                    .Select(entry => entry.Id)
+                    .Where(id => !string.IsNullOrWhiteSpace(id))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray(),
+                InsertedSymbols = ordered
+                    .Select(entry => entry.Symbol?.Trim().ToUpperInvariant())
+                    .Where(symbol => !string.IsNullOrWhiteSpace(symbol))
+                    .Cast<string>()
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray()
+            };
         }
         finally
         {
@@ -1257,6 +1266,54 @@ public sealed class TradingHistoryStore
         }
         var result = await command.ExecuteScalarAsync();
         return result is long count ? (int)count : 0;
+    }
+
+    private static async Task<HashSet<string>> LoadExistingIdsAsync(
+        SqliteConnection connection,
+        SqliteTransaction? transaction,
+        IEnumerable<string?> ids)
+    {
+        var normalizedIds = ids
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (normalizedIds.Length == 0)
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        const int batchSize = 500;
+
+        for (var offset = 0; offset < normalizedIds.Length; offset += batchSize)
+        {
+            var batch = normalizedIds.Skip(offset).Take(batchSize).ToArray();
+            var command = connection.CreateCommand();
+            command.Transaction = transaction;
+
+            var parameterNames = new List<string>(batch.Length);
+            for (var index = 0; index < batch.Length; index++)
+            {
+                var parameterName = $"$id{offset + index}";
+                parameterNames.Add(parameterName);
+                command.Parameters.AddWithValue(parameterName, batch[index]);
+            }
+
+            command.CommandText = $"""
+                SELECT Id
+                FROM TradingHistoryEntries
+                WHERE Id IN ({string.Join(", ", parameterNames)})
+                """;
+
+            await using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                existing.Add(reader.GetString(0));
+            }
+        }
+
+        return existing;
     }
 
     private static async Task<TradingHistoryMeta> LoadMetaInternalAsync(

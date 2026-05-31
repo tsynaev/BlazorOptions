@@ -15,6 +15,10 @@ public interface IBybitPrivateStreamService : IAsyncDisposable
         string topic,
         Func<IReadOnlyList<JsonElement>, Task> handler,
         CancellationToken cancellationToken = default);
+
+    ValueTask<IDisposable> SubscribeReconnectAsync(
+        Func<Task> handler,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class BybitPrivateStreamService : IBybitPrivateStreamService
@@ -26,14 +30,17 @@ public sealed class BybitPrivateStreamService : IBybitPrivateStreamService
     private readonly ILogger<BybitPrivateStreamService> _logger;
     private readonly JsonSerializerOptions _serializerOptions = new(JsonSerializerDefaults.Web);
     private readonly object _handlersLock = new();
+    private readonly object _reconnectHandlersLock = new();
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private readonly Dictionary<string, List<Func<IReadOnlyList<JsonElement>, Task>>> _handlersByTopic = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _topics = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<Func<Task>> _reconnectHandlers = new();
 
     private ClientWebSocket? _socket;
     private CancellationTokenSource? _socketCts;
     private Task? _socketTask;
     private bool _isInitialized;
+    private bool _hasConnectedOnce;
 
     public BybitPrivateStreamService(
         IOptions<BybitSettings> bybitSettingsOptions,
@@ -70,6 +77,30 @@ public sealed class BybitPrivateStreamService : IBybitPrivateStreamService
         await SubscribeTopicIfConnectedAsync(normalized, cancellationToken);
 
         return new SubscriptionRegistration(() => Unsubscribe(normalized, handler));
+    }
+
+    public ValueTask<IDisposable> SubscribeReconnectAsync(
+        Func<Task> handler,
+        CancellationToken cancellationToken = default)
+    {
+        if (handler is null)
+        {
+            return ValueTask.FromResult<IDisposable>(new SubscriptionRegistration(() => { }));
+        }
+
+        lock (_reconnectHandlersLock)
+        {
+            _reconnectHandlers.Add(handler);
+        }
+
+        return ValueTask.FromResult<IDisposable>(
+            new SubscriptionRegistration(() =>
+            {
+                lock (_reconnectHandlersLock)
+                {
+                    _reconnectHandlers.Remove(handler);
+                }
+            }));
     }
 
     private async Task EnsureInitializedAsync()
@@ -137,6 +168,12 @@ public sealed class BybitPrivateStreamService : IBybitPrivateStreamService
         await _socket.ConnectAsync(settings.PrivateWebSocketUrl, cancellationToken);
         await AuthenticateAsync(settings, cancellationToken);
         await SubscribeAllTopicsAsync(cancellationToken);
+        var isReconnect = _hasConnectedOnce;
+        _hasConnectedOnce = true;
+        if (isReconnect)
+        {
+            await NotifyReconnectedAsync();
+        }
         _ = SendHeartbeatLoopAsync(cancellationToken);
     }
 
@@ -366,6 +403,27 @@ public sealed class BybitPrivateStreamService : IBybitPrivateStreamService
             {
                 _handlersByTopic.Remove(topic);
                 _topics.Remove(topic);
+            }
+        }
+    }
+
+    private async Task NotifyReconnectedAsync()
+    {
+        Func<Task>[] handlers;
+        lock (_reconnectHandlersLock)
+        {
+            handlers = _reconnectHandlers.ToArray();
+        }
+
+        foreach (var handler in handlers)
+        {
+            try
+            {
+                await handler.Invoke();
+            }
+            catch
+            {
+                // Reconnect listeners must not break the shared stream.
             }
         }
     }

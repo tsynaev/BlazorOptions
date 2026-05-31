@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using BlazorOptions.API.TradingHistory;
 using BlazorOptions.ViewModels;
 using Microsoft.Extensions.Options;
 
@@ -10,12 +11,51 @@ namespace BlazorOptions.Services;
 public class BybitTransactionService : BybitApiService, ITransactionHistoryService
 {
     private const string AccountType = "UNIFIED";
-    private readonly IOptions<BybitSettings> _bybitSettingsOptions;
+    private const int PageLimit = 100;
+    private static readonly TimeSpan WindowSize = TimeSpan.FromDays(7);
 
-    public BybitTransactionService(HttpClient httpClient, IOptions<BybitSettings> bybitSettingsOptions)
+    private readonly IOptions<BybitSettings> _bybitSettingsOptions;
+    private readonly IBybitPrivateStreamService _privateStreamService;
+    private readonly ITradingHistoryPort _tradingHistoryPort;
+    private readonly string _exchangeConnectionId;
+    private readonly object _syncRoot = new();
+    private readonly HashSet<string> _pendingCategories = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<Func<IReadOnlyList<TradingHistoryEntry>, Task>> _subscribers = new();
+    private IDisposable? _topicSubscription;
+    private IDisposable? _reconnectSubscription;
+    private Task? _syncLoopTask;
+    private bool _isInitialized;
+
+    public BybitTransactionService(
+        HttpClient httpClient,
+        IOptions<BybitSettings> bybitSettingsOptions,
+        IBybitPrivateStreamService privateStreamService,
+        ITradingHistoryPort tradingHistoryPort,
+        string exchangeConnectionId)
         : base(httpClient)
     {
         _bybitSettingsOptions = bybitSettingsOptions;
+        _privateStreamService = privateStreamService;
+        _tradingHistoryPort = tradingHistoryPort;
+        _exchangeConnectionId = exchangeConnectionId;
+    }
+
+    public async Task InitializeAsync(CancellationToken cancellationToken = default)
+    {
+        if (_isInitialized)
+        {
+            return;
+        }
+
+        _isInitialized = true;
+        _topicSubscription = await _privateStreamService.SubscribeTopicAsync(
+            "execution",
+            HandleExecutionTopicAsync,
+            cancellationToken);
+        _reconnectSubscription = await _privateStreamService.SubscribeReconnectAsync(
+            HandleReconnectAsync,
+            cancellationToken);
+        _ = EnqueueSyncAsync(GetAllCategories());
     }
 
     public async Task<ExchangeTransactionPage> GetTransactionsPageAsync(
@@ -23,6 +63,48 @@ public class BybitTransactionService : BybitApiService, ITransactionHistoryServi
         CancellationToken cancellationToken = default)
     {
         return await GetTransactionsPageAsync(_bybitSettingsOptions.Value, query, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<TradingHistoryEntry>> LoadBySymbolAsync(
+        string symbol,
+        string? category,
+        DateTime? sinceDateUtc,
+        CancellationToken cancellationToken = default)
+    {
+        await InitializeAsync(cancellationToken);
+        return await _tradingHistoryPort.LoadBySymbolAsync(symbol, category, sinceDateUtc, _exchangeConnectionId);
+    }
+
+    public async Task<IReadOnlyList<TradingHistoryEntry>> LoadBySymbolsAsync(
+        TradingHistoryRequest[] requests,
+        CancellationToken cancellationToken = default)
+    {
+        await InitializeAsync(cancellationToken);
+        return await _tradingHistoryPort.LoadBySymbolsAsync(requests, _exchangeConnectionId);
+    }
+
+    public async ValueTask<IDisposable> SubscribeExecutionsAsync(
+        Func<IReadOnlyList<TradingHistoryEntry>, Task> handler,
+        CancellationToken cancellationToken = default)
+    {
+        if (handler is null)
+        {
+            return new SubscriptionRegistration(() => { });
+        }
+
+        await InitializeAsync(cancellationToken);
+        lock (_syncRoot)
+        {
+            _subscribers.Add(handler);
+        }
+
+        return new SubscriptionRegistration(() =>
+        {
+            lock (_syncRoot)
+            {
+                _subscribers.Remove(handler);
+            }
+        });
     }
 
     public async Task<ExchangeTransactionPage> GetTransactionsPageAsync(
@@ -41,14 +123,12 @@ public class BybitTransactionService : BybitApiService, ITransactionHistoryServi
         return ParseTransactions(payload, query.Category);
     }
 
-
     private static string BuildQueryString(ExchangeTransactionQuery query)
     {
         var parameters = new Dictionary<string, string?>(StringComparer.Ordinal)
         {
             ["category"] = query.Category,
             ["limit"] = Math.Clamp(query.Limit, 1, 100).ToString(CultureInfo.InvariantCulture),
-            // Bybit requires the unified account scope for transaction log queries.
             ["accountType"] = AccountType
         };
 
@@ -151,8 +231,6 @@ public class BybitTransactionService : BybitApiService, ITransactionHistoryServi
     internal static TradingTransactionRaw MapTransaction(JsonElement entry, string categoryFallback)
     {
         var timestamp = ReadTimestamp(entry, "transactionTime");
-        _ = ReadTimestamp(entry, "transactionTime");
-        var transactionId = JsonElementExtensions.ReadString(entry, "tradeId");
         var rawId = JsonElementExtensions.ReadString(entry, "id");
         var orderId = JsonElementExtensions.ReadString(entry, "orderId");
         var symbol = JsonElementExtensions.ReadString(entry, "symbol");
@@ -208,6 +286,199 @@ public class BybitTransactionService : BybitApiService, ITransactionHistoryServi
             ExtraFees = extraFees,
             Timestamp = timestamp,
         };
+    }
+
+    private async Task HandleExecutionTopicAsync(IReadOnlyList<JsonElement> entries)
+    {
+        var categories = entries
+            .Select(entry => JsonElementExtensions.ReadString(entry, "category"))
+            .Where(category => !string.IsNullOrWhiteSpace(category))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        _ = EnqueueSyncAsync(categories);
+        await Task.CompletedTask;
+    }
+
+    private Task HandleReconnectAsync()
+    {
+        _ = EnqueueSyncAsync(GetAllCategories());
+        return Task.CompletedTask;
+    }
+
+    private Task EnqueueSyncAsync(IReadOnlyCollection<string> categories)
+    {
+        if (categories.Count == 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        lock (_syncRoot)
+        {
+            foreach (var category in categories)
+            {
+                if (!string.IsNullOrWhiteSpace(category))
+                {
+                    _pendingCategories.Add(category.Trim().ToLowerInvariant());
+                }
+            }
+
+            if (_syncLoopTask is null || _syncLoopTask.IsCompleted)
+            {
+                _syncLoopTask = RunSyncLoopAsync();
+            }
+
+            return _syncLoopTask;
+        }
+    }
+
+    private async Task RunSyncLoopAsync()
+    {
+        while (true)
+        {
+            string[] categories;
+            lock (_syncRoot)
+            {
+                if (_pendingCategories.Count == 0)
+                {
+                    return;
+                }
+
+                categories = _pendingCategories.ToArray();
+                _pendingCategories.Clear();
+            }
+
+            try
+            {
+                var savedEntries = await SyncLatestAsync(categories);
+                if (savedEntries.Count > 0)
+                {
+                    await NotifySubscribersAsync(savedEntries);
+                }
+            }
+            catch
+            {
+                // Background history sync should retry on the next exchange event.
+            }
+        }
+    }
+
+    private async Task<IReadOnlyList<TradingHistoryEntry>> SyncLatestAsync(IReadOnlyCollection<string> categories)
+    {
+        var meta = await _tradingHistoryPort.LoadMetaAsync(_exchangeConnectionId);
+        var registrationTime = meta.RegistrationTimeMs;
+        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var savedEntries = new List<TradingHistoryEntry>();
+
+        foreach (var category in categories)
+        {
+            long startTime;
+            if (!meta.LatestSyncedTimeMsByCategory.TryGetValue(category, out startTime))
+            {
+                if (registrationTime.HasValue)
+                {
+                    startTime = registrationTime.Value;
+                }
+                else
+                {
+                    continue;
+                }
+            }
+
+            var lastStartTime = startTime;
+            var forwardCursor = startTime;
+            var categoryHadTrades = false;
+
+            while (forwardCursor < nowMs)
+            {
+                var endTime = Math.Min(forwardCursor + (long)WindowSize.TotalMilliseconds, nowMs);
+                string? cursor = null;
+
+                while (true)
+                {
+                    var query = new ExchangeTransactionQuery
+                    {
+                        Category = category,
+                        Limit = PageLimit,
+                        Cursor = cursor,
+                        StartTime = forwardCursor,
+                        EndTime = endTime
+                    };
+
+                    var page = await GetTransactionsPageAsync(query, CancellationToken.None);
+                    if (page.Items.Count > 0)
+                    {
+                        categoryHadTrades = true;
+
+                        foreach (var item in page.Items)
+                        {
+                            if (item.Timestamp.HasValue && item.Timestamp.Value > lastStartTime)
+                            {
+                                lastStartTime = item.Timestamp.Value + 1;
+                            }
+                        }
+
+                        var entries = page.Items
+                            .Select(TradingHistoryEntryMapper.MapRecordToEntry)
+                            .ToList();
+                        var orderedAsc = TradingHistoryEntryOrdering.OrderAscending(entries).ToList();
+
+                        if (orderedAsc.Count > 0)
+                        {
+                            var saveResult = await _tradingHistoryPort.SaveTradesAsync(orderedAsc, _exchangeConnectionId);
+                            if (saveResult.InsertedIds.Count > 0)
+                            {
+                                var insertedIds = saveResult.InsertedIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+                                foreach (var entry in orderedAsc)
+                                {
+                                    if (insertedIds.Contains(entry.Id))
+                                    {
+                                        savedEntries.Add(entry);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (string.IsNullOrWhiteSpace(page.NextCursor))
+                    {
+                        break;
+                    }
+
+                    cursor = page.NextCursor;
+                }
+
+                if (!categoryHadTrades)
+                {
+                    lastStartTime = forwardCursor;
+                }
+
+                forwardCursor = endTime + 1;
+                meta.LatestSyncedTimeMsByCategory[category] = lastStartTime;
+            }
+        }
+
+        await _tradingHistoryPort.SaveMetaAsync(meta, _exchangeConnectionId);
+        return savedEntries;
+    }
+
+    private async Task NotifySubscribersAsync(IReadOnlyList<TradingHistoryEntry> entries)
+    {
+        Func<IReadOnlyList<TradingHistoryEntry>, Task>[] handlers;
+        lock (_syncRoot)
+        {
+            handlers = _subscribers.ToArray();
+        }
+
+        foreach (var handler in handlers)
+        {
+            await handler.Invoke(entries);
+        }
+    }
+
+    private static string[] GetAllCategories()
+    {
+        return ["linear", "inverse", "spot", "option"];
     }
 
     private static string GetGroupingKey(JsonElement entry, string categoryFallback)
@@ -283,7 +554,6 @@ public class BybitTransactionService : BybitApiService, ITransactionHistoryServi
         var tradeId = JsonElementExtensions.ReadString(primary, "tradeId");
         var extraFees = JsonElementExtensions.ReadString(primary, "extraFees");
         var timestamp = ReadTimestamp(primary, "transactionTime");
-        _ = ReadTimestamp(primary, "transactionTime");
         var tradePrice = JsonElementExtensions.ReadString(primary, "tradePrice");
         var tradePriceValue = JsonElementExtensions.ReadNullableDecimal(primary, "tradePrice") ?? 0m;
 
@@ -382,64 +652,11 @@ public class BybitTransactionService : BybitApiService, ITransactionHistoryServi
                && string.Equals(type, "TRADE", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static decimal? TryParseDecimal(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
-
-        return decimal.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
-            ? parsed
-            : null;
-    }
-
-    private static decimal? TryMultiply(string? left, string? right)
-    {
-        var leftValue = TryParseDecimal(left);
-        var rightValue = TryParseDecimal(right);
-
-        if (!leftValue.HasValue || !rightValue.HasValue)
-        {
-            return null;
-        }
-
-        return leftValue.Value * rightValue.Value;
-    }
-
     private static string FormatDecimal(decimal? value)
     {
         return value.HasValue
             ? value.Value.ToString("0.##########", CultureInfo.InvariantCulture)
             : string.Empty;
-    }
-
-
-    private static long? ReadLong(JsonElement element, params string[] names)
-    {
-        foreach (var name in names)
-        {
-            if (!element.TryGetProperty(name, out var value))
-            {
-                continue;
-            }
-
-            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var number))
-            {
-                return number;
-            }
-
-            if (value.ValueKind == JsonValueKind.String)
-            {
-                var raw = value.GetString();
-                if (long.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
-                {
-                    return parsed;
-                }
-            }
-        }
-
-        return null;
     }
 
     private static long? ReadTimestamp(JsonElement element, params string[] names)

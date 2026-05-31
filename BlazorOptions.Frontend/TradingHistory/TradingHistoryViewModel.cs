@@ -167,7 +167,7 @@ public class TradingHistoryViewModel
                                 }
                             }
 
-                            var entries = page.Items.Select(MapRecordToEntry).ToList();
+                            var entries = page.Items.Select(TradingHistoryEntryMapper.MapRecordToEntry).ToList();
                             var orderedAsc = TradingHistoryEntryOrdering.OrderAscending(entries).ToList();
 
                             if (orderedAsc.Count > 0)
@@ -480,39 +480,6 @@ public class TradingHistoryViewModel
         }
 
         return ex.Message;
-    }
-
-    private TradingHistoryEntry MapRecordToEntry(TradingTransactionRaw raw)
-    {
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-
-        var size = raw.Qty ?? raw.Size ?? 0m;
-        var price = raw.TradePrice ?? 0m;
-        var fee = raw.Fee ?? 0m;
-        var change = raw.Change ?? 0m;
-        var cashFlow = raw.CashFlow ?? 0m;
-
-        return new TradingHistoryEntry
-        {
-            Id = raw.UniqueKey,
-            Timestamp = raw.Timestamp ?? 0,
-            Symbol = raw.Symbol,
-            Category = raw.Category,
-            TransactionType = raw.TransactionType,
-            Side = raw.Side,
-            Size = size,
-            Price = price,
-            Fee = fee,
-            Currency = raw.Currency,
-            Change = change,
-            CashFlow = cashFlow,
-            OrderId = raw.OrderId,
-            OrderLinkId = raw.OrderLinkId,
-            TradeId = raw.TradeId,
-            RawJson = raw.RawJson,
-            ChangedAt = now,
-            Calculated = new TradingTransactionCalculated()
-        };
     }
 
     private IReadOnlyList<TradingSummaryRow> MapSummaryRows(

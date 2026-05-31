@@ -1,18 +1,13 @@
-using BlazorOptions.API.TradingHistory;
+using BlazorOptions.Services;
 
 namespace BlazorOptions.ViewModels;
 
 public sealed class TradesViewModelFactory
 {
-    private readonly ITradingHistoryPort _tradingHistoryPort;
-
-    public TradesViewModelFactory(ITradingHistoryPort tradingHistoryPort)
+    public TradesViewModel Create(
+        ClosedPositionsViewModel closedPositionsViewModel,
+        ITransactionHistoryService transactionHistory)
     {
-        _tradingHistoryPort = tradingHistoryPort;
-    }
-
-    public TradesViewModel Create(ClosedPositionsViewModel closedPositionsViewModel)
-    {
-        return new TradesViewModel(closedPositionsViewModel, _tradingHistoryPort);
+        return new TradesViewModel(closedPositionsViewModel, transactionHistory);
     }
 }

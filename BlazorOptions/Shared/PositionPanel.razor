@@ -9,7 +9,7 @@
         }
         @if (ViewModel.ClosedPositions is not null)
         {
-            <TradesPanel ClosedPositionsViewModel="@ViewModel.ClosedPositions" TradesViewModel="@ViewModel.Trades" />
+            <TradesPanel ClosedPositionsViewModel="@ViewModel.ClosedPositions" TradesViewModel="@ViewModel.Trades" ExchangeConnectionId="@ViewModel.Position.ExchangeConnectionId" />
         }
     </MudStack>
 }

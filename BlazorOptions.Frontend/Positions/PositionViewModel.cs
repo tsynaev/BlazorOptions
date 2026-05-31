@@ -9,7 +9,6 @@ namespace BlazorOptions.ViewModels;
 
 public sealed class PositionViewModel : IDisposable
 {
-    private static readonly TimeSpan InitialPriceFetchTimeout = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan CandleBucket = TimeSpan.FromHours(1);
     private static readonly TimeSpan DefaultCandlesWindow = TimeSpan.FromHours(48);
     private const int MaxChartCandles = 5000;
@@ -18,7 +17,6 @@ public sealed class PositionViewModel : IDisposable
     private readonly LegsCollectionViewModelFactory _collectionFactory;
     private readonly ClosedPositionsViewModelFactory _closedPositionsFactory;
     private readonly TradesViewModelFactory _tradesViewModelFactory;
-    private readonly INotifyUserService _notifyUserService;
     private readonly IExchangeServiceFactory _exchangeServiceFactory;
     private readonly BlackScholes _blackScholes;
     private readonly ExchangeConnectionsService _exchangeConnectionsService;
@@ -74,7 +72,6 @@ public sealed class PositionViewModel : IDisposable
         LegsCollectionViewModelFactory collectionFactory,
         ClosedPositionsViewModelFactory closedPositionsFactory,
         TradesViewModelFactory tradesViewModelFactory,
-        INotifyUserService notifyUserService,
         IExchangeServiceFactory exchangeServiceFactory,
         BlackScholes blackScholes,
         ExchangeConnectionsService exchangeConnectionsService)
@@ -84,7 +81,6 @@ public sealed class PositionViewModel : IDisposable
         _collectionFactory = collectionFactory;
         _closedPositionsFactory = closedPositionsFactory;
         _tradesViewModelFactory = tradesViewModelFactory;
-        _notifyUserService = notifyUserService;
         _exchangeServiceFactory = exchangeServiceFactory;
         _blackScholes = blackScholes;
         _exchangeConnectionsService = exchangeConnectionsService;
@@ -110,7 +106,7 @@ public sealed class PositionViewModel : IDisposable
             LegsCollection = CreateCollectionViewModel(CreateWorkingCollection(_position));
 
             ClosedPositions = _closedPositionsFactory.Create(this, _position);
-            Trades = _tradesViewModelFactory.Create(ClosedPositions);
+            Trades = _tradesViewModelFactory.Create(ClosedPositions, _exchangeService.TransactionHistory);
 
             ClosedPositions.Model.PropertyChanged += OnClosedPositionsChanged;
             ClosedPositions.UpdatedCompleted += OnClosedPositionsUpdated;
@@ -576,6 +572,7 @@ public sealed class PositionViewModel : IDisposable
             LegsCollection.Updated -= HandleCollectionUpdatedAsync;
             LegsCollection.Dispose();
         }
+        Trades?.Dispose();
         var exchangeService = _ownedExchangeService;
         _ownedExchangeService = null;
         if (exchangeService is not null)
